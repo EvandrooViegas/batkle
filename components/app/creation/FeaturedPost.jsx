@@ -13,7 +13,7 @@ const PHASE_LABEL = { building: 'Building now', ready: 'Post ready', failed: 'Ne
 export function FeaturedPost({ idea, status, onPreview, onBuild, onRetry, onRebuild, onNewVersion, className = '' }) {
   const { phase, canvas, steps, error, slides } = status
   const building = phase === 'building'
-  const href = editorHref(canvas, idea)
+  const href = editorHref(canvas)
   const expected = slides || status.copy?.slides?.length || (idea.format === 'carousel' ? 5 : 1)
   const meta = [PHASE_LABEL[phase], idea.format === 'carousel' ? 'Carousel' : 'Single post', idea.pillar].filter(Boolean).join(' · ')
 

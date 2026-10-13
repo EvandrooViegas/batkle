@@ -45,7 +45,7 @@ export default function ResearchStep({ domain, phase, error, onRetry, onChangeWe
 
   return (
     <div>
-      <p className={stepEyebrow}>Step 2 of 3 · Research</p>
+      <p className={stepEyebrow}>Step 2 of 4 · Research</p>
       <h1 ref={headingRef} tabIndex={-1} className={stepHeading}>
         {error ? 'Research didn’t finish' : finished ? 'Your brand is ready to review' : <>Reading <span className="break-all">{domain}</span></>}
       </h1>

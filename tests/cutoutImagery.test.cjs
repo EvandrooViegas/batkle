@@ -198,7 +198,9 @@ test('the logo is sized by its mark and lines up with the copy; CTAs are text, a
   const post = generation.renderGlobalPost(f, square, carousel, { slots: [] }, { id: 'global-x' }, crypto.randomUUID)
   for (const page of post.pages) {
     const logo = page.nodes.find(n => n.designRole === 'logo'), headline = page.nodes.find(n => n.designRole === 'headline')
-    assert.equal(logo.x, headline.x, 'the mark starts on the copy edge')
+    // A side-bar variant moves the copy right of its accent bar; the bar is then the copy's edge.
+    const bar = page.nodes.find(n => n.designRole === 'sidebar')
+    assert.equal(logo.x, bar ? bar.x : headline.x, 'the mark starts on the copy edge')
     assert.ok(logo.height >= 80 && logo.width === logo.height, `a square mark is about 8% of the width tall (${logo.height})`)
     assert.ok(logo.y + logo.height < headline.y, 'the larger logo row still clears the copy')
     const number = page.nodes.find(n => n.designRole === 'slide-number')

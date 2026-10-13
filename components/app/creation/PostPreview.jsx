@@ -37,7 +37,7 @@ export function PostPreview({ open, onOpenChange, idea, status, initialPage = 0,
   const current = Math.min(page, total - 1)
   const copy = status.copy
   const hashtags = Array.isArray(copy?.hashtags) ? copy.hashtags.map(tag) : []
-  const href = editorHref(canvas, idea)
+  const href = editorHref(canvas, current)
   const building = status.phase === 'building'
   const go = delta => setPage(p => Math.max(0, Math.min(total - 1, p + delta)))
 

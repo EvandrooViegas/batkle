@@ -38,8 +38,8 @@ test('rebuilding with kept copy sends the copy so the server plans without writi
  assert.deepEqual(s.requests[0][1].copy,{headline:'Kept'})
  assert.equal(s.requests[1][1].copy.headline,'Kept')
 })
-test('an empty image account is reported through onWarning instead of a UI call',async()=>{
- const warnings=[]
+test('an empty image account is an operator notice, never a warning to people using Batkle',async()=>{
+ const warnings=[],notices=[]
  const fetch=async(url,init)=>{
   const payload=JSON.parse(init.body)
   const data=url==='/api/plan-post'?{copy:{headline:'H'},needsVisuals:true,plan:{designId:'d',layoutPlan:{},slots:[{slot_id:'s',needs_visual:true}]}}:url==='/api/resolve-assets'?{slots:[{slot_id:'s',warning:'OpenAI: no credits left'}]}:{id:'c',payload}
@@ -47,7 +47,8 @@ test('an empty image account is reported through onWarning instead of a UI call'
  }
  const run=new Function('fetch',body+';return runPostGeneration')(fetch)
  const noop=()=>{}
- await run({idea:{topic:'T'},brandContext:{id:'b'},brandId:'brand_b',keepCopy:null,onStage:noop,onCopy:noop,onPlan:noop,onResolve:noop,onDesign:noop,onWarning:m=>warnings.push(m)})
- assert.equal(warnings.length,1)
- assert.match(warnings[0],/no credits left/)
+ await run({idea:{topic:'T'},brandContext:{id:'b'},brandId:'brand_b',keepCopy:null,onStage:noop,onCopy:noop,onPlan:noop,onResolve:noop,onDesign:noop,onWarning:m=>warnings.push(m),onOperatorNotice:m=>notices.push(m)})
+ assert.equal(warnings.length,0,'the post was made with fallback images, so people are not told')
+ assert.equal(notices.length,1)
+ assert.match(notices[0],/no credits left/)
 })

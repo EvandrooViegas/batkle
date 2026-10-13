@@ -36,14 +36,23 @@ export interface Flow {
   [key: string]: unknown
 }
 
+/** When a brand was last used: last opened, else last changed, else created. */
+export function lastUsedAt(flow: any): number {
+  const time = flow?.lastOpenedAt || flow?.updatedAt || flow?.createdAt
+  return time ? new Date(time).getTime() || 0 : 0
+}
+
 /**
- * Fetch all flows directly from MongoDB — for use in React Server Components only.
+ * Fetch all flows directly from MongoDB, most recently used first — for use in React Server Components only.
+ * The first flow is the brand /app opens by default.
  */
 export const getFlows = cache(async (): Promise<Flow[]> => {
   const db = await connectToMongo()
-  const flows = await db.collection('flows').find({}, { projection: { _id: 0, id: 1, name: 1, 'brandContext.name': 1, 'brandContext.logo': 1, 'brandContext.logoVariants.originalTransparent': 1, 'brandContext.logoVariants.inkLightness': 1 } }).toArray()
-  // Strip non-serialisable _id before passing to client
-  return flows.map(({ _id, ...f }: any) => f) as Flow[]
+  const flows = await db.collection('flows').find({}, { projection: { _id: 0, id: 1, name: 1, lastOpenedAt: 1, updatedAt: 1, createdAt: 1, 'brandContext.name': 1, 'brandContext.logo': 1, 'brandContext.logoVariants.originalTransparent': 1, 'brandContext.logoVariants.inkLightness': 1 } }).toArray()
+  // Only what the client shows is passed on: no _id and no timestamps.
+  return flows
+    .sort((a: any, b: any) => lastUsedAt(b) - lastUsedAt(a))
+    .map(({ _id, lastOpenedAt, updatedAt, createdAt, ...f }: any) => f) as Flow[]
 })
 
 /**

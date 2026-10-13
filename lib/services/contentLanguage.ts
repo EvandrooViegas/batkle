@@ -5,10 +5,25 @@
  */
 export interface ContentLanguage { name: string; code: string; label: string; rules: string }
 
+// A code matches only as a whole code ("es", "es-ES"), so names like "Estonian" or "Frisian" are not mistaken for one.
 const LANGUAGES: [RegExp, string, string][] = [
-  [/^(pt|portug)/i, 'Portuguese', 'pt'], [/^(en|engl|ingl)/i, 'English', 'en'], [/^(es|span|espa)/i, 'Spanish', 'es'],
-  [/^(fr|fren|fran)/i, 'French', 'fr'], [/^(de|germ|deut|alem)/i, 'German', 'de'], [/^(it|ital)/i, 'Italian', 'it'],
+  [/^(pt([-_]|$)|portug)/i, 'Portuguese', 'pt'], [/^(en([-_]|$)|engl|ingl)/i, 'English', 'en'], [/^(es([-_]|$)|span|espa)/i, 'Spanish', 'es'],
+  [/^(fr([-_]|$)|fren|fran)/i, 'French', 'fr'], [/^(de([-_]|$)|germ|deut|alem)/i, 'German', 'de'], [/^(it([-_]|$)|ital)/i, 'Italian', 'it'],
 ]
+
+// Common languages Batkle has no special rules for; used to give a stored name ("Dutch") its code ("nl").
+const OTHER_CODES = ['nl', 'pl', 'sv', 'da', 'nb', 'no', 'fi', 'cs', 'sk', 'ro', 'el', 'tr', 'ru', 'uk', 'ar', 'he', 'ja', 'zh', 'ko', 'hi', 'ca', 'gl', 'eu', 'hu', 'bg', 'hr', 'sl', 'sr', 'lt', 'lv', 'et', 'id', 'ms', 'th', 'vi', 'is', 'ga', 'cy', 'af', 'sw', 'fa', 'ur', 'bn']
+const displayName = (code: string) => { try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) || '' } catch { return '' } }
+
+/** Name and code for a language without its own rules: "nl" → Dutch (nl), "Dutch" → Dutch (nl). */
+function otherLanguage(raw: string): { name: string; code: string } {
+  if (/^[a-z]{2,3}([-_][a-z0-9]{2,8})?$/i.test(raw)) {
+    const code = raw.replace('_', '-').toLowerCase()
+    return { name: displayName(code) || raw, code }
+  }
+  const code = OTHER_CODES.find(c => displayName(c).toLowerCase() === raw.toLowerCase())
+  return { name: raw, code: code || raw.toLowerCase().replace(/[^\p{L}]+/gu, '-') }
+}
 
 const hostOf = (website: any) => { try { return new URL(String(website)).hostname.toLowerCase() } catch { return String(website || '').toLowerCase() } }
 
@@ -18,10 +33,12 @@ const PT_BR = `Brazilian Portuguese. Use Brazilian vocabulary and grammar (você
 export function contentLanguage(brand: any = {}): ContentLanguage {
   const raw = String(brand.languageVariant || brand.language || '').trim()
   const match = LANGUAGES.find(([pattern]) => pattern.test(raw))
-  const name = match?.[1] || (raw && raw.toLowerCase() !== 'unknown' ? raw : 'English')
+  // A language without its own rules keeps its name and code; only a missing language falls back to English.
+  const other = !match && raw && raw.toLowerCase() !== 'unknown' ? otherLanguage(raw) : null
+  const name = match?.[1] || other?.name || 'English'
   const host = hostOf(brand.website)
   const evidence = `${brand.about || ''} ${brand.targetAudience || ''}`
-  let code = match?.[2] || 'en'
+  let code = match?.[2] || other?.code || 'en'
   // Explicit variants win; otherwise the site's country and the profile decide.
   if (code === 'pt') code = /pt-?pt|portugal/i.test(raw) ? 'pt-PT' : /pt-?br|brasil|brazil/i.test(raw) || host.endsWith('.br') || /\b(brasil|brazil|são paulo|rio de janeiro)\b/i.test(evidence) && !/\bportugal\b/i.test(evidence) ? 'pt-BR' : 'pt-PT'
   if (code === 'en') code = /en-?us|americ/i.test(raw) ? 'en-US' : /en-?gb|british|uk\b/i.test(raw) || host.endsWith('.uk') ? 'en-GB' : 'en-US'
@@ -34,6 +51,14 @@ Write every reader-facing word in ${label}: topics, hooks, messages, headlines, 
 ${english ? '' : `The brand profile is English research notes: use it only for facts and translate every idea from it; never copy its English sentences, service descriptions or CTA wording. Keep only proper nouns, brand and product names (e.g. Facebook Ads, TikTok, LinkedIn) and standard acronyms (SEO, ROI) unchanged. Translate English marketing jargon when a natural ${name} term exists (engagement, leads, insights, tips, call to action).
 `}Never mix languages or regional variants inside one post. Exception: design.image.subject and design.image.queries are internal stock-search terms and stay in English.`
   return { name, code, label, rules }
+}
+
+/** The language of one post: the one chosen for it in the composer ({ language, languageVariant }), else the brand's. */
+export function postLanguage(brand: any = {}, choice?: any): ContentLanguage {
+  const language = typeof choice?.language === 'string' ? choice.language.trim() : ''
+  const languageVariant = typeof choice?.languageVariant === 'string' ? choice.languageVariant.trim() : ''
+  // The brand's own variant must not leak into another language (a pt-PT brand writing one post in Spanish).
+  return language || languageVariant ? contentLanguage({ ...brand, language: language || languageVariant, languageVariant }) : contentLanguage(brand)
 }
 
 // High-precision English function words; none of them is a word in the other supported languages.
@@ -52,7 +77,13 @@ export function languageIssues(texts: string[], language: ContentLanguage): stri
   if (!language.code.startsWith('en')) {
     const words = text.toLowerCase().match(/\p{L}+/gu) || []
     const english = words.filter(w => ENGLISH.has(w)), jargon = words.filter(w => JARGON.has(w))
-    if (jargon.length || english.length >= 3 || (words.length >= 12 && english.length / words.length > .05)) issues.push(`contains English wording (${[...new Set([...jargon, ...english])].slice(0, 6).join(', ')}); write it entirely in ${language.label}`)
+    // The word lists are exact for the six languages with rules. Others (Dutch: "is", "we", "of", "tips")
+    // share words with English, so only text that is mostly English is flagged there.
+    const listed = /^(pt|es|fr|de|it)(-|$)/.test(language.code)
+    const mixed = listed
+      ? jargon.length || english.length >= 3 || (words.length >= 12 && english.length / words.length > .05)
+      : words.length >= 12 && english.length / words.length > .15
+    if (mixed) issues.push(`contains English wording (${[...new Set([...(listed ? jargon : []), ...english])].slice(0, 6).join(', ')}); write it entirely in ${language.label}`)
   }
   const wrong = language.code === 'pt-PT' ? text.match(BRAZILIAN) : language.code === 'pt-BR' ? text.match(EUROPEAN) : null
   if (wrong?.length) issues.push(`uses ${language.code === 'pt-PT' ? 'Brazilian' : 'European'} Portuguese forms (${[...new Set(wrong.map(w => w.toLowerCase()))].slice(0, 5).join(', ')}); use ${language.label} consistently`)

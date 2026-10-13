@@ -5,7 +5,7 @@ const { stripTypeScriptTypes } = require('node:module')
 const load = path => stripTypeScriptTypes(fs.readFileSync(path, 'utf8').replace(/^import .*$/gm, '').replace(/export /g, ''))
 const { loadGenerationBrandContext, EXTRACTED_CONTEXT_RULES } = new Function(load('lib/services/generationBrandContext.ts') + ';return {loadGenerationBrandContext,EXTRACTED_CONTEXT_RULES}')()
 const compactBrand = new Function('globalThis', load('lib/services/ai/requestBudget.ts') + ';return compactBrand')({})
-const strategy = new Function(load('lib/services/contentLanguage.ts') + load('lib/services/contentAngles.ts') + load('lib/services/ideaRequest.ts') + load('lib/services/postImages.ts') + ';return {contentLanguage,languageIssues,copyTexts,chooseAngle,ideaHistory,topicSimilarity,readIdeaRequest,ideaRequestBlock,formatRule,finalFormat,IDEA_REQUEST_RULE,postImageIds,prepareIdeaImages,postImagesBlock}')()
+const strategy = new Function(load('lib/services/contentLanguage.ts') + load('lib/services/contentAngles.ts') + load('lib/services/ideaRequest.ts') + load('lib/services/postImages.ts') + load('lib/services/copyFacts.ts') + ';return {postLanguage,readSlideCount,slideCountRule,fitOutline,readLanguageChoice,lengthOf,contentLanguage,languageIssues,copyTexts,chooseAngle,ideaHistory,topicSimilarity,readIdeaRequest,ideaRequestBlock,formatRule,finalFormat,IDEA_REQUEST_RULE,postImageIds,prepareIdeaImages,postImagesBlock,inventedFigures,ideaOutline,outlineIssue,recurringSubjects,mentionsSubject,chooseCarouselLength,CAROUSEL_LENGTHS}')()
 const saved = {
   name: 'Saved brand', about: 'Verified website overview', services: ['Facade restoration'],
   projects: [{ name: 'Ministry project', description: 'Participation in facade work', sourceUrl: 'https://example.com/projects' }],
@@ -23,7 +23,7 @@ for (const [file, handler] of [['contentIdeasHandler', 'handleGenerateContentIde
     const db = { collection: name => { assert.equal(name, 'flows'); return { findOne: async query => { lookups.push(query); return { brandContext: saved } } } } }
     const budgetedCompletion = async (_client, request) => {
       requests.push(request)
-      return { choices: [{ message: { content: JSON.stringify({ ideas: [{ topic: 'Facade restoration' }], format: 'single', headline: 'Restoration', caption: 'Project scope' }) } }] }
+      return { choices: [{ message: { content: JSON.stringify({ ideas: [{ topic: 'Facade restoration', format: 'single' }], format: 'single', headline: 'Restoration', caption: 'Project scope' }) } }] }
     }
     const run = new Function('Groq', 'process', 'loadGenerationBrandContext', 'EXTRACTED_CONTEXT_RULES', 'compactBrand', 'budgetedModels', 'budgetedCompletion', 'NextResponse', 'corsify', 'randomUUID', 'cleanCopy', 'retrySeconds', 'availableGroqCompletion', ...Object.keys(strategy), load(`lib/handlers/${file}.ts`) + `;return ${handler}`)(
       Groq, { env: { GROQ_API_KEY: 'test' } }, loadGenerationBrandContext, EXTRACTED_CONTEXT_RULES, compactBrand,

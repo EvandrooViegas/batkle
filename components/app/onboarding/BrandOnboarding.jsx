@@ -11,13 +11,14 @@ import { contentLanguage } from '@/lib/services/contentLanguage'
 import { cn } from '@/lib/utils'
 import { appButton, appLayer } from '../ui'
 import BrandPreview from './BrandPreview'
+import DesignStep from './DesignStep'
 import ReadyStep from './ReadyStep'
 import ResearchStep from './ResearchStep'
 import ReviewStep from './ReviewStep'
 import { ManualStep, WebsiteStep } from './WebsiteStep'
 
-const STEPS = [['website', 'Website'], ['research', 'Research'], ['review', 'Review']]
-const STEP_INDEX = { website: 0, manual: 0, research: 1, review: 2, ready: 3 }
+const STEPS = [['website', 'Website'], ['research', 'Research'], ['review', 'Review'], ['design', 'Design']]
+const STEP_INDEX = { website: 0, manual: 0, research: 1, review: 2, design: 3, ready: 4 }
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 async function readJson(response, fallback) {
@@ -59,8 +60,9 @@ function Stepper({ index }) {
 }
 
 /**
- * Brand onboarding: website → research → review → ready. With `initialWebsite` (from the home page form)
- * the research starts straight away. The research request itself creates the brand.
+ * Brand onboarding: website → research → review → design → ready. With `initialWebsite` (from the home page form)
+ * the research starts straight away. The research request itself creates the brand. A brand needs at least one
+ * chosen design to finish, whichever way it was created.
  */
 export default function BrandOnboarding({ initialWebsite = '', firstBrand = false }) {
   const router = useRouter()
@@ -76,6 +78,7 @@ export default function BrandOnboarding({ initialWebsite = '', firstBrand = fals
   const [failure, setFailure] = useState('')
   const [result, setResult] = useState(null)
   const [choices, setChoices] = useState(null)
+  const [after, setAfter] = useState('ready') // where the design step leads: the ready screen or the brand profile
 
   // Each new step moves focus to its heading, so keyboard and screen-reader users follow along.
   useEffect(() => {
@@ -140,7 +143,10 @@ export default function BrandOnboarding({ initialWebsite = '', firstBrand = fals
       method: 'POST', headers: JSON_HEADERS,
       body: JSON.stringify({ name, brandContext: { name, language: option.language, languageVariant: option.languageVariant } }),
     }), 'The brand could not be created. Please try again.')
-    router.push(`/app/${flow.id}/brand-information`)
+    // A brand typed in by hand still picks its designs, then fills in the rest of its profile.
+    setResult({ flowId: flow.id, brand: flow.brandContext || { name, language: option.language, languageVariant: option.languageVariant }, manual: true })
+    setAfter('profile')
+    setStep('design')
   }
 
   const index = STEP_INDEX[step]
@@ -149,7 +155,7 @@ export default function BrandOnboarding({ initialWebsite = '', firstBrand = fals
     ? { href: `/app/${result.flowId}/creation`, label: 'Go to studio' }
     : firstBrand ? { href: '/', label: 'Back to home' } : { href: '/app', label: 'Back to studio' }
 
-  const preview = step === 'manual' || step === 'ready' ? null : (
+  const preview = step === 'manual' || step === 'design' || step === 'ready' ? null : (
     <BrandPreview
       domain={step === 'website' ? normalizeWebsite(website).domain : target?.domain}
       brand={step === 'review' ? result.brand : null}
@@ -164,10 +170,13 @@ export default function BrandOnboarding({ initialWebsite = '', firstBrand = fals
         <Link href="/" aria-label="Batkle home" className="rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-bk-fg">
           <BatkleLogo size={30} />
         </Link>
-        {index < 3 && <Stepper index={index} />}
-        <Link href={exit.href} className={appButton('quiet', 'sm')} aria-label={exit.label}>
-          <X className="size-4" /><span className="hidden sm:inline">{exit.label}</span>
-        </Link>
+        {index < 4 && !result?.manual && <Stepper index={index} />}
+        {/* Choosing a design is required, so the design step has no way out but finishing it. */}
+        {step === 'design' ? <span aria-hidden="true" className="w-8" /> : (
+          <Link href={exit.href} className={appButton('quiet', 'sm')} aria-label={exit.label}>
+            <X className="size-4" /><span className="hidden sm:inline">{exit.label}</span>
+          </Link>
+        )}
       </header>
 
       <main
@@ -207,9 +216,23 @@ export default function BrandOnboarding({ initialWebsite = '', firstBrand = fals
             <ReviewStep
               result={result}
               choices={choices}
-              onContinue={async values => { await saveReview(values); setStep('ready') }}
-              onOpenProfile={async values => { await saveReview(values); router.push(`/app/${result.flowId}/brand-information`) }}
+              onContinue={async values => { await saveReview(values); setAfter('ready'); setStep('design') }}
+              onOpenProfile={async values => { await saveReview(values); setAfter('profile'); setStep('design') }}
               preview={<BrandPreview compact domain={target?.domain} brand={result.brand} languageLabel={languageLabel} />}
+              headingRef={heading}
+            />
+          )}
+          {step === 'design' && (
+            <DesignStep
+              flowId={result.flowId}
+              brand={result.brand}
+              eyebrow={result.manual ? 'Last step · Design' : undefined}
+              doneLabel={after === 'profile' ? 'Continue to the brand profile' : 'Finish'}
+              onDone={brand => {
+                setResult(current => ({ ...current, brand }))
+                if (after === 'profile') router.push(`/app/${result.flowId}/brand-information`)
+                else setStep('ready')
+              }}
               headingRef={heading}
             />
           )}

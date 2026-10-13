@@ -174,11 +174,15 @@ async function searchStock(slot:VisualSlot,unsplashKey:string|null,pexelsKey:str
 // OpenAI (native transparent PNG) first. When it has no credits or fails, fal (FLUX schnell) and then Pollinations
 // (FLUX) generate the subject on a plain studio backdrop, and prepareSubjectAssets cuts it out locally.
 
-/** A short brief for models without transparency: one subject on a plain backdrop that background removal can lift. */
+/**
+ * A short brief for models without transparency: one subject on a plain backdrop that background removal can lift.
+ * The subject is asked to be large: a small one leaves too few pixels for a sharp cutout and is rejected, and the
+ * backdrop must stay one flat colour to the edges (a vignette fails the uniform-border check).
+ */
 function studioPrompt(slot: VisualSlot): string {
   const subject = String(slot.subject_description || slot.visual_purpose || 'a simple object').replace(/^object-only:\s*/i, '').slice(0, 300)
   const style = slot.image_style === 'drawing' ? 'Clean editorial illustration' : 'Realistic commercial studio photograph'
-  return `${style} of ${subject}. One complete subject, centred, fully inside the frame with clear margin on every side, on a plain uniform light grey seamless studio background, soft even lighting, no shadow on the background, no text, no logos, no watermark, no frame.`
+  return `${style} of ${subject}. One complete subject, centred and large, filling about three quarters of the frame, fully inside it with a small margin on every side, on a plain uniform light grey seamless studio background, flat and evenly lit to the edges with no vignette or gradient, no shadow on the background, no text, no logos, no watermark, no frame.`
 }
 
 const sizeFor = (aspect?: number) => typeof aspect === 'number' && aspect < .8 ? { fal: 'portrait_4_3', width: 768, height: 1024 } : typeof aspect === 'number' && aspect > 1.25 ? { fal: 'landscape_4_3', width: 1024, height: 768 } : { fal: 'square_hd', width: 1024, height: 1024 }
@@ -355,7 +359,11 @@ async function resolveCutout(db: any, slot: VisualSlot, brand_id: string | null,
       usedPhotoIds.add(asset.url)
       return { ...cutoutBase, resolvedAsset: asset, warning: note }
     }
-  } catch (error) { failure = (error as Error).message }
+  } catch (error) {
+    failure = (error as Error).message
+    // For whoever runs Batkle (people using it are not told): e.g. the OpenAI account has no credits left.
+    console.warn('[resolver] AI image generation failed, trying the fallbacks:', failure)
+  }
   // OpenAI unavailable (no credits, rate limit, outage): another AI provider draws the subject on a studio backdrop
   // and prepareSubjectAssets cuts it out, so it is still a transparent AI cutout saved to the gallery.
   try {

@@ -18,6 +18,12 @@ const nextConfig = {
       'groq-sdk',
       '@huggingface/transformers',
     ],
+    // On Linux x64, onnxruntime-node's install script downloads its CUDA and TensorRT provider libraries (several
+    // hundred MB), which the trace would ship in the API function and push it past Vercel's 250 MB limit. Vercel
+    // has no GPU and the image cut-out runs on the CPU, so those libraries are never loaded.
+    outputFileTracingExcludes: {
+      '*': ['node_modules/onnxruntime-node/bin/*/linux/x64/libonnxruntime_providers_{cuda,tensorrt}.so'],
+    },
   },
   webpack(config, { dev, isServer }) {
     if (dev) {

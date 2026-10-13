@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { budgetedCompletion, retrySeconds } from '@/lib/services/ai/requestBudget'
+import { loadUpload } from '@/lib/services/uploadCache'
 import { familySchema, referenceSchema, variantSchema, studySchema, COLOR_TOKENS, COLOR_ROLES, SLOT_NAMES, COMPOSITIONS, DECORATION_KINDS } from './types'
 import { reconcileStudy } from './study'
 import { measureReference, applyReferenceMetrics } from './referenceMetrics'
@@ -106,9 +107,9 @@ export function assignMissingSlots(variant: any, role: string, width: number, he
 
 async function referenceBytes(db: any, ref: ReferenceImage): Promise<Buffer> {
   if (ref.url.startsWith('/api/uploads/')) {
-    const upload = await db.collection('uploads').findOne({ id: ref.url.split('/').pop() })
+    const upload = await loadUpload(db, ref.url.split('/').pop() || '')
     if (!upload) throw new Error(`Reference ${ref.name} is missing. Upload it again.`)
-    return upload.bytes && typeof upload.bytes.value === 'function' ? Buffer.from(upload.bytes.value()) : Buffer.from(upload.bytes)
+    return upload.bytes
   }
   return readFile(join(process.cwd(), 'public', ref.url.replace(/^\//, '')))
 }

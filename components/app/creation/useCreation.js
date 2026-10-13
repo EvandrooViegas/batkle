@@ -29,6 +29,11 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
 
   const dataRef = useRef(data)
   dataRef.current = data
+  // Operator notices (such as an empty AI image account) are shown only to the signed-in Design Library admin.
+  const operator = useRef(false)
+  useEffect(() => {
+    fetch('/api/global-designs/session').then(r => (r.ok ? r.json() : null)).then(s => { operator.current = !!s?.admin }).catch(() => {})
+  }, [])
   const locks = useRef(new Set())
   const lastSaved = useRef(EMPTY)
   const saveQueue = useRef({ active: false, next: null })
@@ -118,6 +123,7 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
         // A failed rebuild keeps the last good post.
         onDesign: v => patch('designResults', idea.id, prev => (v.canvas ? v : { ...prev, ...v, canvas: prev?.canvas ?? null })),
         onWarning: message => toast.warning(message, { duration: 12000 }),
+        onOperatorNotice: message => operator.current && toast.warning(message, { description: 'Only you see this, as the Design Library admin.', duration: 12000 }),
       })
       return true
     } catch (error) {
@@ -139,9 +145,10 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
 
   /**
    * Writes a new idea from the user's text (or a suggestion when it is empty) and attached photos (asset ids);
-   * with andBuild, also creates the post.
+   * with andBuild, also creates the post. The post settings (slides, language, images, design) are kept on the
+   * idea, so rebuilds follow them; 'auto' leaves each one to Batkle.
    */
-  const createIdea = useCallback(async ({ request = '', format = 'auto', images = [], andBuild = false }) => {
+  const createIdea = useCallback(async ({ request = '', format = 'auto', images = [], imageChoice = 'auto', slides = 'auto', designId = 'auto', language = null, andBuild = false }) => {
     if (busy) return null
     setBusy(andBuild ? 'create' : 'suggest')
     try {
@@ -151,14 +158,22 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           brandContext, flowId, userIdea: request, format, images,
+          ...(slides !== 'auto' ? { slides } : {}),
+          ...(language ? { language } : {}),
           existingTopics: recent.map(i => i.topic),
-          existingIdeas: recent.map(i => ({ topic: i.topic, pillar: i.pillar, format: i.format, angle: i.angle })),
+          // Slide counts let the next carousel run a different length: the plan, else the built post.
+          existingIdeas: recent.map(i => ({ topic: i.topic, pillar: i.pillar, format: i.format, angle: i.angle, slides: i.outline?.length || (i.format === 'carousel' ? statusOf(i.id).slides : 0) || undefined })),
         }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to create the idea')
-      const idea = json.ideas?.[0]
-      if (!idea) throw new Error('No idea returned')
+      const written = json.ideas?.[0]
+      if (!written) throw new Error('No idea returned')
+      const idea = {
+        ...written,
+        ...(imageChoice === 'on' || imageChoice === 'off' ? { imageChoice } : {}),
+        ...(designId && designId !== 'auto' ? { designId } : {}),
+      }
       setData(d => ({ ...d, ideas: [idea, ...d.ideas] }))
       setFocusId(idea.id)
       if (andBuild) startBuild(idea)
@@ -170,7 +185,7 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
     } finally {
       setBusy(null)
     }
-  }, [busy, brandContext, flowId, startBuild])
+  }, [busy, brandContext, flowId, startBuild, statusOf])
 
   /** Builds several posts one after another, so a batch never multiplies concurrent AI requests. */
   const buildMany = useCallback(async ids => {

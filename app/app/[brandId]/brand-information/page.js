@@ -7,9 +7,5 @@ export default async function BrandProfilePage({ params }) {
   const flow = await getFlow(brandId)
   if (!flow) notFound()
 
-  return (
-    <div className="w-full px-4 py-8 sm:px-8 lg:px-10">
-      <BrandInfo key={flow.id} flowId={flow.id} initialBrandContext={flow.brandContext || null} />
-    </div>
-  )
+  return <BrandInfo key={flow.id} flowId={flow.id} initialBrandContext={flow.brandContext || null} />
 }

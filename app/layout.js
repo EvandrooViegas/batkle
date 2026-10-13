@@ -5,8 +5,9 @@ import DeferredFonts from '@/components/DeferredFonts'
 import { PopupProvider } from '@/components/app/popup'
 
 export const metadata = {
-  title: 'Kand — Make once. Render forever.',
-  description: 'Design templates once, render them with dynamic data via a single API call.',
+  title: 'Batkle',
+  description: 'Paste your website. Get on-brand Instagram posts written and designed in your language, colours, fonts and logo.',
+  icons: { icon: '/logo/batkle-icon-color.png' },
 }
 
 const GOOGLE_FONTS_HREF =
@@ -41,7 +42,7 @@ export default function RootLayout({ children }) {
         <DeferredFonts href={GOOGLE_FONTS_HREF} />
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           <PopupProvider>{children}</PopupProvider>
-          <Toaster position="top-center" richColors />
+          <Toaster position="top-center" />
         </ThemeProvider>
       </body>
     </html>

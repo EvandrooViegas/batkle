@@ -59,3 +59,25 @@ test('the research summary only mentions what happened', () => {
   assert.equal(researchSummary({ pages: 1, imageImport: { imported: 0 } }), '1 page read')
   assert.equal(researchSummary({}), '')
 })
+
+test('a language without its own rules keeps its name and code instead of becoming English', () => {
+  for (const language of ['Dutch', 'nl', 'nl-BE']) {
+    const result = contentLanguage({ language })
+    assert.equal(result.code.split('-')[0], 'nl', language)
+    assert.match(result.label, /^(Dutch|Flemish)/)
+    assert.doesNotMatch(result.rules, /OUTPUT LANGUAGE: English/)
+  }
+  assert.equal(contentLanguage({ language: 'Polish' }).code, 'pl')
+  // Names that merely start like a code are not mistaken for it.
+  assert.equal(contentLanguage({ language: 'Estonian' }).code, 'et')
+  assert.equal(contentLanguage({ language: 'Frisian' }).name, 'Frisian')
+  assert.equal(contentLanguage({}).code, 'en-US')
+  assert.equal(contentLanguage({ language: 'unknown' }).code, 'en-US')
+})
+
+test('Dutch copy is not flagged as English for sharing words like "is", "we" and "tips"', () => {
+  const nl = contentLanguage({ language: 'Dutch' })
+  const languageIssues = new Function(languageSource + ';return languageIssues')()
+  assert.deepEqual(languageIssues(['Dit is waarom we elke week nieuwe tips delen voor ondernemers die meer klanten willen bereiken.'], nl), [])
+  assert.equal(languageIssues(['Discover how we help your business grow with the right tools for your team and your customers today.'], nl).length, 1)
+})

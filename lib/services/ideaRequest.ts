@@ -41,6 +41,35 @@ ${formatRule(format, undefined, formatReason)}
 /** Added to the system rules when a user idea is present: the owner's own statements count as provided information. */
 export const IDEA_REQUEST_RULE = `When the user gives their own idea, it is part of the provided information: facts the user states about their own company may be used as stated.`
 
+/** Carousel lengths the person can choose, counting the cover and the closing slide. */
+export const SLIDE_COUNT_MIN = 3
+export const SLIDE_COUNT_MAX = 10
+
+/** The number of slides the person chose, or null for Auto (the content decides). */
+export function readSlideCount(value: any): number | null {
+  const count = Number(value)
+  return Number.isInteger(count) && count >= SLIDE_COUNT_MIN && count <= SLIDE_COUNT_MAX ? count : null
+}
+
+/** The prompt line for a carousel length the person chose. */
+export function slideCountRule(count: number) {
+  const points = count - 2
+  return `- Length: exactly ${count} slides (required: the user chose it), so the outline has exactly ${count} lines: the cover hook, ${points} point${points === 1 ? '' : 's'}, then the takeaway`
+}
+
+/** An outline longer than the chosen length, cut to it: the cover and first points, then the closing takeaway. */
+export function fitOutline(outline: string[], count: number | null): string[] {
+  if (!count || outline.length <= count) return outline
+  return [...outline.slice(0, count - 1), outline[outline.length - 1]]
+}
+
+/** A post language chosen in the composer ({ language, languageVariant }), or null to use the brand's. */
+export function readLanguageChoice(value: any): { language: string; languageVariant: string } | null {
+  const clean = (text: any, max: number) => (typeof text === 'string' ? text.replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0, max) : '')
+  const language = clean(value?.language, 40), languageVariant = clean(value?.languageVariant, 20)
+  return language || languageVariant ? { language: language || languageVariant, languageVariant } : null
+}
+
 /** Coerces the model's format to a valid one, honouring the user's choice. */
 export function finalFormat(modelFormat: any, format: FormatChoice, fallback: 'single' | 'carousel' = 'carousel'): 'single' | 'carousel' {
   if (format !== 'auto') return format

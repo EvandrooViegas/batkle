@@ -83,8 +83,9 @@ code {
 }
 
 /* ---------- Batkle brand (landing page and /app) ----------
-   Tokens are "r g b" so Tailwind can apply alpha; scoped to .bk-root so other pages are untouched. */
-.bk-root {
+   Tokens are "r g b" so Tailwind can apply alpha; scoped to .bk-root so other pages are untouched.
+   The toaster lives outside every page, so it gets its own scope (not .bk-root, which recolours the body). */
+.bk-root, .bk-toaster {
   --bk-bg: 255 255 255;
   --bk-alt: 246 245 241;
   --bk-surface: 255 255 255;
@@ -97,7 +98,7 @@ code {
   --bk-shadow-pop: 0 1px 2px rgb(20 19 26 / 0.05), 0 30px 60px -30px rgb(20 19 26 / 0.3);
 }
 
-.dark .bk-root {
+.dark .bk-root, .dark .bk-toaster {
   --bk-bg: 20 19 26;
   --bk-alt: 27 26 34;
   --bk-surface: 33 31 42;
@@ -108,6 +109,13 @@ code {
   --bk-field: 74 71 87;
   --bk-shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 22px 44px -26px rgb(0 0 0 / 0.7);
   --bk-shadow-pop: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 30px 60px -28px rgb(0 0 0 / 0.8);
+}
+
+/* A toast's status tile lands like a rubber stamp, ending at the tile's own tilt. */
+@keyframes bk-stamp {
+  0% { opacity: 0; transform: scale(1.7) rotate(-26deg); }
+  60% { opacity: 1; transform: scale(0.9) rotate(-2deg); }
+  100% { opacity: 1; transform: scale(1) rotate(-6deg); }
 }
 
 /* Keep overscroll on-palette. */

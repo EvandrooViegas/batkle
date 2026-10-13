@@ -53,7 +53,8 @@ let _loadPromise: Promise<void> | null = null
 async function loadModel(): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { pipeline, env } = require('@huggingface/transformers')
-  env.cacheDir = './.cache/huggingface'
+  // Vercel's function files are read-only; only the temp folder can hold the downloaded model.
+  env.cacheDir = process.env.VERCEL ? require('node:path').join(require('node:os').tmpdir(), 'huggingface') : './.cache/huggingface'
 
   console.log('[vision] Loading CLIP zero-shot classifier…')
   const t0 = Date.now()

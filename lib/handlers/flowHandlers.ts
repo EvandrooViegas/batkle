@@ -77,6 +77,19 @@ export async function handleUpdateFlow(db: any, flowId: string, body: any) {
   }
 }
 
+/** Records that a brand was opened, so it leads the brand list and opens by default. updatedAt is left alone. */
+export async function handleFlowOpened(db: any, flowId: string) {
+  try {
+    const result = await db.collection('flows').updateOne({ id: flowId }, { $set: { lastOpenedAt: new Date() } })
+    if (result.matchedCount === 0) {
+      return corsify(NextResponse.json({ error: 'Flow not found' }, { status: 404 }))
+    }
+    return corsify(NextResponse.json({ success: true }))
+  } catch (error: any) {
+    return corsify(NextResponse.json({ error: error.message }, { status: 500 }))
+  }
+}
+
 export async function handleDeleteFlow(db: any, flowId: string) {
   try {
     const result = await db.collection('flows').deleteOne({ id: flowId })

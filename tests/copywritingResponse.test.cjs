@@ -4,7 +4,7 @@ const {stripTypeScriptTypes} = require('node:module')
 const source = stripTypeScriptTypes(require('node:fs').readFileSync('lib/handlers/copywritingHandler.ts','utf8').replace(/^import .*$/gm,'').replace(/export /g,''))
 const valid = {format:'single',headline:'Supported headline',caption:'Supported caption'}
 const strategyLoad = p => stripTypeScriptTypes(require('node:fs').readFileSync(p,'utf8').replace(/^import .*$/gm,'').replace(/export /g,''))
-const strategy = new Function(strategyLoad('lib/services/contentLanguage.ts') + ';return {contentLanguage,languageIssues,copyTexts}')()
+const strategy = new Function(strategyLoad('lib/services/contentLanguage.ts') + strategyLoad('lib/services/copyFacts.ts') + strategyLoad('lib/services/contentAngles.ts') + ';return {postLanguage,contentLanguage,languageIssues,copyTexts,inventedFigures,mentionsSubject}')()
 function setup(outputs, catalog = ['canopylabs/orpheus-v1-english','llama-3.3-70b-versatile'], idea = {format:'single'}) {
  const requests=[]
  const run = new Function('Groq','process','loadGenerationBrandContext','EXTRACTED_CONTEXT_RULES','compactBrand','budgetedModels','budgetedCompletion','NextResponse','corsify','cleanCopy','retrySeconds',...Object.keys(strategy),source+';return handleGenerateCopywriting')(
@@ -51,4 +51,59 @@ test('preserves quota errors without an extra generation attempt',async()=>{
 })
 test('never falls back to an arbitrary speech model',async()=>{
  const {run,requests}=setup([],['canopylabs/orpheus-v1-english']);assert.equal((await run()).status,500);assert.equal(requests.length,0)
+})
+const invented={format:'single',headline:'Barber PH: 2 → 15 leads por mês',supportingText:'ROI 3,5× com segmentação',caption:'Caption'}
+const honest={format:'single',headline:'Barber PH: marcações sem chamadas',supportingText:'Um site com plataforma de reservas',caption:'Caption'}
+test('copy that invents result figures is rewritten, naming the figures in the retry',async()=>{
+ const {run,requests}=setup([invented,honest]);const result=await run()
+ assert.equal(result.status,200);assert.equal(result.body.headline,honest.headline)
+ assert.match(requests[1].messages[1].content,/Facts: .*15 leads.*ROI 3,5/)
+})
+test('invented figures are never published, even when the rewrite still has them',async()=>{
+ const {run}=setup([invented,invented]);const result=await run()
+ assert.equal(result.status,502);assert.match(result.body.error,/figures that are not in the brand profile/)
+})
+test('a first draft with invented figures is not a fallback when the rewrite cannot run',async()=>{
+ const carousel={format:'carousel',slides:[{headline:'Resultados reais',body:'Veja como 45% mais clientes chegaram',cta:''},{headline:'Mais',body:'Detalhes',cta:''}],caption:'Caption'}
+ const again=setup([carousel,Object.assign(new Error('quota'),{status:429})],undefined,{format:'carousel'})
+ assert.equal((await again.run()).status,429)
+})
+test('figures the person typed in their own request may be used',async()=>{
+ const {run}=setup([invented],undefined,{format:'single',userRequest:'Fala do Barber PH: passaram de 2 para 15 leads por mês, ROI 3,5'})
+ assert.equal((await run()).status,200)
+})
+const slide=(headline,body='Details')=>({headline,body,cta:''})
+test('a language picked for the post replaces the brand language in the copy request',async()=>{
+ const spanish={format:'single',headline:'Menos tareas, más tiempo',caption:'Descubra cómo trabajamos.'}
+ const {run,requests}=setup([spanish],undefined,{format:'single',languageChoice:{language:'Spanish',languageVariant:'es-ES'}})
+ assert.equal((await run()).status,200)
+ assert.match(requests[0].messages[0].content,/OUTPUT LANGUAGE: Spanish \(es-ES\)/)
+ assert.match(requests[0].messages[1].content,/OUTPUT LANGUAGE: Spanish \(es-ES\)/)
+ const brandOnly=setup([valid])
+ assert.equal((await brandOnly.run()).status,200)
+ assert.match(brandOnly.requests[0].messages[0].content,/OUTPUT LANGUAGE: English — American \(en-US\)/,'without a pick, the brand language stays')
+})
+test('a carousel follows the brief outline: one slide per entry, retried once when it does not',async()=>{
+ const outline=['Cover: the hook','First sign','Second sign','Third sign','What to do next','Takeaway']
+ const five={format:'carousel',slides:[slide('3 signs your site loses clients','Swipe to check yours.'),slide('One'),slide('Two'),slide('Three'),slide('Close')],caption:'Caption'}
+ const six={...five,slides:[...five.slides.slice(0,4),slide('What to do next'),slide('Close')]}
+ const {run,requests}=setup([five,six],undefined,{format:'carousel',outline})
+ const result=await run();assert.equal(result.status,200);assert.equal(requests.length,2)
+ assert.match(requests[1].messages[1].content,/5 slides but the brief's outline has 6 entries; write exactly one slide per outline entry/)
+ assert.equal(result.body.slides.length,6)
+ assert.match(requests[0].messages[1].content,/"outline"/,'the outline reaches the copywriter')
+})
+test('a carousel that matches its outline is accepted at once, and without an outline any length is fine',async()=>{
+ const four={format:'carousel',slides:[slide('The mistake that delays renovations','Most owners make it early.'),slide('One'),slide('Two'),slide('Close')],caption:'Caption'}
+ const a=setup([four],undefined,{format:'carousel',outline:['a','b','c','d']});assert.equal((await a.run()).status,200);assert.equal(a.requests.length,1)
+ const b=setup([four],undefined,{format:'carousel'});assert.equal((await b.run()).status,200);assert.equal(b.requests.length,1)
+})
+test('the cover is briefed as a hook that makes people swipe, and the slides stay on its subject',async()=>{
+ const {run,requests}=setup([valid]);await run()
+ const system=requests[0].messages[0].content
+ assert.match(system,/THE COVER \(slide 1\) has one job: make the viewer stop and swipe\. Its headline is the hook, not a title\./)
+ assert.match(system,/Never a label or topic name/)
+ assert.match(system,/Every slide stays on the cover's exact subject/)
+ assert.match(system,/deliver exactly that number/)
+ assert.match(system,/Never default to five and never pad/)
 })

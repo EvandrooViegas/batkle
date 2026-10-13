@@ -104,7 +104,7 @@ test('almost opaque logo with transparent corners still has its background remov
 test('uploaded photo pixels determine black or white logo independently of page color',async()=>{
  const vm=require('node:vm'),fs=require('node:fs')
  const load=path=>stripTypeScriptTypes(fs.readFileSync(path,'utf8').replace(/^import .*$/gm,'').replace(/export /g,''))
- const {sampleLogoBackdrop}=vm.runInNewContext(load('lib/services/logoBackground.ts')+';({sampleLogoBackdrop})',{sharp,Buffer})
+ const {sampleLogoBackdrop}=vm.runInNewContext(load('lib/services/logoBackground.ts')+';({sampleLogoBackdrop})',{sharp,Buffer,loadUpload:require('./uploadTestHelpers.cjs').loadUpload})
  const {softenCanvasLogos}=vm.runInNewContext(load('lib/handlers/canvasDesignerHandler.ts')+';({softenCanvasLogos})',{sampleLogoBackdrop})
  // One image with a bright upper half and dark lower half. Only local logo area matters.
  const bytes=await sharp(Buffer.from('<svg width="100" height="100"><rect width="100" height="100" fill="white"/><rect y="50" width="100" height="50" fill="black"/></svg>')).png().toBuffer()

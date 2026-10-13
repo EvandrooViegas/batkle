@@ -9,6 +9,7 @@ import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs'
 import {DESIGN_LIBRARY,librarySpec} from '@/lib/designs/library'
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog'
 import {Button} from '@/components/ui/button'
+import {appButton} from '@/components/app/ui'
 
 function samplePalette(canvas, theme, pick = 'brand') {
   const normalize = value => {
@@ -87,7 +88,7 @@ export function Sample({design,chapter=0,canvas,pick='brand'}) {
   </svg>
 }
 
-export default function DesignLibrary({canvas,selected,onSelect,disabled}) {
+export default function DesignLibrary({canvas,selected,onSelect,disabled,triggerClassName,children}) {
   const brand = canvas?.designInput?.brandContext || canvas?.brandContext || {}
   const [open,setOpen]=useState(false), [entries,setEntries]=useState([]), [legacy,setLegacy]=useState([])
   const [active,setActive]=useState(''), [chapter,setChapter]=useState(''), [query,setQuery]=useState('')
@@ -105,9 +106,42 @@ export default function DesignLibrary({canvas,selected,onSelect,disabled}) {
   const global=entries.find(item=>item.design.id===active)
   const legacyDesign=[...legacy,...DESIGN_LIBRARY].find(d=>d.id===active)
   const choices=showLegacy?[...legacy,...DESIGN_LIBRARY].map(design=>({design})):entries
-  return <><Button variant="outline" size="sm" disabled={disabled} onClick={()=>{setOpen(true);setChapter('')}}>Design: {selected?.name||'Custom'}</Button>
-    <Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-w-5xl max-h-[92dvh] overflow-y-auto"><DialogHeader><DialogTitle>Choose a brand design</DialogTitle><DialogDescription>One family keeps every carousel slide consistent. Applying a design replaces manual layout edits.</DialogDescription></DialogHeader>
-      {loading?<p role="status">Loading brand designs…</p>:<div className="grid gap-5 md:grid-cols-2"><div className="space-y-3"><input aria-label="Search designs" placeholder="Search designs" value={query} onChange={e=>setQuery(e.target.value)} className="w-full rounded border bg-background p-2"/><button className="text-xs underline" onClick={()=>setShowLegacy(v=>!v)}>{showLegacy?'Show Global Design imports':'Show legacy designs'}</button><div className="grid grid-cols-2 gap-3">{choices.filter(({design})=>(design.name+' '+(design.tags||[]).join(' ')).toLowerCase().includes(query.toLowerCase())).map(({design,family})=><button key={design.id} disabled={busy} aria-pressed={active===design.id} className={'rounded-lg border-2 p-2 text-left '+(active===design.id?'border-primary':'border-border')} onClick={()=>{setActive(design.id);setChapter('')}}>{family?<GlobalDesignPreview family={family} brand={brand}/>:<Sample design={design} canvas={canvas}/>}<span className="mt-2 block text-sm font-medium">{design.name}</span></button>)}</div>{!entries.length&&<p className="text-sm text-muted-foreground">Choose a Global Design in Brand Personalization → Post design to use it for new posts.</p>}</div><div className="space-y-3">{global?<><ZoomablePreview family={global.family} brand={brand} sample={Number(chapter)||0}/><div role="group" aria-label="Sample slides" className="flex gap-1.5">{[0,1,2,3].map(i=><button type="button" key={i} aria-label={'Sample slide '+(i+1)} aria-pressed={(Number(chapter)||0)===i} onClick={()=>setChapter(String(i))} className={'h-2 flex-1 rounded-full '+((Number(chapter)||0)===i?'bg-foreground':'bg-muted')}/>)}</div></>:legacyDesign?<Sample design={legacyDesign} canvas={canvas}/>:null}<p className="text-xs text-muted-foreground">Preview uses sample content and your brand identity. Generated posts stay editable in Canvas.</p></div></div>}
-      {error&&<p role="alert" className="text-sm text-red-600">{error}</p>}<Button disabled={busy||loading||(!global&&!legacyDesign)} onClick={async()=>{setBusy(true);setError('');try{await onSelect(active);setOpen(false)}catch(e){setError(e.message)}finally{setBusy(false)}}}>{busy?'Applying…':'Apply design'}</Button>
-    </DialogContent></Dialog></>
+  const openLibrary=()=>{setOpen(true);setChapter('')}
+  return <>{triggerClassName?<button type="button" className={triggerClassName} disabled={disabled} onClick={openLibrary}>{children}</button>:<Button variant="outline" size="sm" disabled={disabled} onClick={openLibrary}>Design: {selected?.name||'Custom'}</Button>}
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-h-[92dvh] max-w-5xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="font-bk-display text-[20px] font-bold tracking-[-0.03em]">Choose a design</DialogTitle>
+          <DialogDescription className="text-[13.5px] text-bk-muted">One design keeps every slide consistent. Applying it replaces manual layout changes; you can undo it.</DialogDescription>
+        </DialogHeader>
+        {loading ? <p role="status" className="flex items-center gap-2 text-[13.5px] text-bk-muted"><Loader2 className="size-4 animate-spin"/>Loading your brand designs…</p> : (
+          <div className="grid gap-5 md:grid-cols-2">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1"><Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-bk-muted"/><input aria-label="Search designs" placeholder="Search designs" value={query} onChange={e=>setQuery(e.target.value)} className="h-9 w-full rounded-lg border border-bk-field bg-bk-surface pl-8 pr-3 text-[13.5px] focus:border-bk-fg focus:outline-none"/></div>
+                <button type="button" className="shrink-0 text-[12.5px] font-semibold underline underline-offset-4" onClick={()=>setShowLegacy(v=>!v)}>{showLegacy?'Show brand designs':'Show starter designs'}</button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {choices.filter(({design})=>(design.name+' '+(design.tags||[]).join(' ')).toLowerCase().includes(query.toLowerCase())).map(({design,family})=>(
+                  <button key={design.id} type="button" disabled={busy} aria-pressed={active===design.id} className={'overflow-hidden rounded-xl border p-1.5 text-left transition-colors '+(active===design.id?'border-bk-fg ring-1 ring-bk-fg':'border-bk-line hover:border-bk-fg/40')} onClick={()=>{setActive(design.id);setChapter('')}}>
+                    <span className="block overflow-hidden rounded-lg">{family?<GlobalDesignPreview family={family} brand={brand}/>:<Sample design={design} canvas={canvas}/>}</span>
+                    <span className="mt-1.5 block px-1 pb-0.5 text-[13px] font-semibold">{design.name}</span>
+                  </button>
+                ))}
+              </div>
+              {!entries.length&&<p className="text-[12.5px] text-bk-muted">Pick designs for this brand in its Brand profile to see them here.</p>}
+            </div>
+            <div className="space-y-3">
+              {global?<><ZoomablePreview family={global.family} brand={brand} sample={Number(chapter)||0}/><div role="group" aria-label="Sample slides" className="flex gap-1.5">{[0,1,2,3].map(i=><button type="button" key={i} aria-label={'Sample slide '+(i+1)} aria-pressed={(Number(chapter)||0)===i} onClick={()=>setChapter(String(i))} className={'h-1.5 flex-1 rounded-full transition-colors '+((Number(chapter)||0)===i?'bg-bk-fg':'bg-bk-line hover:bg-bk-field')}/>)}</div></>:legacyDesign?<Sample design={legacyDesign} canvas={canvas}/>:null}
+              <p className="text-[12px] text-bk-muted">The preview uses sample text with your brand colours and fonts.</p>
+            </div>
+          </div>
+        )}
+        {error&&<p role="alert" className="text-[13px] font-semibold text-[#C2412F] dark:text-[#F0826F]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className={appButton('quiet','md')} onClick={()=>setOpen(false)}>Cancel</button>
+          <button type="button" className={appButton('primary','md')} disabled={busy||loading||(!global&&!legacyDesign)} onClick={async()=>{setBusy(true);setError('');try{await onSelect(active);setOpen(false)}catch(e){setError(e.message)}finally{setBusy(false)}}}>{busy?<><Loader2 className="size-4 animate-spin"/>Applying…</>:'Apply design'}</button>
+        </div>
+      </DialogContent>
+    </Dialog></>
 }

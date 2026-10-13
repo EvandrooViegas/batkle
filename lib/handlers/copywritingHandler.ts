@@ -4,7 +4,9 @@ import { NextResponse } from 'next/server'
 import { corsify } from '@/lib/services/middleware'
 import Groq from 'groq-sdk'
 import { loadGenerationBrandContext, EXTRACTED_CONTEXT_RULES } from '@/lib/services/generationBrandContext'
-import { contentLanguage, languageIssues, copyTexts, type ContentLanguage } from '@/lib/services/contentLanguage'
+import { postLanguage, languageIssues, copyTexts, type ContentLanguage } from '@/lib/services/contentLanguage'
+import { inventedFigures } from '@/lib/services/copyFacts'
+import { mentionsSubject } from '@/lib/services/contentAngles'
 
 const SYSTEM_PROMPT = `You are an expert Instagram copywriter specialized in creating high-quality social media content for businesses.
 
@@ -30,6 +32,7 @@ IMPORTANT RULES:
 * Use ONLY information provided in the Brand Profile and Content Brief.
 * Never invent facts, statistics, clients, awards, certifications, results, services, products or company history.
 * Never make claims that cannot be supported by the provided information.
+* If the brief asks for results, figures, percentages, testimonials or a before/after that the Brand Profile does not contain, do not invent them: describe the real scope, approach and benefits without numbers. Present each project only as the kind of work the Brand Profile describes.
 * Write in the OUTPUT LANGUAGE given at the end of these instructions, exactly. Never mix languages or regional variants.
 * Ground the post in the brief: build it on the specific service, project, audience problem or differentiator the brief names, using concrete details from the Brand Profile (scope, process, who it serves, named projects when relevant). Avoid generic advice that could fit any company.
 * Match the company's positioning and tone.
@@ -55,7 +58,7 @@ Create:
 * cta
 
 For a CAROUSEL:
-Choose the slide count from the amount of useful content, usually 3–10 slides. Do not default to five. A simple idea may need 3; a detailed sequence may need 7–10. Plan one distinct point per content slide and remove filler. Honor an explicit slide count in the brief.
+SLIDE COUNT: when the brief has an "outline", write exactly one slide per outline entry, in the same order and about the same point. Without an outline, choose the count from the material (3–10 slides): 3–4 for one sharp insight, 5–6 for an explanation, 7–10 for a process, checklist or story. Never default to five and never pad.
 Each slide should have:
 * slideNumber
 * purpose
@@ -63,10 +66,16 @@ Each slide should have:
 * body
 * cta
 
-The first slide is a cover with a short hook and one brief teaser. Use 3–8 words for the headline when possible and never exceed 10 words. Make it instantly understandable, concrete and curiosity-driving without clickbait. Add a 2–14 word body that invites the reader into the carousel without explaining the whole topic. Set its cta to an empty string; put detailed explanations on subsequent slides.
-The middle slides should develop the idea logically.
+THE COVER (slide 1) has one job: make the viewer stop and swipe. Its headline is the hook, not a title.
+* 3–8 words when possible, never more than 10. Instantly understandable and about this post's exact subject.
+* Open a question in the reader's mind that the next slides answer. Strong patterns: a specific promise ("4 signs your website is losing clients"), a common mistake ("The mistake that delays most renovations"), a question the audience is already asking, a surprising truth stated in the brand information, or a tension between what people expect and what actually works.
+* Never a label or topic name ("Our methodology", "Our values", "About us"), never the company name or slogan on its own, never a vague statement that could open any post.
+* Start from the brief's "hook" and sharpen it; keep it honest: every promise on the cover is delivered by the slides that follow, with no invented numbers and no clickbait.
+The cover body is a 2–14 word teaser that raises the stakes or hints at the payoff without giving it away; when it fits, end it with a natural nudge to keep reading (such as "Swipe to see all four", written in the output language). Set the cover cta to an empty string.
+
+THE REST OF THE CAROUSEL pays off the cover. Every slide stays on the cover's exact subject and moves it one step forward: one point per slide, in an order where each slide builds on the previous one. Never switch to a different topic, service or audience midway, never repeat a point, and never add filler slides. If the cover promises a number of signs, steps or mistakes, deliver exactly that number.
 When a slide names steps, phases, options, benefits or tips (3–6 of them), write them as separate lines in its body: an optional short intro line, then one line per item starting with "1." or "-", each item 1–6 words. Never pack them into one sentence; they are laid out as a designed list.
-The final slide closes the idea with its takeaway. Give it a cta only when the post's objective calls for an action; otherwise leave the cta empty and let the caption carry the next step.
+The final slide closes the loop the cover opened: the takeaway that answers the hook. Give it a cta only when the post's objective calls for an action; otherwise leave the cta empty and let the caption carry the next step.
 Do not put too much text on a slide.
 
 FIELD DEFINITIONS:
@@ -81,7 +90,7 @@ FIELD DEFINITIONS:
 
 "cta": Optional. A short call to action appropriate to the post, or an empty string when the slide does not need one. Do not force a sales CTA into educational content. The graphic is an image, not a web page: nothing on it can be clicked. Write an action the reader can take on Instagram (save the post, share it, comment a word, send a message, follow the account, use the link in the bio), never button wording such as "Click here", "Learn more", "Explore more", "Saiba mais" or "Clique aqui".
 
-"slides": An array containing the content of every carousel slide. Use as many slides as the content requires, usually 3–10, without padding or a fixed default.
+"slides": An array containing the content of every carousel slide: one per outline entry when the brief has an outline, otherwise as many as the content requires (usually 3–10), without padding or a fixed default.
 
 "slideNumber": The numerical order of the slide. Start at 1.
 
@@ -99,10 +108,10 @@ QUALITY CONTROL — before returning verify:
 1. Is the content directly related to the Content Brief?
 2. Does it match the brand?
 3. Is every factual claim supported?
-4. Is the hook strong without being clickbait?
+4. Would the cover make someone stop scrolling and swipe, without being clickbait? Is it a hook rather than a title?
 5. Is the visual copy concise?
-6. Does every carousel slide have a clear purpose?
-7. Does the carousel tell a logical story?
+6. Does every carousel slide have a clear purpose, and does it follow the outline when there is one?
+7. Does the whole carousel stay on the cover's subject, tell a logical story and deliver what the cover promised?
 8. Does the caption add value instead of repeating the graphic?
 9. Is the CTA appropriate?
 10. Is the language correct for the brand's language variant?
@@ -147,7 +156,7 @@ If the format is "single", populate:
 and return an empty "slides" array.
 
 If the format is "carousel", populate:
-* slides (content-driven slide count, first is hook, last is the conclusion)
+* slides (one per outline entry when the brief has an outline; the first is the hook, the last closes the loop it opened)
 * caption
 * hashtags
 * visualNotes
@@ -176,8 +185,13 @@ async function getGroqModel(groq: Groq): Promise<string> {
 /** Optional design context for the combined copy + composition plan call. */
 export interface PlanningDesign { prompt: string; validate: (parsed: any) => void }
 
+/** The slide-by-slide plan from the brief, when it has one: one carousel slide per entry. */
+export function briefOutline(idea: any): string[] {
+  return Array.isArray(idea?.outline) ? idea.outline.filter((s: any) => typeof s === 'string' && s.trim()).slice(0, 10) : []
+}
+
 /** Style problems are worth one corrective retry but never worth failing a post that is otherwise complete. */
-function styleIssues(parsed: any, language: ContentLanguage): string[] {
+function styleIssues(parsed: any, language: ContentLanguage, idea?: any): string[] {
   const issues: string[] = []
   if (parsed.format === 'carousel') {
     const cover = parsed.slides[0]
@@ -185,10 +199,21 @@ function styleIssues(parsed: any, language: ContentLanguage): string[] {
     const teaserWords = String(cover.body || '').trim().split(/\s+/u).filter(Boolean).length
     if (coverWords > 10) issues.push(`Carousel cover has ${coverWords} words; maximum is 10`)
     if (teaserWords < 2 || teaserWords > 14) issues.push(`Carousel cover teaser must contain 2–14 words; received ${teaserWords}`)
+    const outline = briefOutline(idea)
+    if (outline.length >= 3 && parsed.slides.length !== outline.length) issues.push(`The carousel has ${parsed.slides.length} slides but the brief's outline has ${outline.length} entries; write exactly one slide per outline entry`)
   }
   const mixed = languageIssues(copyTexts(parsed), language)
   if (mixed.length) issues.push(`Language: the copy ${mixed.join('; ')}`)
+  const written = [...copyTexts(parsed), ...(Array.isArray(parsed.hashtags) ? parsed.hashtags.map(String) : [])]
+  const repeated = avoidedSubjects(idea).filter(subject => written.some(t => mentionsSubject(t, subject)))
+  if (repeated.length) issues.push(`Repetition: the copy mentions ${repeated.join(', ')}, which the brand's recent posts already centred on; remove it and use other details from the brand profile`)
   return issues
+}
+
+/** Subjects the brief says recent posts already covered, unless this post is itself about them. */
+function avoidedSubjects(idea: any): string[] {
+  const own = [idea?.topic, idea?.coreMessage, idea?.userRequest].filter(v => typeof v === 'string').join(' \n ')
+  return (Array.isArray(idea?.avoid) ? idea.avoid : []).filter((s: any) => typeof s === 'string' && s.trim() && !mentionsSubject(own, s))
 }
 
 /**
@@ -201,8 +226,14 @@ export async function writeCopy(brandContext: any, idea: any, design?: PlanningD
   if (!apiKey) throw Object.assign(new Error('GROQ_API_KEY is not configured'), { status: 500 })
   const groq = new Groq({ apiKey,maxRetries:0 })
   const model = await getGroqModel(groq)
-  const language = contentLanguage(brandContext)
+  // A language chosen for this post in the composer wins over the brand's.
+  const language = postLanguage(brandContext, idea?.languageChoice)
+  // What figures may be stated: the profile the copywriter sees and anything the person typed themselves,
+  // never the AI-written brief.
+  const factSource = JSON.stringify(compactBrand(brandContext)) + ' ' + (typeof idea?.userRequest === 'string' ? idea.userRequest : '')
+  const avoid = avoidedSubjects(idea)
   const userPrompt = buildUserPrompt(JSON.stringify(compactBrand(brandContext)), JSON.stringify(idea, null, 2)) + (design ? '\n\n' + design.prompt : '')
+    + (avoid.length ? `\n\nAVOID REPEATING: the brand's recent posts already centred on ${avoid.map(s => `"${s}"`).join(', ')}. Do not mention ${avoid.length > 1 ? 'them' : 'it'} anywhere in this post (slides, caption or hashtags); use other concrete details from the brand profile.` : '')
     + `\n\nOUTPUT LANGUAGE: ${language.label}. Every reader-facing field (headline, body, cta, caption, hashtags) in it; the design study above is internal and in English, never copy its words.`
   let parsed: any
   let draft: any
@@ -244,9 +275,13 @@ export async function writeCopy(brandContext: any, idea: any, design?: PlanningD
       // Nothing on an Instagram graphic is clickable: web-button wording is removed, never retried.
       for (const item of parsed.format === 'carousel' ? parsed.slides : [parsed]) if (item && isButtonCta(item.cta)) item.cta = ''
       design?.validate(parsed)
+      // Result figures must come from the profile or the person's own request. A draft that invents them
+      // is never kept as a fallback: a failed post is better than a published false claim.
+      const invented = inventedFigures(copyTexts(parsed), factSource)
+      if (invented.length) throw new Error(`Facts: the copy states figures that are not in the brand profile (${invented.slice(0, 6).join(', ')}). Remove them and describe results without numbers`)
       // Cover length and one language per post are checked in code. The first complete draft is kept,
       // so a retry that cannot run or does no better never turns a usable post into a failure.
-      const issues = styleIssues(parsed, language)
+      const issues = styleIssues(parsed, language, idea)
       if (issues.length && attempt === 0) { draft = parsed; throw new Error(issues.join('; ')) }
       if (issues.length) console.warn('[copywriting] style issues after retry:', issues.join('; '))
       break

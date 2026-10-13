@@ -9,7 +9,8 @@ const STUDY = { personality: 'p', composition: 'c', spaceDensity: 's', typograph
 const SUPPORTED = new Set(['text', 'shape', 'image', 'gradient'])
 
 const photoHelpers = load('lib/services/postImages.ts', ['loadPostImages', 'postImageIds', 'uploadPlanningBlock', 'assignUploads', 'ideaForCopy'], { hydrateBrandFamilies: async () => [], familyImagery: study.familyImagery })
-function planner(writeCopy, planAssets) {
+class DesignLibraryError extends Error { constructor(message, status) { super(message); this.status = status } }
+function planner(writeCopy, planAssets, overrides = {}) {
   const nodeRes = { json: (body, init) => ({ body, status: init?.status || 200 }) }
   return load('lib/handlers/postPlanHandler.ts', ['handlePlanPost', 'designPlanningPrompt', 'sanitizeDesignPlan'], {
     NextResponse: nodeRes, corsify: r => r,
@@ -17,9 +18,40 @@ function planner(writeCopy, planAssets) {
     chooseBrandFamily: async (_db, brand) => brand.family ? { family: brand.family, design: { id: 'global-' + brand.family.id } } : null,
     studyForPlanning: study.studyForPlanning, familyGrammar: study.familyGrammar, familyImagery: study.familyImagery, familyCutouts: study.familyCutouts, familyPhotoLed: study.familyPhotoLed,
     writeCopy, copyErrorResponse: (error) => ({ body: { error: error.message }, status: error.status || 500 }), planAssets,
-    ...photoHelpers, listItems: compose.listItems,
+    ...photoHelpers, listItems: compose.listItems, DesignLibraryError,
+    ...overrides,
   })
 }
+
+test('a design picked in the post settings builds the post, and one removed from the brand since falls back to Auto', async () => {
+  const asked = [], planned = [], briefs = []
+  const chooseBrandFamily = async (_db, _brand, _content, designId) => {
+    asked.push(designId)
+    if (designId === 'global-removed') throw new DesignLibraryError('This design is not in the brand’s library.', 404)
+    return { family: noImage, design: { id: designId || 'global-auto' } }
+  }
+  const writeCopy = async (_brand, brief) => {
+    briefs.push(brief)
+    return { copy: { format: 'single', headline: 'Start strong', supportingText: 'One step at a time.', design: { composition: 'statement', image: null } } }
+  }
+  const planAssets = async (_db, { designId }) => { planned.push(designId); return { layoutPlan: { imageMode: 'none' }, designId, slots: [] } }
+  const { handlePlanPost } = planner(writeCopy, planAssets, { chooseBrandFamily })
+
+  const picked = await handlePlanPost({}, { idea: { topic: 'Habits', format: 'single', designId: 'global-picked' }, brandContext: {} })
+  assert.equal(picked.status, 200)
+  assert.deepEqual(asked, ['global-picked'])
+  assert.equal(planned[0], 'global-picked', 'the post is planned with the picked design')
+  assert.equal(briefs[0].designId, undefined, 'the copywriter brief carries no design id')
+
+  asked.length = 0
+  const removed = await handlePlanPost({}, { idea: { topic: 'Habits', format: 'single', designId: 'global-removed' }, brandContext: {} })
+  assert.equal(removed.status, 200, 'a removed design never fails the post')
+  assert.deepEqual(asked, ['global-removed', undefined], 'it is retried on Auto')
+  assert.equal(planned[1], 'global-auto')
+
+  const explicit = await handlePlanPost({}, { idea: { topic: 'Habits' }, designId: 'global-removed', brandContext: {} })
+  assert.equal(explicit.status, 404, 'a design asked for explicitly (Apply design) still reports that it is missing')
+})
 const derivedPlan = family => async (_db, { copy }) => {
   const layout = generation.globalLayoutPlan(family, 'global-' + family.id, copy)
   return { layoutPlan: layout, designId: layout.designId, slots: layout.slots.map(s => ({ slot_id: s.slot_id, needs_visual: s.needs_visual, treatment: s.treatment })) }

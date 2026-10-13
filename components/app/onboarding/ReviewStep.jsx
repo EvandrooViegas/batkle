@@ -38,7 +38,7 @@ export default function ReviewStep({ result, choices, onContinue, onOpenProfile,
 
   return (
     <div>
-      <p className={stepEyebrow}>Step 3 of 3 · Review</p>
+      <p className={stepEyebrow}>Step 3 of 4 · Review</p>
       <h1 ref={headingRef} tabIndex={-1} className={stepHeading}>Here’s what we learned</h1>
       <p className={stepLead}>Check the basics. Services, tone, colours and fonts stay editable in the brand profile.</p>
       {summary && <p className="mt-3 text-[13px] font-semibold text-bk-muted">{summary}</p>}

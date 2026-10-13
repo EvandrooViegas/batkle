@@ -2,6 +2,8 @@ import sharp from 'sharp'
 import { createHash } from 'node:crypto'
 import { Binary } from 'mongodb'
 import { downloadLogo } from './logoBackground'
+import { compactImage } from './imageStorage'
+import { loadUpload } from './uploadCache'
 import type { ResolvedAssetPlan } from '../handlers/assetResolverHandler'
 
 // General subjects, including people and products. Model card:
@@ -15,7 +17,8 @@ export interface SubjectAsset { url: string; width: number; height: number; silh
 
 async function segment(input: Buffer) {
   const { pipeline, RawImage, env } = require('@huggingface/transformers')
-  env.cacheDir = './.cache/huggingface'
+  // Vercel's function files are read-only; only the temp folder can hold the downloaded model.
+  env.cacheDir = process.env.VERCEL ? require('node:path').join(require('node:os').tmpdir(), 'huggingface') : './.cache/huggingface'
   if (!modelPromise) modelPromise = pipeline('background-removal', MODEL, { dtype: 'q8', device: 'cpu' }).catch((error: unknown) => { modelPromise = undefined; throw error })
   const model = await modelPromise
   const image = await RawImage.fromBlob(new Blob([new Uint8Array(input)], { type: 'image/png' }))
@@ -215,11 +218,10 @@ async function sourceBytes(db: any, url: string): Promise<Buffer> {
   const path = new URL(url, 'http://local.invalid').pathname
   const match = path.match(/^\/api\/uploads\/([a-zA-Z0-9-]+)$/)
   if (match) {
-    const upload = await db.collection('uploads').findOne({ id: match[1] })
+    const upload = await loadUpload(db, match[1])
     if (!upload) throw new Error('Source upload missing')
-    const bytes = upload.bytes?.value ? Buffer.from(upload.bytes.value()) : Buffer.from(upload.bytes)
-    if (bytes.length > 6 * 1024 * 1024) throw new Error('Source too large')
-    return bytes
+    if (upload.bytes.length > 6 * 1024 * 1024) throw new Error('Source too large')
+    return upload.bytes
   }
   if (url.startsWith('data:image/')) {
     if (url.length > 8 * 1024 * 1024) throw new Error('Source too large')
@@ -269,14 +271,16 @@ export async function prepareSubjectAssets(db: any, plan: ResolvedAssetPlan): Pr
       try {
         const bytes = await sourceBytes(db, asset.url)
         const id = 'subject-' + createHash('sha256').update(VERSION).update(bytes).digest('hex')
-        const cached = await db.collection('uploads').findOne({ id })
+        // Only the cutout's metadata is needed here, never its bytes.
+        const cached = await db.collection('uploads').findOne({ id }, { projection: { _id: 0, subject: 1 } })
         if (cached?.subject) subject = { url: `/api/uploads/${id}`, width: cached.subject.width, height: cached.subject.height, cropEdges: cached.subject.cropEdges }
         else {
           const cutout = await createSubject(bytes)
           if (!cutout) failures.set(asset.url, "No usable foreground silhouette detected")
           if (cutout) {
+            const stored = await compactImage(cutout.png, 'image/png')
             await db.collection('uploads').updateOne({ id }, { $setOnInsert: {
-              id, contentType: 'image/png', bytes: new Binary(cutout.png), createdAt: new Date(),
+              id, contentType: stored.contentType, bytes: new Binary(stored.bytes), createdAt: new Date(),
               subject: { width: cutout.width, height: cutout.height, cropEdges: cutout.cropEdges, model: MODEL },
             } }, { upsert: true })
             subject = { url: `/api/uploads/${id}`, width: cutout.width, height: cutout.height, cropEdges: cutout.cropEdges }

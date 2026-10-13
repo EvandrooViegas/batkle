@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const { stripTypeScriptTypes } = require('node:module')
 const load = path => stripTypeScriptTypes(fs.readFileSync(path, 'utf8').replace(/^import .*$/gm, '').replace(/export /g, ''))
-const strategy = new Function(load('lib/services/contentLanguage.ts') + load('lib/services/contentAngles.ts') + load('lib/services/ideaRequest.ts') + load('lib/services/postImages.ts') + ';return {contentLanguage,languageIssues,copyTexts,chooseAngle,ideaHistory,topicSimilarity,readIdeaRequest,ideaRequestBlock,formatRule,finalFormat,IDEA_REQUEST_RULE,postImageIds,prepareIdeaImages,postImagesBlock}')()
+const strategy = new Function(load('lib/services/contentLanguage.ts') + load('lib/services/contentAngles.ts') + load('lib/services/ideaRequest.ts') + load('lib/services/postImages.ts') + load('lib/services/copyFacts.ts') + ';return {postLanguage,readSlideCount,slideCountRule,fitOutline,readLanguageChoice,lengthOf,contentLanguage,languageIssues,copyTexts,chooseAngle,ideaHistory,topicSimilarity,readIdeaRequest,ideaRequestBlock,formatRule,finalFormat,IDEA_REQUEST_RULE,postImageIds,prepareIdeaImages,postImagesBlock,inventedFigures,ideaOutline,outlineIssue,recurringSubjects,mentionsSubject,chooseCarouselLength,CAROUSEL_LENGTHS}')()
 const { contentLanguage, languageIssues, chooseAngle, ideaHistory, topicSimilarity, readIdeaRequest } = strategy
 const { EXTRACTED_CONTEXT_RULES } = new Function(load('lib/services/generationBrandContext.ts') + ';return {EXTRACTED_CONTEXT_RULES}')()
 
@@ -142,7 +142,7 @@ test('a typed idea is cleaned and capped, and an unknown format falls back to au
 
 test('a typed idea becomes the subject of the brief, grounded in the brand, and is never rejected as a repeat', async () => {
   const previous = [{ topic: 'Como a Prumo Soalheiro ganhou presença digital na construção civil', pillar: 'Projects / Cases' }]
-  const brief = { ideas: [{ topic: 'Antes e depois: a presença digital da Prumo Soalheiro', hook: 'Da obra para o digital', coreMessage: 'Um caso real da KACHICA.', format: 'single' }] }
+  const brief = { ideas: [{ topic: 'Antes e depois: a presença digital da Prumo Soalheiro', hook: 'Da obra para o digital', coreMessage: 'Um caso real da KACHICA.', format: 'single', outline: ['Capa: o antes e o depois', 'O ponto de partida', 'O que mudou', 'A lição para outras obras'] }] }
   const { run, requests } = handler('contentIdeasHandler', 'handleGenerateContentIdeas', [brief], { creationState: { ideas: previous } })
   const result = await run({ brandContext: { id: 'flow-k' }, userIdea: 'Before and after of the Prumo Soalheiro project', format: 'carousel' })
   assert.equal(result.status, 200)
@@ -169,4 +169,108 @@ test('a suggestion keeps its angle and honours a chosen format', async () => {
   assert.equal(result.body.ideas[0].format, 'single')
   assert.equal(result.body.ideas[0].userRequest, undefined)
   assert.ok(result.body.ideas[0].angle)
+})
+
+test('carousel lengths vary with history instead of always running five slides', () => {
+  const { chooseCarouselLength, CAROUSEL_LENGTHS } = strategy
+  const past = slides => ({ topic: `t${slides}-${Math.random()}`, format: 'carousel', slides })
+  // Problems and solutions can be short, medium or long: a run of medium carousels makes the next one different.
+  assert.notEqual(chooseCarouselLength('Problems and solutions', [past(5), past(6), past(5)]).label, 'medium')
+  assert.equal(chooseCarouselLength('Problems and solutions', [past(3), past(5), past(8)]).label, 'long', 'all used once (newest first): the one used longest ago')
+  // Only lengths that suit the pillar: a company story is never a nine-slide carousel.
+  for (let n = 0; n < 6; n++) assert.notEqual(chooseCarouselLength('Company', Array.from({ length: n }, () => past(3))).label, 'long')
+  assert.deepEqual(CAROUSEL_LENGTHS.short, { label: 'short', min: 3, max: 4, use: CAROUSEL_LENGTHS.short.use })
+  // Over a run of ideas, several different lengths appear.
+  let history = [], seed = 7
+  const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+  const labels = []
+  for (let i = 0; i < 10; i++) {
+    const angle = chooseAngle(brand, history, random)
+    labels.push(angle.length.label)
+    history = [{ topic: angle.facet.label + i, pillar: angle.pillar, format: 'carousel', slides: angle.length.min, angle: { pillar: angle.pillar, facet: angle.facet.label } }, ...history]
+  }
+  assert.ok(new Set(labels).size >= 2, `lengths vary: ${labels.join(', ')}`)
+})
+
+test('history counts slides from an outline or a saved slide count', () => {
+  const history = ideaHistory([{ topic: 'A', outline: ['a', 'b', 'c'] }, { topic: 'B', slides: 7 }, { topic: 'C' }])
+  assert.deepEqual(history.map(i => i.slides), [3, 7, undefined])
+})
+
+test('outlines are cleaned and checked against the chosen length', () => {
+  const { ideaOutline, outlineIssue, CAROUSEL_LENGTHS } = strategy
+  assert.deepEqual(ideaOutline(['  Capa:  o gancho ', '', 42, 'Ponto um', 'Fecho'], 'carousel'), ['Capa: o gancho', 'Ponto um', 'Fecho'])
+  assert.deepEqual(ideaOutline(['a', 'b', 'c'], 'single'), [], 'a single post has no slide plan')
+  assert.equal(ideaOutline(Array.from({ length: 14 }, (_, i) => `s${i}`), 'carousel').length, 10)
+  assert.match(outlineIssue(['a', 'b']), /3-10 lines/)
+  assert.equal(outlineIssue(['a', 'b', 'c', 'd']), null)
+  assert.match(outlineIssue(['a', 'b', 'c', 'd', 'e'], CAROUSEL_LENGTHS.short), /plans 5 slides; this carousel should have 3-4/)
+  assert.equal(outlineIssue(['a', 'b', 'c'], CAROUSEL_LENGTHS.short), null)
+})
+
+test('a suggested carousel is planned slide by slide at the length chosen in code', async () => {
+  const lines = n => Array.from({ length: n }, (_, i) => (i ? `Ponto ${i} sobre automação com IA` : 'Capa: as tarefas que a IA pode tirar da sua equipa'))
+  const brief = n => ({ ideas: [{ topic: 'Como a automação com IA reduz tarefas manuais', hook: 'As tarefas que já não precisa de fazer', coreMessage: 'A IA liberta tempo.', format: 'carousel', outline: lines(n) }] })
+  // First a plan of the wrong length, then one that fits.
+  const { run, requests } = handler('contentIdeasHandler', 'handleGenerateContentIdeas', [brief(12), brief(0)])
+  const probe = await run({ brandContext: { id: 'flow-k' }, format: 'carousel' })
+  const length = requests[0].messages[1].content.match(/- Length if it is a carousel: (\d+)-(\d+) slides/)
+  assert.ok(length, 'the prompt states the length')
+  assert.match(requests[0].messages[0].content, /"outline": For a carousel, the plan of every slide/)
+  assert.match(requests[0].messages[0].content, /never a title or label/)
+  assert.equal(requests.length, 2, 'a ten-line plan outside the length is retried once')
+  assert.match(requests[1].messages[1].content, new RegExp(`plans 10 slides; this carousel should have ${length[1]}-${length[2]}`))
+  assert.equal(probe.status, 200)
+  // A plan inside the range is accepted at once and returned with the idea. The pillar (and so the length) is
+  // chosen at random per request, so the fake model answers with the length its own prompt asks for.
+  let fit = 0
+  const answer = { shift: () => { fit = Number(second.requests.at(-1).messages[1].content.match(/(\d+)-\d+ slides/)[1]); return brief(fit) } }
+  const second = handler('contentIdeasHandler', 'handleGenerateContentIdeas', answer)
+  const result = await second.run({ brandContext: { id: 'flow-k' }, format: 'carousel' })
+  assert.equal(second.requests.length, 1)
+  assert.deepEqual(result.body.ideas[0].outline, lines(fit))
+})
+
+test('a slide count picked in the post settings fixes the carousel length, for suggestions and typed ideas', async () => {
+  const lines = n => Array.from({ length: n }, (_, i) => (i ? `Ponto ${i} sobre automação com IA` : 'Capa: as tarefas que a IA pode tirar da sua equipa'))
+  const brief = n => ({ ideas: [{ topic: 'Como a automação com IA reduz tarefas manuais', hook: 'As tarefas que já não precisa de fazer', coreMessage: 'A IA liberta tempo.', format: 'carousel', outline: lines(n) }] })
+  // A suggestion on Auto: the count makes it a carousel of exactly that length; an outline that overshoots twice is cut.
+  const { run, requests } = handler('contentIdeasHandler', 'handleGenerateContentIdeas', [brief(7), brief(7)])
+  const result = await run({ brandContext: { id: 'flow-k' }, format: 'auto', slides: 5 })
+  assert.equal(result.status, 200)
+  const prompt = requests[0].messages[1].content
+  assert.match(prompt, /- Format: carousel \(required: the user chose 5 slides\)/)
+  assert.match(prompt, /- Length: exactly 5 slides \(required: the user chose it\)/)
+  assert.doesNotMatch(prompt, /Length if it is a carousel/, 'the chosen count replaces the length chosen in code')
+  assert.match(requests[1].messages[1].content, /plans 7 slides; this carousel should have 5-5/)
+  const idea = result.body.ideas[0]
+  assert.equal(idea.format, 'carousel')
+  assert.equal(idea.slideCount, 5)
+  assert.deepEqual(idea.outline, [...lines(7).slice(0, 4), lines(7)[6]], 'cut to five, keeping the closing takeaway')
+
+  // A typed idea gets the same rule.
+  const typed = handler('contentIdeasHandler', 'handleGenerateContentIdeas', [brief(4)])
+  const typedResult = await typed.run({ brandContext: { id: 'flow-k' }, userIdea: 'As tarefas que a IA automatiza', format: 'carousel', slides: 4 })
+  assert.equal(typedResult.status, 200)
+  assert.match(typed.requests[0].messages[1].content, /THE USER'S IDEA[\s\S]*- Length: exactly 4 slides/)
+  assert.equal(typedResult.body.ideas[0].outline.length, 4)
+
+  // A single post ignores a count.
+  const single = handler('contentIdeasHandler', 'handleGenerateContentIdeas', [{ ideas: [{ ...brief(0).ideas[0], format: 'single' }] }])
+  const singleResult = await single.run({ brandContext: { id: 'flow-k' }, format: 'single', slides: 6 })
+  assert.equal(singleResult.status, 200)
+  assert.doesNotMatch(single.requests[0].messages[1].content, /exactly 6 slides/)
+  assert.equal(singleResult.body.ideas[0].format, 'single')
+  assert.equal(singleResult.body.ideas[0].slideCount, undefined)
+})
+
+test('a language picked in the post settings writes the brief in it and travels with the idea', async () => {
+  const brief = { ideas: [{ topic: 'Cómo la automatización con IA reduce las tareas manuales', hook: 'Menos tareas manuales', coreMessage: 'La IA libera tiempo para su equipo.', format: 'single' }] }
+  const { run, requests } = handler('contentIdeasHandler', 'handleGenerateContentIdeas', [brief])
+  const result = await run({ brandContext: { id: 'flow-k' }, format: 'single', language: { language: 'Spanish', languageVariant: 'es-ES' } })
+  assert.equal(result.status, 200)
+  assert.equal(requests.length, 1, 'Spanish wording passes the language check of a Spanish post')
+  assert.match(requests[0].messages[0].content, /OUTPUT LANGUAGE: Spanish \(es-ES\)/)
+  assert.doesNotMatch(requests[0].messages[0].content, /OUTPUT LANGUAGE: Portuguese/, 'the brand language (pt-PT) is replaced, not added')
+  assert.deepEqual(result.body.ideas[0].languageChoice, { language: 'Spanish', languageVariant: 'es-ES' })
 })

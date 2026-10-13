@@ -18,7 +18,7 @@ const LEARNS = [
 export function WebsiteStep({ firstBrand, website, onWebsiteChange, error, onSubmit, onManual, headingRef }) {
   return (
     <div>
-      <p className={stepEyebrow}>Step 1 of 3 · Website</p>
+      <p className={stepEyebrow}>Step 1 of 4 · Website</p>
       <h1 ref={headingRef} tabIndex={-1} className={stepHeading}>{firstBrand ? 'Let’s add your first brand' : 'Add a new brand'}</h1>
       <p className={stepLead}>
         Paste your website. Batkle reads up to five pages and builds a brand profile for you to review and adjust.

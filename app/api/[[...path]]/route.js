@@ -1,5 +1,6 @@
 import { handleGlobalDesignRequest } from '@/lib/handlers/globalDesignHandler'
-import { requireDesignAdmin } from '@/lib/designs/global/admin'
+import { isDesignAdmin, requireDesignAdmin } from '@/lib/designs/global/admin'
+import { publicMessage } from '@/lib/services/publicError'
 import { handleBrandDesigns, handleDeleteBrandDesign } from '@/lib/handlers/brandDesignHandler'
 import { NextResponse } from 'next/server'
 import { connectToMongo } from '@/lib/services/db/mongo'
@@ -8,7 +9,7 @@ import { handleGetCanvases, handleCreateCanvas, handleDuplicateCanvas, handleGet
 import { handleGetGalleries, handleCreateGallery, handleGetGallery, handleUpdateGallery, handleDeleteGallery } from '@/lib/handlers/galleryHandlers'
 import { handleUploadImage, handleGetUpload } from '@/lib/handlers/uploadHandlers'
 import { handleRender, handleGetRendered, handleGetRenders, handleApproveRender, handleDeleteRender } from '@/lib/handlers/renderHandlers'
-import { handleGetFlows, handleCreateFlow, handleGetFlow, handleUpdateFlow, handleDeleteFlow } from '@/lib/handlers/flowHandlers'
+import { handleGetFlows, handleCreateFlow, handleGetFlow, handleUpdateFlow, handleDeleteFlow, handleFlowOpened } from '@/lib/handlers/flowHandlers'
 import { handleExtractBusinessInfo } from '@/lib/handlers/businessInfoHandler'
 import { ensureEnglishBusinessProfile } from '@/lib/services/englishBusinessProfile'
 import { handleGenerateContentIdeas } from '@/lib/handlers/contentIdeasHandler'
@@ -27,7 +28,31 @@ export async function OPTIONS() {
   return corsify(new NextResponse(null, { status: 200 }))
 }
 
-async function handleRoute(request, { params }) {
+/**
+ * Every error leaves the API in words written for people: provider names, keys, billing and model or stack details
+ * are logged here and replaced (see publicMessage). The Design Library admin keeps the full message.
+ */
+async function publicErrors(request, path, response) {
+  if (!(response instanceof Response) || response.status < 400) return response
+  if (!(response.headers.get('content-type') || '').includes('application/json')) return response
+  if (path[0] === 'global-designs' && isDesignAdmin(request)) return response
+  let body
+  try { body = await response.clone().json() } catch { return response }
+  if (!body || typeof body !== 'object' || typeof body.error !== 'string') return response
+  const { raw: _raw, ...rest } = body
+  const error = publicMessage(body.error, response.status)
+  if (error === body.error && !('raw' in body)) return response
+  if (error !== body.error) console.warn(`[api] ${request.method} /${path.join('/')} ${response.status}: "${body.error}" shown as "${error}"`)
+  const headers = new Headers(response.headers)
+  headers.delete('content-length')
+  return new NextResponse(JSON.stringify({ ...rest, error }), { status: response.status, headers })
+}
+
+async function handleRoute(request, context) {
+  return publicErrors(request, context.params?.path || [], await routeRequest(request, context))
+}
+
+async function routeRequest(request, { params }) {
   const { path = [] } = params
   const route = `/${path.join('/')}`
   const method = request.method
@@ -128,7 +153,7 @@ async function handleRoute(request, { params }) {
     // Upload routes
     if (route === '/uploads' && method === 'POST') return await handleUploadImage(db, await request.json(), request)
     const uploadMatch = route.match(/^\/uploads\/([^/]+)$/)
-    if (uploadMatch && method === 'GET') return await handleGetUpload(db, uploadMatch[1])
+    if (uploadMatch && method === 'GET') return await handleGetUpload(db, uploadMatch[1], request)
 
     // Render routes
     if (route === '/render' && method === 'POST') return await handleRender(db, await request.json(), request)
@@ -159,6 +184,8 @@ async function handleRoute(request, { params }) {
       if (method === 'PUT') return await handleUpdateFlow(db, flowMatch[1], await request.json())
       if (method === 'DELETE') return await handleDeleteFlow(db, flowMatch[1])
     }
+    const flowOpenedMatch = route.match(/^\/flows\/([^/]+)\/opened$/)
+    if (flowOpenedMatch && method === 'POST') return await handleFlowOpened(db, flowOpenedMatch[1])
 
     return corsify(NextResponse.json({ error: `Route ${route} not found` }, { status: 404 }))
   } catch (error) {

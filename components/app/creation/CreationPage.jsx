@@ -126,8 +126,8 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
           disabled={locked}
           busy={busy}
           hasIdeas={ideas.length > 0}
-          onCreate={({ request, format, images }) => creation.createIdea({ request, format, images, andBuild: true })}
-          onSuggest={({ format, images }) => creation.createIdea({ format, images })}
+          onCreate={idea => creation.createIdea({ ...idea, andBuild: true })}
+          onSuggest={idea => creation.createIdea(idea)}
         />
 
         {!loaded ? <ListSkeleton /> : (

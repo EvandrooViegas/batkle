@@ -6,12 +6,8 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { ACCEPTED_TYPES, MAX_POST_IMAGES, discardPostImage, imageFiles, uploadPostImage } from '@/lib/client/postImages'
 import { appButton } from '../ui'
+import { AUTO_SETTINGS, PostSettings, languageOption } from './PostSettings'
 
-const FORMATS = [
-  { value: 'auto', label: 'Auto' },
-  { value: 'carousel', label: 'Carousel' },
-  { value: 'single', label: 'Single post' },
-]
 const STARTERS = ['Before and after of a recent project', 'Explain one of our services', 'Meet the team']
 const MAX = 600
 
@@ -125,12 +121,23 @@ function PhotoTile({ photo, onRemove }) {
 }
 
 /**
- * The user's own idea (or none), up to four photos and the post format. "Create idea" writes a brief from the
- * idea, the photos and the brand profile, then builds the post; "Generate another idea" only suggests one.
+ * The user's own idea (or none), up to four photos and the post settings (format, slides, images, design,
+ * language). "Create idea" writes a brief from the idea, the photos and the brand profile, then builds the post;
+ * "Generate another idea" only suggests one.
  */
 export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, onCreate, onSuggest, className = '' }) {
   const [text, setText] = useState('')
-  const [format, setFormat] = useState('auto')
+  const [settings, setSettings] = useState(AUTO_SETTINGS)
+  // The last image choice is remembered on this device; read after mount so the server render always matches.
+  useEffect(() => {
+    try { const saved = localStorage.getItem('bk_image_choice'); if (saved === 'on' || saved === 'off') setSettings(s => ({ ...s, imageChoice: saved })) } catch {}
+  }, [])
+  const changeSettings = next => {
+    if (next.imageChoice !== settings.imageChoice) {
+      try { localStorage.setItem('bk_image_choice', next.imageChoice) } catch {}
+    }
+    setSettings(next)
+  }
   const [dragging, setDragging] = useState(false)
   const input = useRef(null)
   const picker = useRef(null)
@@ -152,21 +159,29 @@ export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, 
 
   // A single post shows one photo, so several photos switch the format to Auto (which makes a carousel).
   useEffect(() => {
-    if (photos.length > 1 && format === 'single') {
-      setFormat('auto')
+    if (photos.length > 1 && settings.format === 'single') {
+      setSettings(s => ({ ...s, format: 'auto' }))
       toast.info('A single post shows one photo, so the format is now Auto.')
     }
-  }, [photos.length, format])
+  }, [photos.length, settings.format])
 
-  const images = () => ready.map(p => p.asset.id)
+  // The settings stay as they are after an idea is made, so several ideas can share them.
+  const request = () => ({
+    format: settings.format,
+    slides: settings.slides,
+    imageChoice: settings.imageChoice,
+    designId: settings.designId,
+    language: languageOption(settings.language),
+    images: ready.map(p => p.asset.id),
+  })
   const create = async () => {
     if (blocked) return
-    const idea = await onCreate({ request: text.trim(), format, images: images() })
+    const idea = await onCreate({ request: text.trim(), ...request() })
     if (idea) { setText(''); release() }
   }
   const suggest = async () => {
     if (blocked) return
-    const idea = await onSuggest({ format, images: images() })
+    const idea = await onSuggest(request())
     if (idea) release()
   }
   const addFiles = files => { if (!disabled) add(files) }
@@ -218,27 +233,7 @@ export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, 
 
         <div className="flex flex-col gap-2.5 px-2 pb-2 pt-2.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            <div role="group" aria-label="Post format" className="inline-flex self-start rounded-lg border border-bk-line bg-bk-surface p-0.5">
-              {FORMATS.map(f => {
-                const unavailable = f.value === 'single' && photos.length > 1
-                return (
-                  <button
-                    key={f.value}
-                    type="button"
-                    aria-pressed={format === f.value}
-                    disabled={disabled || unavailable}
-                    title={unavailable ? 'A single post shows one photo' : undefined}
-                    onClick={() => setFormat(f.value)}
-                    className={cn(
-                      'h-7 rounded-md px-2.5 text-[12.5px] font-bold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg disabled:cursor-not-allowed disabled:opacity-40',
-                      format === f.value ? 'bg-bk-fg text-bk-bg' : 'text-bk-fg hover:bg-bk-alt',
-                    )}
-                  >
-                    {f.label}
-                  </button>
-                )
-              })}
-            </div>
+            <PostSettings value={settings} onChange={changeSettings} brandContext={brandContext} photoCount={photos.length} disabled={disabled} />
             <input
               ref={picker}
               type="file"

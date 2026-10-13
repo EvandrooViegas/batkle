@@ -38,12 +38,12 @@ export async function handleUploadPostImage(db: any, body: any) {
   if (Math.min(width, height) < MIN_SIDE) return error(`Photo too small: use at least ${MIN_SIDE} px on each side.`, 400)
 
   // Relative URLs keep the photo working on any host or port (renderers read /api/uploads/ straight from the database).
-  const { url, thumbnail_url } = await storeImageBytes(db, buf, mime_type, '')
+  const { url, thumbnail_url, mime_type: storedType } = await storeImageBytes(db, buf, mime_type, '')
   const now = new Date()
   const asset: any = {
     id: newAssetId(), brand_id, url, thumbnail_url,
     filename: typeof filename === 'string' && filename.trim() ? filename.trim().slice(0, 200) : 'photo',
-    mime_type, width, height, orientation: width > height ? 'landscape' : height > width ? 'portrait' : 'square',
+    mime_type: storedType, width, height, orientation: width > height ? 'landscape' : height > width ? 'portrait' : 'square',
     source: POST_IMAGE_SOURCE, status: 'ready', tags: [], embedding: [],
     description: '', search_description: '', description_tags: [],
     usage_count: 0, last_used_at: null, created_at: now, updated_at: now,
@@ -54,7 +54,7 @@ export async function handleUploadPostImage(db: any, body: any) {
     Object.assign(asset, { description: seen.description, search_description: seen.description, description_tags: seen.tags, tags: seen.tags })
   } catch (e: any) {
     console.warn('[post-image] description failed:', e?.message || e)
-    asset.description_error = e?.status === 429 ? 'AI quota reached while reading the photo' : 'The photo could not be read'
+    asset.description_error = e?.status === 429 ? 'Batkle was too busy to read this photo just now' : 'Batkle could not read this photo'
   }
   await db.collection('assets').insertOne(asset)
   const { _id, embedding, ...rest } = asset

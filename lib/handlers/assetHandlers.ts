@@ -9,6 +9,7 @@ import sharp from 'sharp'
 import { corsify, getBaseUrl } from '@/lib/services/middleware'
 import { analyseImageBuffer } from '@/lib/services/visionAnalysis'
 import { indexAssetDescription } from '@/lib/services/assetDescription'
+import { compactImage } from '@/lib/services/imageStorage'
 
 // ─── thumbnail ────────────────────────────────────────────────────────────────
 
@@ -37,14 +38,15 @@ export function parseDataUrl(data: string): { mime_type: string; buf: Buffer } |
   return { mime_type, buf: Buffer.from(base64Part, 'base64') }
 }
 
-/** Saves an image and a 400 px JPEG thumbnail; returns their URLs. */
+/** Saves an image (compacted) and a 400 px JPEG thumbnail; returns their URLs and the stored type. */
 export async function storeImageBytes(db: any, buf: Buffer, mime_type: string, baseUrl: string) {
   const uploadId = uuidv4()
   const thumbId  = uuidv4()
   const now      = new Date()
-  await db.collection('uploads').insertOne({ id: uploadId, contentType: mime_type, bytes: new Binary(buf), createdAt: now })
+  const stored   = await compactImage(buf, mime_type)
+  await db.collection('uploads').insertOne({ id: uploadId, contentType: stored.contentType, bytes: new Binary(stored.bytes), createdAt: now })
   await db.collection('uploads').insertOne({ id: thumbId, contentType: 'image/jpeg', bytes: new Binary(await makeThumbnail(buf)), createdAt: now })
-  return { url: `${baseUrl}/api/uploads/${uploadId}`, thumbnail_url: `${baseUrl}/api/uploads/${thumbId}` }
+  return { url: `${baseUrl}/api/uploads/${uploadId}`, thumbnail_url: `${baseUrl}/api/uploads/${thumbId}`, mime_type: stored.contentType }
 }
 
 export function newAssetId() {
@@ -89,7 +91,7 @@ export async function handleUploadAsset(db: any, body: any, request: Request) {
   const assetId     = newAssetId()
   const orientation = calcOrientation(width, height)
   const now         = new Date()
-  const { url, thumbnail_url } = await storeImageBytes(db, buf, mime_type, getBaseUrl(request))
+  const { url, thumbnail_url, mime_type: storedType } = await storeImageBytes(db, buf, mime_type, getBaseUrl(request))
 
   const assetDoc: any = {
     id: assetId,
@@ -98,7 +100,7 @@ export async function handleUploadAsset(db: any, body: any, request: Request) {
     url,
     thumbnail_url,
     filename:    filename || 'image',
-    mime_type,
+    mime_type:   storedType,
     width,
     height,
     orientation,

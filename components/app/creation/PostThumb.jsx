@@ -20,9 +20,8 @@ export function ThumbSkeleton({ className = '' }) {
   return <div aria-hidden="true" className={cn('aspect-[1080/1350] rounded-md motion-safe:animate-pulse', className)} />
 }
 
-/** Link target for a post in the editor. */
-export function editorHref(canvas, idea) {
+/** Link target for a post in the editor; `page` (0-based) opens a carousel on that slide. */
+export function editorHref(canvas, page = 0) {
   if (!canvas?.id) return null
-  const carousel = canvas.type ? canvas.type === 'carousel' : idea?.format === 'carousel'
-  return carousel ? `/carousel/${canvas.id}` : `/editor/${canvas.id}`
+  return page > 0 && canvas.type === 'carousel' ? `/editor/${canvas.id}?slide=${page + 1}` : `/editor/${canvas.id}`
 }

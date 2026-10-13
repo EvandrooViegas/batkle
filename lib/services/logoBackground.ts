@@ -1,6 +1,7 @@
 import sharp from 'sharp'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { loadUpload } from './uploadCache'
 
 const MAX_BYTES = 2 * 1024 * 1024
 
@@ -58,9 +59,9 @@ export async function sampleLogoBackdrop(photo:any,logo:any,db?:any):Promise<str
   const local=photo.src.match(/^\/api\/uploads\/([^/?]+)$/)
   let input:Buffer
   if(local){
-    const upload=await db?.collection('uploads').findOne({id:local[1]})
-    if(!upload?.bytes)throw Error('Background photo upload is missing')
-    input=Buffer.isBuffer(upload.bytes)?upload.bytes:Buffer.from(upload.bytes.buffer)
+    const upload=db?await loadUpload(db,local[1]):null
+    if(!upload)throw Error('Background photo upload is missing')
+    input=upload.bytes
   }else input=photo.src.startsWith('data:image/')?Buffer.from(photo.src.split(',')[1],'base64'):await downloadLogo(photo.src,8*1024*1024)
   const width=Math.round(photo.width),height=Math.round(photo.height)
   const left=Math.max(0,Math.round(logo.x-photo.x)),top=Math.max(0,Math.round(logo.y-photo.y))

@@ -34,7 +34,15 @@ export function resolveBrandTokens(brand: any = {}, family?: GlobalDesignFamily)
 /** Unbranded previews may show the reference look; brand posts never receive it. */
 export const referencePreviewBrand = (family: GlobalDesignFamily) => ({ ...(family.referenceStyle ? { designTokens: family.referenceStyle } : {}), headingFont: family.typography.headingFallback, bodyFont: family.typography.bodyFallback })
 
-const fontFactor = (font: string) => ['Oswald', 'Bebas Neue', 'Anton'].includes(font) ? .82 : ['Playfair Display', 'Dancing Script', 'Pacifico', 'Lobster'].includes(font) ? 1.12 : 1
+// Width of a font against the generic estimate below. Condensed display faces set their capitals far narrower than
+// their lowercase, so capitals get their own factor. Measured in Chrome; like the generic estimate for regular fonts,
+// each still errs about 10% wide, so copy never runs past its box.
+const FONT_WIDTH: Record<string, { lower: number; caps: number }> = {
+  Anton: { lower: .82, caps: .72 },
+  'Bebas Neue': { lower: .68, caps: .6 },
+  Oswald: { lower: .82, caps: .82 },
+}
+const fontFactor = (font: string) => FONT_WIDTH[font] || (['Playfair Display', 'Dancing Script', 'Pacifico', 'Lobster'].includes(font) ? { lower: 1.12, caps: 1.12 } : { lower: 1, caps: 1 })
 
 /** Estimated wrapped line count. Shared by template fitting and the study composer. */
 export function countLines(text: string, size: number, width: number, font: string, letterSpacing = 0): number {
@@ -44,8 +52,14 @@ export function countLines(text: string, size: number, width: number, font: stri
     let used = 0
     lines++
     for (const word of paragraph.split(/\s+/).filter(Boolean)) {
-      const length = [...word].reduce((sum, c) => sum + size * (/[ilI.,'!:;]/.test(c) ? .32 : /[MW@#%]|[^\u0000-\u024f]/.test(c) ? 1 : /[A-Z0-9]/.test(c) ? .74 : .65) * factor + Math.max(0, letterSpacing), 0)
-      const gap = used ? size * .34 * factor : 0
+      // Accented capitals (\u00ca, \u00c1, \u00c7) are as wide as their plain letters. Tracking applies as rendered, tight included
+      // (it narrows the estimate and the real text alike), within a floor.
+      const length = [...word].reduce((sum, c) => {
+        const caps = /[0-9\p{Lu}]/u.test(c)
+        const em = /[ilI.,'!:;]/.test(c) ? .32 : /[MW@#%]|[^\u0000-\u024f]/.test(c) ? 1 : caps ? .74 : .65
+        return sum + size * em * (caps ? factor.caps : factor.lower) + Math.max(-size * .08, letterSpacing)
+      }, 0)
+      const gap = used ? size * .34 * factor.lower : 0
       if (used && used + gap + length > width) { lines++; used = 0 }
       if (length > width) { lines += Math.ceil(length / width) - 1; used = length % width || width }
       else used += (used ? gap : 0) + length
@@ -69,7 +83,8 @@ function fitSize(text: string, node: TemplateNode, resolvedFont: string): number
 }
 
 // Content is text data, never executable inline-style markup supplied by a model.
-export const clean = (value: any) => String(value ?? '').replace(/<%|%>|\{\{|\}\}/g, '').slice(0, 8000)
+// Unicode hyphens (models write "Contacte‑nos" with U+2011) are missing from many brand fonts and render as boxes.
+export const clean = (value: any) => String(value ?? '').replace(/<%|%>|\{\{|\}\}/g, '').replace(/[‐‑]/g, '-').slice(0, 8000)
 export function contentSlots(brand: any, slide: any, index = 0, image = ''): Record<string, string> {
   let website = clean(brand.website || '')
   try { if (website) website = new URL(website).hostname } catch {}

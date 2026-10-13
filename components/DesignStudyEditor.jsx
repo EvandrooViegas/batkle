@@ -9,24 +9,24 @@ export const imageryLabel = mode => IMAGERY_LABELS[mode] || mode
 const POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'none']
 const BLANK_STUDY = { personality: '', composition: '', spaceDensity: '', typography: '', colorContrast: '', colorRoles: { background: '', foreground: '', accent: '', decoration: '' }, decorative: '', hierarchy: '', logoPlacement: '', distinctive: [], familyRules: [], variantRules: [], avoid: [] }
 
-const label = 'text-xs font-semibold uppercase tracking-wide text-muted-foreground'
-const input = 'w-full rounded border bg-background p-2 text-sm'
+const label = 'text-[11px] font-bold uppercase tracking-[0.12em] text-bk-muted'
+const input = 'w-full rounded-lg border border-bk-field bg-bk-surface px-3 py-2 text-[13.5px] text-bk-fg outline-none transition-colors focus:border-bk-fg'
 
 function Text({ title, value, onChange, rows = 2 }) {
   return <label className="block space-y-1"><span className={label}>{title}</span><textarea rows={rows} className={input} value={value || ''} onChange={e => onChange(e.target.value)} /></label>
 }
 function Lines({ title, hint, value, onChange, tone = '' }) {
-  return <label className="block space-y-1"><span className={label}>{title}</span>{hint && <span className="block text-xs text-muted-foreground">{hint}</span>}<textarea rows={4} className={`${input} ${tone}`} value={(value || []).join('\n')} onChange={e => onChange(e.target.value.split('\n').map(s => s.trimStart()).filter((s, i, all) => s || i === all.length - 1).slice(0, 16))} /></label>
+  return <label className="block space-y-1"><span className={label}>{title}</span>{hint && <span className="block text-[12px] text-bk-muted">{hint}</span>}<textarea rows={4} className={`${input} ${tone}`} value={(value || []).join('\n')} onChange={e => onChange(e.target.value.split('\n').map(s => s.trimStart()).filter((s, i, all) => s || i === all.length - 1).slice(0, 16))} /></label>
 }
 function Choice({ title, value, options, onChange, labels = {} }) {
   return <label className="block space-y-1"><span className={label}>{title}</span><select className={input} value={value} onChange={e => onChange(e.target.value)}>{options.map(o => <option key={o} value={o}>{labels[o] || o}</option>)}</select></label>
 }
 function Multi({ title, value, options, onChange, labels = {} }) {
   const toggle = o => { const next = value.includes(o) ? value.filter(v => v !== o) : [...value, o]; if (next.length) onChange(next) }
-  return <fieldset className="space-y-1"><legend className={label}>{title}</legend><div className="flex flex-wrap gap-1.5">{options.map(o => <button type="button" key={o} aria-pressed={value.includes(o)} onClick={() => toggle(o)} className={`rounded-full border px-2.5 py-1 text-xs ${value.includes(o) ? 'border-foreground bg-foreground text-background' : 'text-muted-foreground'}`}>{labels[o] || o}</button>)}</div></fieldset>
+  return <fieldset className="space-y-1"><legend className={label}>{title}</legend><div className="flex flex-wrap gap-1.5">{options.map(o => <button type="button" key={o} aria-pressed={value.includes(o)} onClick={() => toggle(o)} className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold transition-colors ${value.includes(o) ? 'border-bk-fg bg-bk-fg text-bk-bg' : 'border-bk-field text-bk-muted hover:text-bk-fg'}`}>{labels[o] || o}</button>)}</div></fieldset>
 }
 function Section({ title, children }) {
-  return <section className="space-y-3 rounded-lg border p-4"><h4 className="font-medium">{title}</h4>{children}</section>
+  return <section className="space-y-3 rounded-xl border border-bk-line p-4"><h4 className="text-[14px] font-bold">{title}</h4>{children}</section>
 }
 
 /**
@@ -42,8 +42,8 @@ export default function DesignStudyEditor({ family, onChange }) {
   const decorations = g.decorations || []
   const setDecoration = (i, patch) => setGrammar({ decorations: decorations.map((d, j) => j === i ? { ...d, ...patch } : d) })
   return <div aria-label="Design study" className="space-y-4">
-    <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="font-semibold">Design study</h3><span className="text-xs text-muted-foreground">A visual language, not a template. Colors, fonts and logo always come from each brand.</span></div>
-    {!family.study && <p className="rounded-lg bg-muted p-3 text-sm">This family was saved before structured studies. The values below were derived from its layouts; edit and save to keep them, or use “Rebuild from references”.</p>}
+    <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-[16px] font-bold">Design study</h3><span className="text-[12px] text-bk-muted">A visual language, not a template. Colors, fonts and logo always come from each brand.</span></div>
+    {!family.study && <p className="rounded-xl bg-bk-chip p-3 text-[13px]">This family was saved before structured studies. The values below were derived from its layouts; edit and save to keep them, or use “Rebuild from references”.</p>}
     <Section title="Identity">
       <Text title="Personality" value={study.personality} onChange={v => set({ personality: v })} />
       <Lines title="Distinctive characteristics" value={study.distinctive} onChange={v => set({ distinctive: v })} />
@@ -83,7 +83,7 @@ export default function DesignStudyEditor({ family, onChange }) {
           <Choice title="Overlay" value={g.imagery.overlay} options={['none', 'gradient', 'solid']} onChange={v => setGrammar({ imagery: { ...g.imagery, overlay: v } })} />
           <Choice title="Images" value={g.imagery.cutout === 'always' ? 'always' : 'some'} options={['some', 'always']} labels={{ some: 'AI cutouts, up to 20% stock', always: 'AI cutouts only' }} onChange={v => setGrammar({ imagery: { ...g.imagery, cutout: v } })} />
         </div>
-        <p className="text-xs text-muted-foreground">Images are AI-generated transparent PNGs, saved to the brand gallery (a post may reuse one that fits). With “up to 20% stock”, about one image in five is a stock photograph instead; photographs are never AI-generated.</p>
+        <p className="text-[12px] text-bk-muted">Images are AI-generated transparent PNGs, saved to the brand gallery (a post may reuse one that fits). With “up to 20% stock”, about one image in five is a stock photograph instead; photographs are never AI-generated.</p>
         <Multi title="Positions" value={g.imagery.positions} options={['full', 'top', 'bottom', 'left', 'right', 'center']} onChange={v => setGrammar({ imagery: { ...g.imagery, positions: v } })} />
         <div className="grid gap-3 sm:grid-cols-2">{[['usage', 'Usage'], ['placement', 'Placement'], ['cropBehavior', 'Crop'], ['textRelationship', 'Text relationship'], ['overlayTreatment', 'Overlay treatment'], ['frequency', 'Frequency notes']].map(([key, title]) => <Text key={key} title={title} rows={1} value={study.imagery[key]} onChange={v => setImagery({ [key]: v })} />)}</div>
       </>}
@@ -94,7 +94,7 @@ export default function DesignStudyEditor({ family, onChange }) {
     </Section>
     <Section title="Decorative language">
       <Text title="Decoration behaviour" value={study.decorative} onChange={v => set({ decorative: v })} />
-      {decorations.map((d, i) => <div key={i} className="grid items-end gap-2 rounded border p-2 sm:grid-cols-[1fr_1fr_1fr_80px_1fr_auto]">
+      {decorations.map((d, i) => <div key={i} className="grid items-end gap-2 rounded-lg border border-bk-line p-2 sm:grid-cols-[1fr_1fr_1fr_80px_1fr_auto]">
         <Choice title="Element" value={d.kind} options={DECORATION_KINDS} onChange={v => setDecoration(i, { kind: v })} />
         <Choice title="Scale" value={d.scale} options={['small', 'medium', 'large', 'oversized']} onChange={v => setDecoration(i, { scale: v })} />
         <Choice title="Color role" value={d.color} options={['surfaceTone', 'accent', 'foreground']} onChange={v => setDecoration(i, { color: v })} />

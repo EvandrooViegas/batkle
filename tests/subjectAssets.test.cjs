@@ -9,6 +9,7 @@ const service = vm.runInNewContext(stripTypeScriptTypes(source) + '\n({hydrateSu
   require, sharp, Buffer, Blob, Uint8Array, URL, console,
   createHash: require('node:crypto').createHash, Binary: require('mongodb').Binary,
   downloadLogo: async () => { throw new Error('offline fixture') },
+  loadUpload: require('./uploadTestHelpers.cjs').loadUpload, compactImage: require('./uploadTestHelpers.cjs').keepImage,
 })
 async function fixture(background = 'transparent') {
   return sharp(Buffer.from(`<svg width="100" height="120"><rect width="100" height="120" fill="${background}"/><rect x="30" y="20" width="40" height="80" fill="red"/></svg>`)).png().toBuffer()

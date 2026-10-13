@@ -2,7 +2,7 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const source=stripTypeScriptTypes(fs.readFileSync('lib/services/brandLogoVariants.ts','utf8').replace(/^import .*$/gm,'').replace(/export /g,''))
 test('missing variants are generated from uploaded logo and saved once on the brand',async()=>{
  let calls=0,saved
- const ensure=new Function('generateLogoVariants','persistInlineImages',source+';return ensureBrandLogoVariants')(async input=>{calls++;assert.match(input,/^data:image\/png;base64,/);return {source:input,inkLightness:.9,bounds:{x:0,y:0,width:1,height:1},blackTransparent:'black',whiteTransparent:'white'}},async(db,v)=>v)
+ const ensure=new Function('loadUpload','generateLogoVariants','persistInlineImages',source+';return ensureBrandLogoVariants').bind(null,require('./uploadTestHelpers.cjs').loadUpload)(async input=>{calls++;assert.match(input,/^data:image\/png;base64,/);return {source:input,inkLightness:.9,bounds:{x:0,y:0,width:1,height:1},blackTransparent:'black',whiteTransparent:'white'}},async(db,v)=>v)
  const brand={id:'brand-flow',logo:'/api/uploads/logo'}
  const db={collection:name=>name==='uploads'?{findOne:async()=>({contentType:'image/png',bytes:Buffer.from('image')})}:{updateOne:async(query,update)=>{assert.equal(query['brandContext.logo'],brand.logo);saved=update.$set['brandContext.logoVariants']}}}
  const result=await ensure(db,brand)

@@ -30,8 +30,8 @@ function navItems(brandId) {
     { key: 'creation', label: 'Creation', href: `/app/${brandId}/creation`, count: 'creation', Icon: Wand2 },
     { key: 'gallery', label: 'Gallery', href: `/app/${brandId}/gallery`, count: 'gallery', Icon: Images },
     { key: 'brand-information', label: 'Brand profile', href: `/app/${brandId}/brand-information`, Icon: Fingerprint },
-    { key: 'design-library', label: 'Design Library', href: '/design-library', Icon: LayoutTemplate },
-    { key: 'renders', label: 'Renders & API', href: '/renders', Icon: Code2 },
+    { key: 'design-library', label: 'Design Library', href: `/app/${brandId}/design-library`, Icon: LayoutTemplate },
+    { key: 'renders', label: 'Renders & API', href: `/app/${brandId}/renders`, Icon: Code2 },
   ]
 }
 
@@ -65,7 +65,7 @@ function ThemeButton({ compact }) {
 
 function BrandSwitcher({ flows, brand, activeSlug, onDelete, compact }) {
   const router = useRouter()
-  const slug = ['creation', 'gallery', 'brand-information'].includes(activeSlug) ? activeSlug : 'creation'
+  const slug = ['creation', 'gallery', 'brand-information', 'design-library', 'renders'].includes(activeSlug) ? activeSlug : 'creation'
 
   return (
     // Non-modal so opening the delete dialog from a menu item never leaves the page unclickable.
@@ -239,6 +239,11 @@ export default function AppShell({ flows, brand, counts: initialCounts, initialC
 
   const setCount = useCallback((key, value) => setCounts(prev => (prev[key] === value ? prev : { ...prev, [key]: value })), [])
   const context = useMemo(() => ({ setCount }), [setCount])
+
+  // Remember this brand as the last one used: it leads the brand list and /app opens it by default.
+  useEffect(() => {
+    fetch(`/api/flows/${brand.id}/opened`, { method: 'POST', keepalive: true }).catch(() => {})
+  }, [brand.id])
 
   const toggleSidebar = useCallback(() => setCollapsed(value => {
     const next = !value

@@ -134,8 +134,8 @@ function ideasHandler({ outputs, assets = [], families = [{ family: forest }] })
   const fs = require('node:fs')
   const { stripTypeScriptTypes } = require('node:module')
   const src = path => stripTypeScriptTypes(fs.readFileSync(path, 'utf8').replace(/^import .*$/gm, '').replace(/export /g, ''))
-  const helpers = new Function('hydrateBrandFamilies', 'familyImagery', src('lib/services/contentLanguage.ts') + src('lib/services/contentAngles.ts') + src('lib/services/ideaRequest.ts') + src('lib/services/postImages.ts')
-    + ';return {contentLanguage,languageIssues,copyTexts,chooseAngle,ideaHistory,topicSimilarity,readIdeaRequest,ideaRequestBlock,formatRule,finalFormat,IDEA_REQUEST_RULE,postImageIds,prepareIdeaImages,postImagesBlock}')(async () => families, study.familyImagery)
+  const helpers = new Function('hydrateBrandFamilies', 'familyImagery', src('lib/services/contentLanguage.ts') + src('lib/services/contentAngles.ts') + src('lib/services/ideaRequest.ts') + src('lib/services/postImages.ts') + src('lib/services/copyFacts.ts')
+    + ';return {postLanguage,readSlideCount,slideCountRule,fitOutline,readLanguageChoice,lengthOf,contentLanguage,languageIssues,copyTexts,chooseAngle,ideaHistory,topicSimilarity,readIdeaRequest,ideaRequestBlock,formatRule,finalFormat,IDEA_REQUEST_RULE,postImageIds,prepareIdeaImages,postImagesBlock,inventedFigures,ideaOutline,outlineIssue,recurringSubjects,mentionsSubject,chooseCarouselLength,CAROUSEL_LENGTHS}')(async () => families, study.familyImagery)
   const requests = [], updates = []
   const brandProfile = { id: 'k', name: 'KACHICA', language: 'Portuguese', website: 'https://www.kachica.pt/', about: 'Digital marketing agency.', services: ['Website Development — Conversion-focused sites.'], projects: [{ name: 'Barber PH', description: 'Website with booking.' }] }
   const db = { collection: name => name === 'assets'
@@ -149,7 +149,7 @@ function ideasHandler({ outputs, assets = [], families = [{ family: forest }] })
   return { requests, updates, run: body => run(body, db) }
 }
 const uploadDoc = (id, description) => ({ id, brand_id: 'brand_k', source: 'post_upload', url: `/api/uploads/${id}`, thumbnail_url: `/api/uploads/t-${id}`, search_description: description, width: 1600, height: 1200 })
-const brief = { ideas: [{ topic: 'Antes e depois do site da Barber PH', hook: 'Da chamada à reserva online', coreMessage: 'Um caso real da KACHICA.', format: 'single' }] }
+const brief = { ideas: [{ topic: 'Antes e depois do site da Barber PH', hook: 'Da chamada à reserva online', coreMessage: 'Um caso real da KACHICA.', format: 'single', outline: ['Capa: da chamada à reserva online', 'Antes: reservas por telefone', 'Depois: reserva online', 'O que muda para o cliente'] }] }
 
 test('attached photos shape the idea: described in the prompt, a carousel for several, returned with the idea and reserved for it', async () => {
   const assets = [uploadDoc('asset_before111', 'A phone showing an old booking page.'), uploadDoc('asset_after2222', 'A laptop showing a new online booking calendar.')]

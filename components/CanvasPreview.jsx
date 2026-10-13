@@ -82,10 +82,11 @@ export function CanvasPreview({ canvas, containerWidth, onClick, pageIndex = 0 }
       onClick={onClick}
     >
       <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: w, height: canvas.height || 1080, position: 'relative' }}>
-        {nodes.map((n) => {
+        {nodes.filter(n => !n.hidden).map((n) => {
           const base = {
             position: 'absolute', left: n.x, top: n.y, width: n.width, height: n.height,
             transform: n.rotation ? `rotate(${n.rotation}deg)` : undefined,
+            opacity: typeof n.opacity === 'number' && n.opacity < 100 ? n.opacity / 100 : undefined,
             boxSizing: 'border-box',
             display: 'flex', alignItems: 'center',
             justifyContent: n.textAlign === 'center' ? 'center' : n.textAlign === 'right' ? 'flex-end' : 'flex-start',
@@ -97,6 +98,7 @@ export function CanvasPreview({ canvas, containerWidth, onClick, pageIndex = 0 }
               fontStyle: n.fontStyle === 'italic' ? 'italic' : 'normal',
               fontFamily: `'${n.fontFamily || 'Inter'}', sans-serif`,
               lineHeight: n.lineHeight || 1.2, letterSpacing: n.letterSpacing || 0,
+              textTransform: n.textTransform || 'none', textDecoration: n.textDecoration || 'none',
               whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
               textShadow: n.textShadow?.enabled ? `${n.textShadow.offsetX || 0}px ${n.textShadow.offsetY || 0}px ${n.textShadow.blur || 0}px ${n.textShadow.color || '#000'}` : 'none' }
           } else if (n.type === 'shape') {
@@ -122,7 +124,7 @@ export function CanvasPreview({ canvas, containerWidth, onClick, pageIndex = 0 }
           return (
             <div key={n.id} style={style}>
               {n.type === 'text' ? <div style={{width:'100%',display:'block',textAlign:n.textAlign || 'left'}}>{renderStyledText(parseStyledText(n.text || '',classes),createElement,{canvasClasses:classes})}</div> : n.type === 'image' && n.src ? (
-                <img src={n.src} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: n.objectFit || 'cover', filter: buildFilterCssClient(n.filters) }} />
+                <img src={n.src} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: n.objectFit || 'cover', filter: buildFilterCssClient(n.filters), transform: n.flipX || n.flipY ? `scale(${n.flipX ? -1 : 1}, ${n.flipY ? -1 : 1})` : undefined }} />
               ) : null}
             </div>
           )

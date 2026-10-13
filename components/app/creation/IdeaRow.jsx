@@ -10,7 +10,7 @@ import { PostThumb, ThumbSkeleton, editorHref } from './PostThumb'
 export function IdeaRow({ idea, number, status, selecting, selected, onToggle, onPreview, onBuild, onRetry, order = 0 }) {
   const { phase, canvas, steps, error, slides } = status
   const building = phase === 'building'
-  const href = editorHref(canvas, idea)
+  const href = editorHref(canvas)
   const showThumb = !!canvas || building
 
   return (
@@ -66,6 +66,9 @@ export function IdeaRow({ idea, number, status, selecting, selected, onToggle, o
           <p className="flex flex-wrap items-center gap-x-2 text-[12px] font-semibold text-bk-muted">
             {idea.format === 'carousel' ? 'Carousel' : 'Single'}
             {idea.userRequest && <span className="rounded-full bg-bk-chip px-2 py-0.5 text-[11px] font-bold text-bk-fg/80">Your idea</span>}
+            {(idea.imageChoice === 'on' || idea.imageChoice === 'off') && (
+              <span className="rounded-full bg-bk-chip px-2 py-0.5 text-[11px] font-bold text-bk-fg/80">{idea.imageChoice === 'on' ? 'With images' : 'No images'}</span>
+            )}
             {idea.images?.length > 0 && (
               <span className="inline-flex items-center gap-1 rounded-full bg-bk-chip px-2 py-0.5 text-[11px] font-bold text-bk-fg/80">
                 <ImageIcon className="size-3" aria-hidden="true" />

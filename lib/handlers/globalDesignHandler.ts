@@ -6,6 +6,7 @@ import { ADMIN_COOKIE, adminConfigured, validAdminKey, adminSession, isDesignAdm
 import { listGlobalDesigns, getGlobalRecord, saveGlobalDraft, publishGlobalDesign, retireGlobalDesign, hydrateBrandFamilies, DesignLibraryError } from '@/lib/designs/global/store'
 import { analyzeDesignReferences } from '@/lib/designs/global/analyze'
 import { retrySeconds } from '@/lib/services/ai/requestBudget'
+import { compactImage } from '@/lib/services/imageStorage'
 
 export async function handleGlobalDesignRequest(db: any, request: Request, path: string[]) {
   try {
@@ -44,7 +45,8 @@ export async function handleGlobalDesignRequest(db: any, request: Request, path:
       const meta = await sharp(bytes, { limitInputPixels: 40_000_000 }).metadata()
       if (!meta.width || !meta.height) throw new DesignLibraryError('Invalid reference image.')
       const id = randomUUID()
-      await db.collection('uploads').insertOne({ id, bytes: new Binary(bytes), contentType: `image/${match[1]}`, purpose: 'design-reference', createdAt: new Date() })
+      const stored = await compactImage(bytes, `image/${match[1]}`)
+      await db.collection('uploads').insertOne({ id, bytes: new Binary(stored.bytes), contentType: stored.contentType, purpose: 'design-reference', createdAt: new Date() })
       return NextResponse.json({ id, url: `/api/uploads/${id}`, name: String(body.name || 'Reference').slice(0, 200), width: meta.width, height: meta.height })
     }
     if (id === 'analyze' && method === 'POST') return NextResponse.json(await analyzeDesignReferences(db, await request.json()))

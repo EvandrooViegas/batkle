@@ -1,6 +1,6 @@
 import { DesignLibraryError, hydrateBrandFamilies } from './store'
 import { familyImagery, familyGrammar } from './study'
-import { planSlides, composeSlide, imageFrame } from './compose'
+import { planSlides, composeSlide, imageFrame, imageChoiceOf } from './compose'
 import { validatePost } from './validate'
 import type { GlobalDesignFamily } from './types'
 
@@ -40,10 +40,11 @@ const slidesOf = (copy: any) => Array.isArray(copy.slides) && copy.slides.length
  */
 export function globalLayoutPlan(family: GlobalDesignFamily, designId: string, copy: any, brand: any = {}) {
   const slides = slidesOf(copy)
-  const imagery = familyImagery(family), grammar = familyGrammar(family)
+  const imagery = familyImagery(family), grammar = familyGrammar(family), choice = imageChoiceOf(copy)
   const plans = planSlides(family, copy).map((plan, index) => {
     const slide = slides[index], subject = slide?.design?.image?.subject
-    if (plan.withImage || imagery.mode === 'none' || plan.composition === 'backdrop-type' || !subject) return plan
+    // "No images" never adds one; "With images" adds cutouts even to a typography-only study.
+    if (plan.withImage || choice === 'off' || (imagery.mode === 'none' && choice !== 'on') || plan.composition === 'backdrop-type' || !subject) return plan
     try {
       const content = { ...slide, cta: slide.cta || '' }
       const free = composeSlide(family, brand, content, plan, index, slides.length, { preview: true }).free
@@ -86,11 +87,16 @@ export function renderGlobalPost(family: GlobalDesignFamily, brand: any, copy: a
     const resolved = resolvedPlan.slots?.find((s: any) => s.slot_id === slot.slot_id) || resolvedPlan.slots?.[index]
     const asset = resolved?.resolvedAsset
     // A photo slot the resolver filled with a generated cutout is composed as a cutout.
-    const cutout = slot.imageMode === 'cutout' || (slot.needs_visual && resolved?.treatment === 'isolated_subject')
+    const wantsCutout = slot.imageMode === 'cutout' || (slot.needs_visual && resolved?.treatment === 'isolated_subject')
+    // An image whose subject could not be cut out (prepareSubjectAssets says so in the slot warning) is opaque: a studio
+    // shot from a provider without transparency, or a busy photo. Placed like a cutout it reads as a grey box, so it is
+    // framed as a photo card instead; an optional fill cutout is simply left out.
+    const opaque = wantsCutout && !!asset?.url && !asset.subject?.url && /Subject isolation failed/.test(resolved?.warning || '')
+    const cutout = wantsCutout && !opaque
     // A cutout needs a transparent image: an AI PNG, or a photo whose subject was cut out. A photo that could not be
     // cut out is never placed as if it were one.
     const usable = !cutout || !!asset?.subject?.url || asset?.source === 'ai_generated'
-    const image = slot.needs_visual && usable ? (cutout && asset?.subject?.url) || asset?.url || '' : ''
+    const image = slot.needs_visual && usable && !(opaque && slot.plan.fill) ? (cutout && asset?.subject?.url) || asset?.url || '' : ''
     const imageSize = cutout && asset ? (asset.subject?.url ? asset.subject : asset.width && asset.height ? asset : undefined) : undefined
     // A slide shows only its own CTA; the post-level CTA belongs to the caption, not to every last slide.
     const content = { ...slide, cta: slide.cta || '' }
@@ -100,17 +106,30 @@ export function renderGlobalPost(family: GlobalDesignFamily, brand: any, copy: a
     const fill = !!slot.plan.fill
     if (slot.needs_visual && !image && !fill) notes.push(`${slides.length > 1 ? `Slide ${index + 1}: ` : ''}no fitting image was available${resolved?.warning ? ` (${resolved.warning})` : ''}, so it was composed without imagery.`)
     const noFill = { ...slot.plan, withImage: false, cutout: false, fill: false }
-    const base = slot.needs_visual && !image ? (fill ? noFill : { ...slot.plan, withImage: false, cutout: false, composition: textOnly }) : { ...slot.plan, cutout }
+    if (opaque && image) notes.push(`${slides.length > 1 ? `Slide ${index + 1}: ` : ''}the image could not be cut out, so it is shown framed.`)
+    const base = slot.needs_visual && !image ? (fill ? noFill : { ...slot.plan, withImage: false, cutout: false, composition: textOnly }) : { ...slot.plan, cutout, ...(opaque ? { photo: 'card' } : {}) }
     // Fallbacks keep the slide's imagery decision, so the study's image behaviour is never swapped:
     // optional ornaments (logo badge, callout card) give way first, then a calmer composition.
     const plain = { ...base, badge: false, callout: false }
+    // A layout variant (lead number, band, grid, photo card) gives way before the composition does.
+    const classic = { ...plain, variant: 'classic', listStyle: 'rows', photo: 'bleed' }
+    const varied = (base.variant && base.variant !== 'classic') || (base.listStyle && base.listStyle !== 'rows') || (base.photo && base.photo !== 'bleed')
+    // Copy that still does not fit beside its image (long words in a large uppercase headline) gets the whole slide in
+    // the study's text layout. A cutout then stands in the band the copy leaves free, smaller than planned or not at
+    // all; a photograph needs its frame, so it gives way. The copy itself is never cut.
+    const roomy: any = { ...classic, composition: textOnly, anchor: base.imagePos === 'top' ? 'bottom' : 'top', fill: false }
+    const room = slot.needs_visual && image && !fill ? [cutout ? { ...roomy, withImage: true, cutout: true, fill: true } : { ...roomy, withImage: false, cutout: false }] : []
     const attempts = base.fill
-      ? [base, noFill, { ...noFill, badge: false, callout: false, composition: 'statement', anchor: 'center' }]
-      : [base, ...(base.badge || base.callout ? [plain] : []), { ...plain, composition: base.withImage ? 'image-led' : 'statement', anchor: 'center' }]
+      ? [base, noFill, { ...noFill, badge: false, callout: false, variant: 'classic', listStyle: 'rows', composition: 'statement', anchor: 'center' }]
+      : [base, ...(base.badge || base.callout ? [plain] : []), ...(varied ? [classic] : []), { ...classic, composition: base.withImage ? 'image-led' : 'statement', anchor: 'center' }, ...room]
     let lastError: any
     for (const plan of attempts) {
       try {
         const { free, ...page } = composeSlide(family, brand, content, plan, index, slides.length, { image, imageSize })
+        if (room.includes(plan)) {
+          const placed = page.nodes.some((n: any) => n.type === 'image' && n.src === image)
+          notes.push(`${slides.length > 1 ? `Slide ${index + 1}: ` : ''}the copy needed more room than the layout left beside the image, so ${placed ? 'the image was made smaller' : 'it was composed without its image'}.`)
+        }
         return { ...page, nodes: page.nodes.map(n => ({ ...n, id: id() })), id: id(), name: `${index + 1}. ${page.composition}`, order: index, type: index === 0 ? 'top_peer' : index === slides.length - 1 ? 'bottom_peer' : 'content', globalComposition: page.composition }
       } catch (error: any) { if (error.status !== 422) throw error; lastError = error }
     }
