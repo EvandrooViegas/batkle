@@ -2,9 +2,10 @@ const {test}=require('node:test')
 const assert=require('node:assert/strict')
 const fs=require('node:fs')
 const {stripTypeScriptTypes}=require('node:module')
-const {Binary,BSON}=require('mongodb')
+const {BSON}=require('mongodb')
+const {keepImage,saveUpload}=require('./uploadTestHelpers.cjs')
 const source=fs.readFileSync('lib/services/persistInlineImages.ts','utf8').replace(/^import .*$/gm,'').replace(/export /g,'')
-const persist=new Function('createHash','Binary','compactImage',stripTypeScriptTypes(source)+';return persistInlineImages')(require('node:crypto').createHash,Binary,require('./uploadTestHelpers.cjs').keepImage)
+const persist=new Function('createHash','compactImage','saveUpload',stripTypeScriptTypes(source)+';return persistInlineImages')(require('node:crypto').createHash,keepImage,saveUpload)
 test('large duplicated generated images become small persistent references',async()=>{
  const writes=[]
  const db={collection:name=>{assert.equal(name,'uploads');return {findOne:async()=>null,updateOne:async(...args)=>writes.push(args)}}}
@@ -19,6 +20,10 @@ test('large duplicated generated images become small persistent references',asyn
  assert.equal(input.posts[0].asset.url,url)
  assert.equal(result.updatedAt,input.updatedAt)
  assert.equal(writes[0][1].$setOnInsert.bytes.value().length,3*1024*1024)
+ assert.equal(writes[0][1].$setOnInsert.size,3*1024*1024)
+ assert.equal(writes[0][1].$setOnInsert.storage,'mongo')
+ assert.equal(writes[0][1].$setOnInsert.ownerId,undefined,'images inside posts never count against a plan')
+ assert.deepEqual(writes[0][2],{upsert:true})
 })
 test('upload failure propagates rather than saving unusable references',async()=>{
  await assert.rejects(persist({collection:()=>({findOne:async()=>null,updateOne:async()=>{throw Error('storage unavailable')}})},{url:'data:image/png;base64,AQID'}),/storage unavailable/)

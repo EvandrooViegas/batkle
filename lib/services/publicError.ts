@@ -9,7 +9,7 @@ const BUSY = /quota (reached|exceeded)|rate.?limit(ed)?|too many requests|\b429\
 // Missing setup or an exhausted account: nothing the person can do about it.
 const UNAVAILABLE = /\b[A-Z][A-Z0-9]*_(API_)?(KEY|TOKEN|SECRET|MODEL|URL)\b|\bapi[ _-]?key\b|not (set|configured)|\bconfigure\b|environment variable|credits?\b|billing|balance|insufficient_quota|model (permissions|access)|chat models?\b|access denied|\b40[13]\b/i
 // Names and internals of the services Batkle runs on, and programming errors.
-const INTERNAL = /\b(groq|openai|gpt[- ]?image|fal(\.ai)?|flux|pollinations|replicate|hugging ?face|unsplash|pexels|mongo\w*|atlas|satori|resvg|llama|whisper|orpheus)\b|\bHTTP \d{3}\b|\bstatus code\b|\bE(CONN\w+|TIMEDOUT|NOTFOUND|AI_AGAIN)\b|fetch failed|socket|Unexpected token|JSON at position|is not valid JSON|invalid JSON|(Type|Reference|Syntax|Range)Error|Cannot read propert|is not a function|undefined is not|finish_reason|max_tokens|context length|truncated|Empty response from AI|Internal server error/i
+const INTERNAL = /\b(groq|openai|gpt[- ]?image|fal(\.ai)?|flux|pollinations|replicate|hugging ?face|unsplash|pexels|mongo\w*|atlas|satori|resvg|llama|whisper|orpheus|stripe|resend|twilio|cloudflare)\b|\bHTTP \d{3}\b|\bstatus code\b|\bE(CONN\w+|TIMEDOUT|NOTFOUND|AI_AGAIN)\b|fetch failed|socket|Unexpected token|JSON at position|is not valid JSON|invalid JSON|(Type|Reference|Syntax|Range)Error|Cannot read propert|is not a function|undefined is not|finish_reason|max_tokens|context length|truncated|Empty response from AI|Internal server error/i
 
 export const BUSY_MESSAGE = 'Batkle is busy right now. Please try again in a minute.'
 export const UNAVAILABLE_MESSAGE = 'Batkle can’t do this right now. Please try again later.'

@@ -10,6 +10,8 @@ import { BookSection, EmptyHint, GrowingTextarea, ListEditor, paragraphsOf } fro
 import { Popup } from '@/components/app/popup'
 import { appField } from '@/components/app/field'
 import { BrandTile, Eyebrow, Notice, appButton, brandLogo, pageShell, panelClass } from '@/components/app/ui'
+import UpgradeNotice from '@/components/app/billing/UpgradeNotice'
+import { apiError, isBillingCode } from '@/lib/client/billing'
 import { loadEnglishProfile } from '@/lib/client/englishProfile'
 import { cn } from '@/lib/utils'
 
@@ -67,6 +69,8 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
   const [editing, setEditing] = useState({})
   const [aboutExpanded, setAboutExpanded] = useState(false)
   const [activeId, setActiveId] = useState(ORDER[0])
+  // A plan limit that stopped saving a new brand (the plan's brand limit), shown with the way to upgrade.
+  const [limit, setLimit] = useState(null)
   const dirty = useMemo(() => !!extractedData && snapshot(extractedData) !== saved, [extractedData, saved])
 
   // Server-provided data avoids a second request after hydration.
@@ -157,10 +161,7 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url.trim(), flowId }),
       })
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}))
-        throw new Error(error.error || 'The website could not be read')
-      }
+      if (!response.ok) throw apiError(await response.json().catch(() => ({})), response.status, 'The website could not be read')
       const data = await response.json()
       if (data.logoVariantsError) toast.warning(data.logoVariantsError)
       const next = {
@@ -181,7 +182,8 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
       toast.success(`Brand updated from ${data.pagesAnalyzed} pages. ${data.imageImport?.imported || 0} images added to the gallery.`)
       if (data.imageImport?.skipped) toast.warning(`${data.imageImport.skipped} website images could not be imported or were too small.`)
     } catch (error) {
-      toast.error(error.message || 'The website could not be read')
+      if (isBillingCode(error.code)) { setLimit(error); setImportOpen(false) }
+      else toast.error(error.message || 'The website could not be read')
     } finally {
       setLoading(false)
     }
@@ -212,7 +214,7 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: extractedData.name || `Brand ${Date.now()}` }),
         })
-        if (!res.ok) throw new Error('The brand could not be created')
+        if (!res.ok) throw apiError(await res.json().catch(() => ({})), res.status, 'The brand could not be created')
         const newFlow = await res.json()
         targetFlowId = newFlow.id
         onFlowCreated?.(newFlow)
@@ -237,7 +239,8 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
       router.refresh()
       toast.success('Brand profile saved')
     } catch (error) {
-      toast.error(error.message || 'Your changes could not be saved')
+      if (isBillingCode(error.code)) setLimit(error)
+      else toast.error(error.message || 'Your changes could not be saved')
     } finally {
       setSaving(false)
     }
@@ -291,6 +294,7 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
           {toolbar}
           {profileLoading && <div role="status" aria-label="Loading brand profile" className="mt-6 h-64 rounded-[28px] bg-bk-surface motion-safe:animate-pulse" />}
           {translationError && <Notice tone="warning" className="mt-5">{translationError}</Notice>}
+          <UpgradeNotice error={limit} className="mt-5" />
           {!profileLoading && (
             <div className="mt-6 overflow-hidden rounded-[28px] bg-bk-ink px-6 py-14 text-center text-bk-cream sm:px-10">
               <Globe className="mx-auto size-7 opacity-80" aria-hidden="true" />
@@ -337,6 +341,7 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
         {toolbar}
         {translating && <Notice className="mt-5 flex items-center gap-2.5"><Loader2 className="size-4 shrink-0 animate-spin" />Preparing your English business profile…</Notice>}
         {translationError && <Notice tone="warning" className="mt-5">{translationError}</Notice>}
+        <UpgradeNotice error={limit} className="mt-5" />
 
         <header className="relative mt-5 overflow-hidden rounded-[28px] motion-safe:animate-bk-page" style={{ background: `#${fullHex(primary)}`, color: coverInk }}>
           <div className="grid gap-8 p-6 sm:p-10 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">

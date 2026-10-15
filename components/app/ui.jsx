@@ -11,7 +11,7 @@ export const SIDEBAR_COOKIE = 'bk_sidebar'
 export const appLayer = cn('bk-root bk-app font-bk-body text-bk-fg antialiased', batkleFonts)
 
 const buttonBase =
-  'inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg font-bold transition-[background-color,border-color,color,opacity,transform] duration-150 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg'
+  'inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg font-bold transition-[background-color,border-color,color,opacity,transform] duration-150 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 focus-visible:[outline-style:solid] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg'
 
 const buttonVariants = {
   primary: 'bg-bk-butter text-bk-ink hover:bg-[#FFCD24]',
@@ -71,7 +71,7 @@ export function SegmentedTabs({ items, value, onChange, label, className = '' })
           aria-selected={value === key}
           onClick={() => onChange(key)}
           className={cn(
-            'flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg',
+            'flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold transition-colors focus-visible:[outline-style:solid] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg',
             value === key ? 'bg-bk-fg font-bold text-bk-bg' : 'text-bk-fg hover:bg-bk-alt',
           )}
         >

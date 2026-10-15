@@ -3,11 +3,11 @@
  */
 
 import { NextResponse } from 'next/server'
-import { Binary } from 'mongodb'
 import { v4 as uuidv4 } from 'uuid'
 import JSZip from 'jszip'
 import { corsify, getBaseUrl } from '@/lib/services/middleware'
 import { renderCanvasToPng } from '@/lib/renderCanvas'
+import { deleteRender, loadRender, saveRender } from '@/lib/services/uploadStore'
 
 export async function handleRender(db: any, body: any, request: Request) {
   const canvaId = body.canva_id || body.canvas_id || body.canvaId
@@ -80,11 +80,11 @@ async function renderCarousel(db: any, canvas: any, body: any, renderId: string,
   }
 
   const zipBuf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
-  await db.collection('renders').insertOne({
+  await saveRender(db, {
     id: renderId,
     canvasId: canvaId,
     type: 'carousel',
-    zip: new Binary(zipBuf),
+    zip: zipBuf,
     pages: renderResults,
     payload: body,
     approved: false,
@@ -98,11 +98,11 @@ async function renderCarousel(db: any, canvas: any, body: any, renderId: string,
 async function renderSingle(db: any, canvas: any, body: any, renderId: string, baseUrl: string, canvaId: string) {
   const data = body.data || {}
   const png = await renderCanvasToPng(canvas, data)
-  await db.collection('renders').insertOne({
+  await saveRender(db, {
     id: renderId,
     canvasId: canvaId,
     type: 'single',
-    png: new Binary(png),
+    png,
     payload: body,
     approved: false,
     createdAt: new Date(),
@@ -111,37 +111,38 @@ async function renderSingle(db: any, canvas: any, body: any, renderId: string, b
   return corsify(NextResponse.json({ url, render_id: renderId, canva_id: canvaId, type: 'single' }))
 }
 
+/**
+ * Serves a render (a PNG, or a carousel's ZIP). A render never changes, so Vercel's CDN keeps it for a year
+ * (s-maxage) and most downloads never reach storage. A deleted render can stay in the CDN's copy until it expires;
+ * its address is a random ID nobody else knows.
+ */
 export async function handleGetRendered(db: any, id: string) {
-  const r = await db.collection('renders').findOne({ id })
-  if (!r) return corsify(NextResponse.json({ error: 'Not found' }, { status: 404 }))
-
-  if (r.type === 'carousel' && r.zip) {
-    const buf = r.zip && typeof r.zip.value === 'function' ? r.zip.value() : Buffer.from(r.zip)
-    return new NextResponse(buf, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="render-${id}.zip"`,
-        'Cache-Control': 'public, max-age=86400',
-        'Access-Control-Allow-Origin': '*',
-      },
-    })
+  let render
+  try {
+    render = await loadRender(db, id)
+  } catch (error: any) {
+    console.error('[rendered] could not read', id, error?.message || error)
+    return corsify(NextResponse.json({ error: 'This render could not be loaded right now. Please try again.' }, { status: 503 }))
   }
+  if (!render) return corsify(NextResponse.json({ error: 'Not found' }, { status: 404 }))
 
-  const buf = r.png && typeof r.png.value === 'function' ? r.png.value() : Buffer.from(r.png)
-  return new NextResponse(buf, {
+  return new NextResponse(render.bytes, {
     status: 200,
     headers: {
-      'Content-Type': 'image/png',
-      'Cache-Control': 'public, max-age=86400',
+      'Content-Type': render.contentType,
+      ...(render.kind === 'zip' ? { 'Content-Disposition': `attachment; filename="render-${id}.zip"` } : {}),
+      'Cache-Control': 'public, max-age=86400, s-maxage=31536000',
       'Access-Control-Allow-Origin': '*',
     },
   })
 }
 
-export async function handleGetRenders(db: any) {
-  const list = await db.collection('renders').find({}).sort({ createdAt: -1 }).limit(200).toArray()
-  return corsify(NextResponse.json(list.map(({ _id, png, zip, ...rest }: any) => rest)))
+/** Renders belong to the account that owns their post. */
+export async function handleGetRenders(db: any, ownerId: string) {
+  const canvasIds = await db.collection('canvases').distinct('id', { ownerId })
+  // The list never needs the bytes, which older renders still keep in their records.
+  const list = await db.collection('renders').find({ canvasId: { $in: canvasIds } }, { projection: { png: 0, zip: 0 } }).sort({ createdAt: -1 }).limit(200).toArray()
+  return corsify(NextResponse.json(list.map(({ _id, png, zip, key, storage, ...rest }: any) => rest)))
 }
 
 export async function handleApproveRender(db: any, id: string) {
@@ -150,6 +151,6 @@ export async function handleApproveRender(db: any, id: string) {
 }
 
 export async function handleDeleteRender(db: any, id: string) {
-  await db.collection('renders').deleteOne({ id })
+  await deleteRender(db, id)
   return corsify(NextResponse.json({ success: true }))
 }

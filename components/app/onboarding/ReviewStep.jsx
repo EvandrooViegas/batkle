@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertTriangle, ArrowRight, Loader2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react'
 import { researchSummary } from '@/lib/client/onboarding'
 import { appButton } from '../ui'
 import { appField } from '../field'
@@ -11,8 +11,8 @@ const list = value => (Array.isArray(value) ? value : String(value || '').split(
 // "AI Automation — Implementation of…" reads as "AI Automation" in a chip.
 const shortName = text => text.split(/\s+[—–-]\s+|:\s/)[0].slice(0, 48)
 
-/** Step 3: confirm the name and post language; everything else is shown and stays editable later. */
-export default function ReviewStep({ result, choices, onContinue, onOpenProfile, preview, headingRef }) {
+/** Step 3: confirm the name and post language; everything else is shown and stays editable later. `onBack` returns to the website. */
+export default function ReviewStep({ result, choices, onContinue, onOpenProfile, onBack, preview, headingRef }) {
   const { brand } = result
   const [name, setName] = useState(brand.name || '')
   const [language, setLanguage] = useState(choices.selected)
@@ -98,6 +98,11 @@ export default function ReviewStep({ result, choices, onContinue, onOpenProfile,
             {saving === 'profile' && <Loader2 className="size-4 animate-spin" />}
             Edit the full profile
           </button>
+          {onBack && (
+            <button type="button" onClick={onBack} disabled={Boolean(saving)} className={appButton('quiet', 'md', 'h-11 sm:ml-auto')}>
+              <ArrowLeft className="size-4" />Back to website
+            </button>
+          )}
         </div>
       </form>
     </div>

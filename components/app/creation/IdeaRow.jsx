@@ -1,16 +1,24 @@
 'use client'
 
-import { Check, Image as ImageIcon, Loader2, RefreshCw } from 'lucide-react'
+import { CalendarClock, Check, Image as ImageIcon, Loader2, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { appButton } from '../ui'
+import UpgradeNotice from '../billing/UpgradeNotice'
+import { ScheduleLine, approvalAction } from '../schedule/ScheduleStatus'
 import { StageBar } from './StageBar'
 import { PostThumb, ThumbSkeleton, editorHref } from './PostThumb'
 
-/** One idea in the list, with its post thumbnail (click to preview), progress and next action. */
-export function IdeaRow({ idea, number, status, selecting, selected, onToggle, onPreview, onBuild, onRetry, order = 0 }) {
+/**
+ * One idea in the list, with its post thumbnail (click to preview), progress and next action. A ready post shows
+ * its approval step (`approval`: { state, entry }): approve, schedule or edit its schedule. A build stopped by a plan
+ * limit (`limit`, from useCreation's limitOf) offers the upgrade instead of a retry.
+ */
+export function IdeaRow({ idea, number, status, approval, onApproval, selecting, selected, onToggle, onPreview, onBuild, onRetry, limit = null, order = 0 }) {
   const { phase, canvas, steps, error, slides } = status
   const building = phase === 'building'
   const href = editorHref(canvas)
+  const action = phase === 'ready' && approval ? approvalAction(approval.state) : null
+  const unapproved = !approval || approval.state === 'unapproved'
   const showThumb = !!canvas || building
 
   return (
@@ -79,7 +87,10 @@ export function IdeaRow({ idea, number, status, selecting, selected, onToggle, o
           <h3 className="mt-1 font-bk-display text-[15px] font-bold leading-snug tracking-[-0.015em]">{idea.topic}</h3>
           {idea.hook && <p className="mt-1 line-clamp-2 text-[13px] italic leading-relaxed text-bk-muted">“{idea.hook}”</p>}
           <StageBar steps={steps} className="mt-3" />
-          {phase === 'failed' && error && <p className="mt-1.5 line-clamp-2 text-[12px] text-[#C2412F] dark:text-[#F0826F]">{error}</p>}
+          {phase === 'ready' && !unapproved && <ScheduleLine state={approval.state} entry={approval.entry} className="mt-2" />}
+          {phase === 'failed' && (limit
+            ? <UpgradeNotice error={limit} compact className="mt-2" />
+            : error && <p className="mt-1.5 line-clamp-2 text-[12px] text-[#C2412F] dark:text-[#F0826F]">{error}</p>)}
         </div>
       </div>
 
@@ -91,11 +102,16 @@ export function IdeaRow({ idea, number, status, selecting, selected, onToggle, o
         )}
         {phase === 'ready' && (
           <>
-            <span className="text-[12.5px] font-bold text-[#1E8A5A] dark:text-[#4CC38A]">Post ready</span>
+            {unapproved && <span className="text-[12.5px] font-bold text-[#1E8A5A] dark:text-[#4CC38A]">Post ready</span>}
+            {action && (
+              <button type="button" onClick={onApproval} className={appButton(['unapproved', 'changed', 'approved'].includes(approval?.state ?? 'unapproved') ? 'primary' : 'outline', 'md')}>
+                {action.kind === 'approve' ? <Check className="size-3.5" strokeWidth={3} /> : <CalendarClock className="size-3.5" />}{action.label}
+              </button>
+            )}
             {href && <a href={href} target="_blank" rel="noopener noreferrer" className={appButton('outline', 'md')}>Open in editor</a>}
           </>
         )}
-        {phase === 'failed' && (
+        {phase === 'failed' && !limit && (
           <>
             <span className="text-[12.5px] font-bold text-[#C2412F] dark:text-[#F0826F]">Couldn&apos;t finish</span>
             <button type="button" onClick={onRetry} className={appButton('outline', 'md')}><RefreshCw className="size-3.5" />Retry</button>

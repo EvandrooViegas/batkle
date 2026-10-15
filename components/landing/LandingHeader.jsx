@@ -2,16 +2,20 @@
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
+import { useAuth } from '@clerk/nextjs'
 import { Menu, Moon, Sun, X } from 'lucide-react'
 import { BatkleLogo, Container, buttonClass, cn } from './brand'
 
+// Full paths, so the section links also work from the other pages that share this header (such as /developers).
 export const NAV_LINKS = [
-  { href: '#how-it-works', label: 'How it works' },
-  { href: '#demo', label: 'Demo' },
-  { href: '#features', label: 'Features' },
-  { href: '#pricing', label: 'Pricing' },
-  { href: '#faq', label: 'FAQ' },
+  { href: '/#how-it-works', label: 'How it works' },
+  { href: '/#demo', label: 'Demo' },
+  { href: '/#features', label: 'Features' },
+  { href: '/#pricing', label: 'Pricing' },
+  { href: '/#faq', label: 'FAQ' },
+  { href: '/developers', label: 'Developers' },
 ]
 
 const iconButton =
@@ -64,6 +68,11 @@ function ThemeToggle() {
 
 export default function LandingHeader() {
   const [open, setOpen] = useState(false)
+  // Until Clerk has loaded, show what a visitor sees; most people here are not signed in yet.
+  const { isSignedIn } = useAuth()
+  const startLabel = isSignedIn ? 'Open app' : 'Add your brand'
+  const pathname = usePathname()
+  const current = (href) => (href === pathname ? 'page' : undefined)
 
   useEffect(() => {
     if (!open) return
@@ -85,12 +94,13 @@ export default function LandingHeader() {
         </Link>
 
         <nav aria-label="Main" className="hidden lg:block">
-          <ul className="flex items-center gap-1 lg:gap-3">
+          <ul className="flex items-center gap-0.5 xl:gap-3">
             {NAV_LINKS.map((l) => (
               <li key={l.href}>
                 <Link
                   href={l.href}
-                  className="relative rounded-md px-2.5 py-2 text-[15px] font-medium text-bk-fg/85 transition-colors after:absolute after:inset-x-2.5 after:bottom-0.5 after:h-[3px] after:origin-left after:scale-x-0 after:rounded-full after:bg-bk-butter after:transition-transform after:duration-300 hover:text-bk-fg hover:after:scale-x-100"
+                  aria-current={current(l.href)}
+                  className="relative rounded-md px-2 py-2 text-[15px] font-medium text-bk-fg/85 transition-colors after:absolute after:inset-x-2 after:bottom-0.5 after:h-[3px] after:origin-left after:scale-x-0 after:rounded-full after:bg-bk-butter after:transition-transform after:duration-300 hover:text-bk-fg hover:after:scale-x-100 aria-[current=page]:font-semibold aria-[current=page]:text-bk-fg aria-[current=page]:after:scale-x-100 xl:px-2.5 xl:after:inset-x-2.5"
                 >
                   {l.label}
                 </Link>
@@ -101,8 +111,16 @@ export default function LandingHeader() {
 
         <div className="flex items-center gap-2.5">
           <ThemeToggle />
+          {!isSignedIn && (
+            <Link
+              href="/sign-in"
+              className="hidden rounded-md px-2.5 py-2 text-[15px] font-semibold text-bk-fg/85 transition-colors hover:text-bk-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-bk-fg sm:inline-block"
+            >
+              Sign in
+            </Link>
+          )}
           <Link href="/app" className={buttonClass('primary', 'sm', 'hidden sm:inline-flex')}>
-            Add your brand
+            {startLabel}
           </Link>
           <button
             type="button"
@@ -129,7 +147,8 @@ export default function LandingHeader() {
                 <Link
                   href={l.href}
                   onClick={() => setOpen(false)}
-                  className="block border-b border-bk-line py-3.5 text-[17px] font-semibold text-bk-fg"
+                  aria-current={current(l.href)}
+                  className="block border-b border-bk-line py-3.5 text-[17px] font-semibold text-bk-fg aria-[current=page]:underline aria-[current=page]:decoration-bk-butter aria-[current=page]:decoration-[3px] aria-[current=page]:underline-offset-8"
                 >
                   {l.label}
                 </Link>
@@ -137,8 +156,13 @@ export default function LandingHeader() {
             ))}
           </ul>
           <Link href="/app" className={buttonClass('primary', 'md', 'mb-2 mt-4 w-full sm:hidden')}>
-            Add your brand
+            {startLabel}
           </Link>
+          {!isSignedIn && (
+            <Link href="/sign-in" className={buttonClass('outline', 'md', 'mb-2 w-full sm:hidden')}>
+              Sign in
+            </Link>
+          )}
         </Container>
       </div>
     </header>

@@ -64,13 +64,13 @@ For every idea, return the following fields:
 
 "topic": The specific subject of the post. Must be specific enough that another AI can write the complete post without guessing.
 
-"hook": The cover line that makes the viewer stop scrolling and keep reading. 3-10 words. It opens a question the post answers: a specific promise, a common mistake, a question the audience already has, or a surprising truth from the brand information. It is never a title or label ("Our methodology", "About us") and never clickbait: the post must deliver what it promises.
+"hook": The headline that makes the right reader stop: 5-14 words, concise and direct, so the target audience knows in one second that the post is for them and everyone else scrolls on. It names who the post is for, or a moment they live, a mistake they make or a belief they hold, with one concrete detail (a real action, place, word or month) rather than abstractions. Shapes that work: call out the reader and their situation ("Landlords who heard about the leak from the tenant downstairs"), a scene they know ("POV: the kitchen renovation was meant to take three weeks. It's month four."), correcting a belief ("A bigger website is not a better website."), naming the struggle and siding with the reader ("No time to cook on weeknights? Makes sense."), the costly mistake ("The most expensive renovation mistake: choosing the tiles before the plan."), or a specific promise the post delivers. These examples come from other businesses and only show the shape: never reuse their words; write the hook in the output language about this brand. It is never a title or label ("Our methodology", "About us") and never clickbait: the post must deliver what it promises.
 
 "coreMessage": The ONE main idea the audience should understand after seeing the post. 1-3 sentences. Do not write the full post here.
 
-"outline": For a carousel, the plan of every slide in order: one short line per slide saying what that slide covers (not its final wording). The first line is the cover hook, the last is the takeaway that answers it, and every line in between is ONE point on the same topic that moves the story forward, so the whole carousel stays on one subject. The number of lines comes from the material: 3-4 for one sharp insight, 5-6 for an explanation, 7-10 for a process, checklist or story. Never pad to a fixed count. For a single post, return an empty array.
+"outline": For a carousel, the plan of every slide in order: one short line per slide saying what that slide covers (not its final wording). The first line is the cover hook, the last is the closing slide (the takeaway that answers the hook, plus the reader's next step in a few words, such as sending a message, saving or sharing), and every line in between is ONE point on the same topic that moves the story forward, so the whole carousel stays on one subject. The number of lines comes from the material: 3-4 for one sharp insight, 5-6 for an explanation, 7-10 for a process, checklist or story. Never pad to a fixed count. For a single post, return an empty array.
 
-"targetAudience": Who this specific post is for. Be specific.
+"targetAudience": Who this specific post is for, in the reader's own terms and situation (for example "shop owners who post on Instagram when they find the time"), specific enough that the hook can speak to them directly.
 
 "visualDirection": How the content could be visually communicated. Describe the visual approach type, not exact positions or dimensions.
 
@@ -135,9 +135,9 @@ const IDEA_JSON_SHAPE = `Return exactly this JSON structure:
       "objective": "Educate potential clients about an important problem",
       "format": "carousel",
       "topic": "Specific topic of the post",
-      "hook": "Cover line that makes the viewer keep reading",
+      "hook": "Headline that tells the target reader at once the post is for them",
       "coreMessage": "The main idea the audience should understand",
-      "outline": ["Cover: the hook", "One point on the same topic", "The next point", "Takeaway that answers the hook"],
+      "outline": ["Cover: the hook", "One point on the same topic", "The next point", "Closing: the takeaway that answers the hook, and the next step"],
       "targetAudience": "Specific audience for this post",
       "visualDirection": "Suggested visual approach"
     }

@@ -1,4 +1,5 @@
 import { getFlows } from '@/lib/data/flows'
+import { requireOnboardedAccount } from '@/lib/auth'
 import StandaloneShell from '@/components/app/StandaloneShell'
 import StudioBoard from '@/components/StudioBoard'
 
@@ -8,6 +9,7 @@ export const metadata = { title: 'Studio · Batkle' }
 
 /** Every design in the account, grouped by the brand it belongs to. */
 export default async function StudioPage() {
+  await requireOnboardedAccount('/studio')
   const flows = await getFlows()
   return (
     <StandaloneShell>

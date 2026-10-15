@@ -9,8 +9,10 @@ function privateAddress(address: string): boolean {
     (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)
 }
 
+const ACCEPT = { html: 'text/html', image: 'image/*', css: 'text/css,*/*;q=0.1' }
+
 /** Bounded public HTTP fetch. Validate and pin DNS on every redirect. */
-export async function fetchWebsiteResource(input: string, kind: 'html' | 'image' = 'html', origin?: string) {
+export async function fetchWebsiteResource(input: string, kind: 'html' | 'image' | 'css' = 'html', origin?: string) {
   let url = new URL(input)
   for (let redirect = 0; redirect <= 3; redirect++) {
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || (url.port && !['80', '443'].includes(url.port))) throw Error('Unsupported website URL')
@@ -25,7 +27,7 @@ export async function fetchWebsiteResource(input: string, kind: 'html' | 'image'
       lookup: (_host: any, options: any, callback: any) => options?.all
         ? callback(null, addresses)
         : callback(null, addresses[0].address, addresses[0].family),
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BrandWebsiteResearch/1.0)', Accept: kind === 'html' ? 'text/html' : 'image/*' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BrandWebsiteResearch/1.0)', Accept: ACCEPT[kind] },
       validateStatus: status => status >= 200 && status < 400,
     } as any)
     if (response.status >= 300) {
@@ -36,6 +38,8 @@ export async function fetchWebsiteResource(input: string, kind: 'html' | 'image'
     const contentType = String(response.headers['content-type'] || '')
     if (kind === 'html' && !/text\/html|application\/xhtml/i.test(contentType)) throw Error('Page is not HTML')
     if (kind === 'image' && !/^image\//i.test(contentType)) throw Error('Resource is not an image')
+    // Servers label stylesheets loosely; an HTML body here is an error page.
+    if (kind === 'css' && /text\/html|^image\//i.test(contentType)) throw Error('Resource is not a stylesheet')
     return { url: url.href, bytes: Buffer.from(response.data), contentType }
   }
   throw Error('Could not fetch website')

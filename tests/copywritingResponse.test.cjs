@@ -4,7 +4,7 @@ const {stripTypeScriptTypes} = require('node:module')
 const source = stripTypeScriptTypes(require('node:fs').readFileSync('lib/handlers/copywritingHandler.ts','utf8').replace(/^import .*$/gm,'').replace(/export /g,''))
 const valid = {format:'single',headline:'Supported headline',caption:'Supported caption'}
 const strategyLoad = p => stripTypeScriptTypes(require('node:fs').readFileSync(p,'utf8').replace(/^import .*$/gm,'').replace(/export /g,''))
-const strategy = new Function(strategyLoad('lib/services/contentLanguage.ts') + strategyLoad('lib/services/copyFacts.ts') + strategyLoad('lib/services/contentAngles.ts') + ';return {postLanguage,contentLanguage,languageIssues,copyTexts,inventedFigures,mentionsSubject}')()
+const strategy = new Function(strategyLoad('lib/services/contentLanguage.ts') + strategyLoad('lib/services/copyFacts.ts') + strategyLoad('lib/services/contentAngles.ts') + ';return {postLanguage,contentLanguage,languageIssues,copyTexts,withModernSpelling,inventedFigures,mentionsSubject}')()
 function setup(outputs, catalog = ['canopylabs/orpheus-v1-english','llama-3.3-70b-versatile'], idea = {format:'single'}) {
  const requests=[]
  const run = new Function('Groq','process','loadGenerationBrandContext','EXTRACTED_CONTEXT_RULES','compactBrand','budgetedModels','budgetedCompletion','NextResponse','corsify','cleanCopy','retrySeconds',...Object.keys(strategy),source+';return handleGenerateCopywriting')(
@@ -18,18 +18,18 @@ test('regenerates malformed JSON once using the original brief',async()=>{
  const {run,requests}=setup(['{ headline: "Example", slides: [], Please return valid JSON',valid]);assert.equal((await run()).status,200);assert.equal(requests.length,2);assert.equal(requests[1].max_tokens,4800);assert.match(requests[1].messages[1].content,/CONTENT BRIEF/)
 })
 test('regenerates a wordy carousel cover as a short hook and teaser',async()=>{
- const wordy={format:'carousel',slides:[{headline:'A civil construction company can and should also win the digital game',body:'Explanation on the cover',cta:''},{headline:'Start here',body:'Details',cta:''}],caption:'Caption'}
+ const wordy={format:'carousel',slides:[{headline:'A civil construction company can and really should also win the digital game this year, and here is exactly why',body:'Explanation on the cover',cta:''},{headline:'Start here',body:'Details',cta:''}],caption:'Caption'}
  const concise={format:'carousel',slides:[{headline:'Build beyond the jobsite',body:'See what is holding your growth back.',cta:''},{headline:'Start here',body:'Details',cta:''}],caption:'Caption'}
  const {run,requests}=setup([wordy,concise],undefined,{format:'carousel'})
  const result=await run();assert.equal(result.status,200);assert.equal(requests.length,2)
  assert.equal(result.body.slides[0].headline,'Build beyond the jobsite');assert.equal(result.body.slides[0].body,'See what is holding your growth back.')
- assert.match(requests[1].messages[1].content,/maximum is 10|teaser/)
+ assert.match(requests[1].messages[1].content,/maximum is 14/)
 })
 test('rejects invalid output after a bounded retry without returning raw model text',async()=>{
  const {run,requests}=setup(['invalid','null']);const result=await run();assert.equal(result.status,502);assert.equal(requests.length,2);assert.equal(result.body.raw,undefined)
  assert.match(result.body.error,/\(Expected a copywriting object\)/,'the reason is reported')
 })
-const wordyCover={format:'carousel',slides:[{headline:'A civil construction company can and should also win the digital game',body:'See why',cta:''},{headline:'Start here',body:'Details',cta:''}],caption:'Caption'}
+const wordyCover={format:'carousel',slides:[{headline:'A civil construction company can and really should also win the digital game this year, and here is exactly why',body:'See why',cta:''},{headline:'Start here',body:'Details',cta:''}],caption:'Caption'}
 test('keeps the complete first draft when the corrective retry is rate limited',async()=>{
  const {run,requests}=setup([wordyCover,Object.assign(new Error('quota'),{status:429})],undefined,{format:'carousel'})
  const result=await run();assert.equal(result.status,200);assert.equal(requests.length,2);assert.equal(result.body.slides[0].headline,wordyCover.slides[0].headline)
@@ -101,9 +101,64 @@ test('a carousel that matches its outline is accepted at once, and without an ou
 test('the cover is briefed as a hook that makes people swipe, and the slides stay on its subject',async()=>{
  const {run,requests}=setup([valid]);await run()
  const system=requests[0].messages[0].content
- assert.match(system,/THE COVER \(slide 1\) has one job: make the viewer stop and swipe\. Its headline is the hook, not a title\./)
+ assert.match(system,/THE COVER \(slide 1\) has one job: make the right viewer stop and swipe\./)
+ assert.match(system,/THE HEADLINE .* is the hook/)
+ // The headline picks its reader at once; the call to action is a few words; the single post's label is not a sentence.
+ assert.match(system,/know in one second that the post is for them/)
+ assert.match(system,/1–3 words, never more than 4/)
+ assert.match(system,/1–3 word label shown small and in capitals above the headline/)
  assert.match(system,/Never a label or topic name/)
  assert.match(system,/Every slide stays on the cover's exact subject/)
  assert.match(system,/deliver exactly that number/)
  assert.match(system,/Never default to five and never pad/)
+})
+
+// The graphic is read in a second: a long headline, a sentence where the small label goes, or a long call to action
+// gets one corrective retry, and the shorter rewrite is the one kept.
+test('a single post with a long headline, a sentence for a label or a long call to action is rewritten once, shorter', async () => {
+  const long = { format: 'single', headline: 'Business owners who have already paid to promote a post on Facebook and then sold absolutely nothing at all', subheadline: 'A short sentence that explains the headline', supportingText: 'Likes do not pay the bills.', cta: 'Send us a message to find out how we can help', caption: 'Caption' }
+  const tight = { format: 'single', headline: 'Business owners who paid to boost a post and sold nothing', subheadline: 'For you', supportingText: 'Likes do not pay the bills.', cta: 'Talk to us', caption: 'Caption' }
+  const { run, requests } = setup([long, tight])
+  const result = await run()
+  assert.equal(result.status, 200)
+  assert.equal(requests.length, 2)
+  const feedback = requests[1].messages[1].content
+  assert.match(feedback, /headline has 19 words; maximum is 14/)
+  assert.match(feedback, /small label above the headline: 1–3 words/)
+  assert.match(feedback, /call to action has 11 words; use 1–3/)
+  assert.equal(result.body.headline, tight.headline)
+  assert.equal(result.body.cta, 'Talk to us')
+})
+
+test('a carousel closing call to action of more than four words is rewritten once; an empty cover body is fine', async () => {
+  const slides = cta => [
+    { slideNumber: 1, purpose: 'hook', headline: 'No time for social media? Makes sense.', body: '', cta: '' },
+    { slideNumber: 2, purpose: 'explanation', headline: 'One post a week is enough', body: 'Consistency beats volume.', cta: '' },
+    { slideNumber: 3, purpose: 'closing', headline: 'Start with one post', body: '', cta },
+  ]
+  const wordy = { format: 'carousel', slides: slides('Send us a direct message today so we can help'), caption: 'Caption' }
+  const short = { format: 'carousel', slides: slides('Send a DM'), caption: 'Caption' }
+  const { run, requests } = setup([wordy, short], undefined, { format: 'carousel' })
+  const result = await run()
+  assert.equal(requests.length, 2)
+  assert.match(requests[1].messages[1].content, /closing slide's call to action has 10 words; use 1–3/)
+  assert.doesNotMatch(requests[1].messages[1].content, /cover body/, 'an empty cover body is not a problem')
+  assert.equal(result.body.slides.at(-1).cta, 'Send a DM')
+
+  // Short copy with an empty cover body needs no second call.
+  const clean = setup([short], undefined, { format: 'carousel' })
+  assert.equal((await clean.run()).status, 200)
+  assert.equal(clean.requests.length, 1)
+})
+
+test('a closing headline that repeats the call to action at its end keeps only the payoff', () => {
+  const { withoutTrailingCta } = new Function(source + ';return { withoutTrailingCta }')()
+  assert.equal(withoutTrailingCta('Não desperdice dinheiro – fale connosco'), 'Não desperdice dinheiro')
+  assert.equal(withoutTrailingCta('Pare de desperdiçar dinheiro, fale connosco.'), 'Pare de desperdiçar dinheiro')
+  assert.equal(withoutTrailingCta('Atualize, alinhe e responda – contacte-nos'), 'Atualize, alinhe e responda')
+  assert.equal(withoutTrailingCta('Stop guessing — talk to us'), 'Stop guessing')
+  // Nothing to cut, or too little would be left: the headline stays as written.
+  assert.equal(withoutTrailingCta('Reative o seu Instagram hoje'), 'Reative o seu Instagram hoje')
+  assert.equal(withoutTrailingCta('Pronto – fale connosco'), 'Pronto – fale connosco')
+  assert.equal(withoutTrailingCta('Fale connosco sobre o seu projeto'), 'Fale connosco sobre o seu projeto')
 })

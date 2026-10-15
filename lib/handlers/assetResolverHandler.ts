@@ -1,4 +1,6 @@
 import { hasWatermarkMetadata } from './assetPlannerHandler'
+import { billingErrorBody, findCharge, imageQualityFor, refundCharge } from '@/lib/billing/account'
+import type { ImageQuality } from '@/lib/billing/plans'
 import { persistInlineImages } from '@/lib/services/persistInlineImages'
 import { findGeneratedAsset, saveGeneratedAsset } from '@/lib/services/generatedAssetLibrary'
 /**
@@ -340,8 +342,10 @@ async function plannedGalleryCutout(db: any, brand_id: string, id: string | unde
 /**
  * AI images are only ever transparent cutouts. Order: the planned gallery cutout, a saved cutout that matches the
  * subject, then exactly one generation (saved to the gallery afterwards). `note` explains a photo-slot fallback.
+ * `quality` is the plan's: 'high' generates with OpenAI first; 'standard' (Free) goes straight to fal, then
+ * Pollinations.
  */
-async function resolveCutout(db: any, slot: VisualSlot, brand_id: string | null, usedPhotoIds: Set<string>, base: Omit<ResolvedSlot, 'resolvedAsset' | 'warning'>, note: string | null = null): Promise<ResolvedSlot> {
+async function resolveCutout(db: any, slot: VisualSlot, brand_id: string | null, usedPhotoIds: Set<string>, base: Omit<ResolvedSlot, 'resolvedAsset' | 'warning'>, note: string | null = null, quality: ImageQuality = 'high'): Promise<ResolvedSlot> {
   const cutoutBase = { ...base, treatment: 'isolated_subject' as const, source: 'ai_generated' as const }
   const subjectSlot = { ...slot, treatment: 'isolated_subject' as const }
   if (brand_id && db) {
@@ -351,28 +355,34 @@ async function resolveCutout(db: any, slot: VisualSlot, brand_id: string | null,
     } catch (error) { console.warn('[resolver] Generated library search unavailable:', (error as Error).message) }
   }
   // One generation only: the image is never regenerated for quality.
+  const high = quality !== 'standard'
   let failure = 'AI image generation returned no image'
-  try {
-    const asset = await generateImage(buildGenerationBrief(subjectSlot, true), slot.frame_aspect)
-    if (asset) {
-      if (usedPhotoIds.has(asset.url)) return { ...cutoutBase, resolvedAsset: null, warning: 'Duplicate image omitted; no additional generation was requested.' }
-      usedPhotoIds.add(asset.url)
-      return { ...cutoutBase, resolvedAsset: asset, warning: note }
+  if (high) {
+    try {
+      const asset = await generateImage(buildGenerationBrief(subjectSlot, true), slot.frame_aspect)
+      if (asset) {
+        if (usedPhotoIds.has(asset.url)) return { ...cutoutBase, resolvedAsset: null, warning: 'Duplicate image omitted; no additional generation was requested.' }
+        usedPhotoIds.add(asset.url)
+        return { ...cutoutBase, resolvedAsset: asset, warning: note }
+      }
+    } catch (error) {
+      failure = (error as Error).message
+      // For whoever runs Batkle (people using it are not told): e.g. the OpenAI account has no credits left.
+      console.warn('[resolver] AI image generation failed, trying the fallbacks:', failure)
     }
-  } catch (error) {
-    failure = (error as Error).message
-    // For whoever runs Batkle (people using it are not told): e.g. the OpenAI account has no credits left.
-    console.warn('[resolver] AI image generation failed, trying the fallbacks:', failure)
   }
-  // OpenAI unavailable (no credits, rate limit, outage): another AI provider draws the subject on a studio backdrop
-  // and prepareSubjectAssets cuts it out, so it is still a transparent AI cutout saved to the gallery.
+  // OpenAI unavailable (no credits, rate limit, outage), or standard quality: another AI provider draws the subject on
+  // a studio backdrop and prepareSubjectAssets cuts it out, so it is still a transparent AI cutout saved to the gallery.
   try {
     const { asset, provider, skipped } = await generateFallbackImage(subjectSlot, slot.frame_aspect)
     if (!usedPhotoIds.has(asset.url)) {
       usedPhotoIds.add(asset.url)
-      return { ...cutoutBase, resolvedAsset: asset, warning: [note, failure, ...skipped, `generated with ${provider} instead`].filter(Boolean).join('; ') }
+      return { ...cutoutBase, resolvedAsset: asset, warning: high ? [note, failure, ...skipped, `generated with ${provider} instead`].filter(Boolean).join('; ') : [note, ...skipped].filter(Boolean).join('; ') || null }
     }
-  } catch (error) { failure = [failure, (error as Error).message].filter(Boolean).join('; ') }
+  } catch (error) {
+    const reasons = (error as Error).message
+    failure = high ? [failure, reasons].filter(Boolean).join('; ') : reasons || 'No AI image provider is available'
+  }
   // No AI provider available: a stock photo of the same subject is cut out locally afterwards (prepareSubjectAssets),
   // so the slide still gets a transparent subject instead of an empty space.
   const unsplashKey = process.env.UNSPLASH_ACCESS_KEY?.trim() || null, pexelsKey = process.env.PEXELS_API_KEY?.trim() || null
@@ -473,6 +483,7 @@ async function resolveSlot(
   unsplashKey: string | null,
   falKey: string | null,
   usedPhotoIds: Set<string>,
+  quality: ImageQuality = 'high',
 ): Promise<ResolvedSlot> {
   const base: Omit<ResolvedSlot, 'resolvedAsset' | 'warning'> = {
     treatment:     slot.treatment,
@@ -505,7 +516,7 @@ async function resolveSlot(
     if(slot.treatment!=='environmental' && slot.preferred_source==='uploaded_asset')return {...base,resolvedAsset:null,warning:galleryWarning||'No matching unused gallery photo found'}
     // A photo is never generated. Global-design slots that allow it use a transparent cutout when no photo fits.
     const missing=async(warning:string):Promise<ResolvedSlot>=>slot.cutout_fallback
-      ? resolveCutout(db,slot,brand_id,usedPhotoIds,base,warning+'; used a transparent cutout instead')
+      ? resolveCutout(db,slot,brand_id,usedPhotoIds,base,warning+'; used a transparent cutout instead',quality)
       : {...base,resolvedAsset:null,warning}
     const pexelsKey=process.env.PEXELS_API_KEY?.trim()||null
     if(!unsplashKey && !pexelsKey)return missing(galleryWarning||'No matching gallery photo; configure PEXELS_API_KEY or UNSPLASH_ACCESS_KEY')
@@ -515,11 +526,31 @@ async function resolveSlot(
       return {...base,source:asset.source,resolvedAsset:asset,warning:galleryWarning}
     }catch(error){return missing((error as Error).message)}
   }
-  return resolveCutout(db,slot,brand_id,usedPhotoIds,base)
+  return resolveCutout(db,slot,brand_id,usedPhotoIds,base,null,quality)
 }
 // ─── HTTP handler ─────────────────────────────────────────────────────────────
 
-export async function handleResolveAssets(db: any, body: any) {
+/** Said when a post's images are asked for without the charge its plan made (it was used, given back or never made). */
+export const NO_CHARGE = 'This post has to start again from the beginning. Please try again.'
+
+/**
+ * The held charge that pays for this post's images (`chargeRef` from /plan-post), claimed so it pays for one set of
+ * images only. Null when there is none, it was claimed already, or it covers fewer slides than the plan has.
+ */
+async function claimImages(db: any, userId: string, ref: unknown, slides: number) {
+  const charge = typeof ref === 'string' ? await findCharge(db, userId, ref) : null
+  if (!charge || charge.status !== 'held' || slides > charge.credits) return null
+  const claimed = await db.collection('creditCharges').updateOne({ id: charge.id, ownerId: userId, status: 'held', imagesAt: { $exists: false } }, { $set: { imagesAt: new Date() } })
+  return claimed.matchedCount ? charge : null
+}
+
+/**
+ * VISUALS for a planned post. With `userId` (every request from the app), AI images are only made for a post its plan
+ * paid for: without that charge nothing is resolved, and a failure of the whole request gives the credits back. A
+ * slide that falls back to stock or no image is not a failure. The account's plan sets the AI image quality.
+ */
+export async function handleResolveAssets(db: any, body: any, userId?: string) {
+  let charge: any = null
   try {
     const { plan, brand_id }: { plan: AssetPlan; brand_id?: string } = body
 
@@ -528,6 +559,11 @@ export async function handleResolveAssets(db: any, body: any) {
         NextResponse.json({ error: 'plan with slots array is required' }, { status: 400 })
       )
     }
+    if (userId) {
+      charge = await claimImages(db, userId, body.chargeRef, plan.slots.length)
+      if (!charge) return corsify(NextResponse.json({ error: NO_CHARGE }, { status: 409 }))
+    }
+    const quality: ImageQuality = userId ? await imageQualityFor(db, userId) : 'high'
 
     const unsplashKey = process.env.UNSPLASH_ACCESS_KEY ?? null
     const falKey      = process.env.FAL_KEY             ?? null
@@ -537,7 +573,7 @@ export async function handleResolveAssets(db: any, body: any) {
     if (brand_id) {
       try { const recent=await db.collection('assetImageHistory').find({brand_id}).sort({createdAt:-1}).limit(80).toArray();recent.forEach((item:any)=>usedPhotoIds.add(item.photoId)) } catch(error) {console.warn('[resolver] Image history unavailable')}
     }
-    const resolve = (slot: VisualSlot) => resolveSlot(db, slot, brand_id ?? null, unsplashKey, falKey, usedPhotoIds).catch(error=>({slot_id:slot.slot_id,slot_label:slot.slot_label,needs_visual:slot.needs_visual,visual_purpose:slot.visual_purpose,source:slot.preferred_source,resolvedAsset:null,warning:(error as Error).message}))
+    const resolve = (slot: VisualSlot) => resolveSlot(db, slot, brand_id ?? null, unsplashKey, falKey, usedPhotoIds, quality).catch(error=>({slot_id:slot.slot_id,slot_label:slot.slot_label,needs_visual:slot.needs_visual,visual_purpose:slot.visual_purpose,source:slot.preferred_source,resolvedAsset:null,warning:(error as Error).message}))
     // The user's photos are placed first, one at a time, so each is reserved before any concurrent search runs.
     const placed = new Map<string, ResolvedSlot>()
     for (const slot of plan.slots.filter(s => s.user_upload)) placed.set(slot.slot_id, await resolve(slot))
@@ -566,6 +602,9 @@ export async function handleResolveAssets(db: any, body: any) {
     return corsify(NextResponse.json(prepared))
   } catch (error: any) {
     console.error('[resolver] error:', error)
+    if (charge) await refundCharge(db, userId!, charge.id).catch(() => {})
+    const billing = error?.billing ? billingErrorBody(error) : null
+    if (billing) return corsify(NextResponse.json(billing, { status: error.status }))
     return corsify(
       NextResponse.json({ error: error.message || 'Asset resolution failed' }, { status: 500 })
     )

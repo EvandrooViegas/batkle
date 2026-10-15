@@ -27,7 +27,7 @@ function otherLanguage(raw: string): { name: string; code: string } {
 
 const hostOf = (website: any) => { try { return new URL(String(website)).hostname.toLowerCase() } catch { return String(website || '').toLowerCase() } }
 
-const PT_PT = `European Portuguese (Portugal). Address the reader with "o seu/a sua" or the imperative, never "você". Use Portugal's vocabulary: equipa (not equipe/time), contacto (not contato), registo (not registro), telemóvel (not celular), utilizador (not usuário), ecrã (not tela), facto (not fato), objetivo/otimizar as in Portugal. Use "estar a + infinitivo" (estamos a trabalhar), never the gerund (estamos trabalhando).`
+const PT_PT = `European Portuguese (Portugal). Address the reader with "o seu/a sua" or the imperative, never "você". Use Portugal's vocabulary: equipa (not equipe/time), contacto (not contato), registo (not registro), telemóvel (not celular), utilizador (not usuário), ecrã (not tela), facto (not fato), objetivo/otimizar as in Portugal. Spell as the current Acordo Ortográfico does: otimização, ação, direção, ótimo (never optimização, acção, direcção). Use "estar a + infinitivo" (estamos a trabalhar), never the gerund (estamos trabalhando).`
 const PT_BR = `Brazilian Portuguese. Use Brazilian vocabulary and grammar (você, equipe, contato, celular, usuário; estamos trabalhando), never European forms (equipa, contacto, telemóvel, estar a + infinitivo).`
 
 export function contentLanguage(brand: any = {}): ContentLanguage {
@@ -48,7 +48,7 @@ export function contentLanguage(brand: any = {}): ContentLanguage {
   const english = code.startsWith('en')
   const rules = `OUTPUT LANGUAGE: ${label}.
 Write every reader-facing word in ${label}: topics, hooks, messages, headlines, body text, CTAs, captions and hashtags. ${variant}
-${english ? '' : `The brand profile is English research notes: use it only for facts and translate every idea from it; never copy its English sentences, service descriptions or CTA wording. Keep only proper nouns, brand and product names (e.g. Facebook Ads, TikTok, LinkedIn) and standard acronyms (SEO, ROI) unchanged. Translate English marketing jargon when a natural ${name} term exists (engagement, leads, insights, tips, call to action).
+${english ? '' : `The brand profile is English research notes: use it only for facts and translate every idea from it; never copy its English sentences, service descriptions or CTA wording. Keep only proper nouns, brand and product names (e.g. Facebook Ads, TikTok, LinkedIn) and standard acronyms (SEO, ROI) unchanged. Translate English marketing jargon when a natural ${name} term exists (engagement, leads, insights, tips, call to action). Name app buttons and features the way the reader sees them in ${name} (in Portuguese, Facebook's "Boost" button is "Impulsionar").
 `}Never mix languages or regional variants inside one post. Exception: design.image.subject and design.image.queries are internal stock-search terms and stay in English.`
   return { name, code, label, rules }
 }
@@ -96,4 +96,40 @@ export function copyTexts(copy: any): string[] {
   const slides = Array.isArray(copy.slides) ? copy.slides : []
   return [copy.headline, copy.subheadline, copy.supportingText, copy.cta, copy.caption,
     ...slides.flatMap((s: any) => [s?.headline, s?.body, s?.cta])].filter((t: any) => typeof t === 'string')
+}
+
+// Spellings the 1990 Acordo Ortográfico changed, which models still write ("optimização"). Only stems that are never
+// right any more in Portugal or Brazil: words Portugal kept, such as facto and contacto, are not touched.
+const OLD_PORTUGUESE: [RegExp, string][] = [
+  [/(?<!\p{L})optimiz/giu, 'otimiz'], [/(?<!\p{L})óptim/giu, 'ótim'],
+  [/(?<!\p{L})(re|inter|)acç(ão|ões)(?!\p{L})/giu, '$1aç$2'],
+  [/(?<!\p{L})(dire|cole|sele|prote|corre|infe|reda)cç(ão|ões)(?!\p{L})/giu, '$1ç$2'],
+  [/(?<!\p{L})project(o|os|ar|ado|ada|ados|adas|ista|istas)(?!\p{L})/giu, 'projet$1'],
+  [/(?<!\p{L})arquitect(o|os|a|as|ura|uras|ónico|ónica)(?!\p{L})/giu, 'arquitet$1'],
+  [/(?<!\p{L})efectiv/giu, 'efetiv'], [/(?<!\p{L})objectiv/giu, 'objetiv'],
+  [/(?<!\p{L})actua(l|is|lmente)(?!\p{L})/giu, 'atua$1'], [/(?<!\p{L})actualiz/giu, 'atualiz'],
+  [/(?<!\p{L})exact(o|a|os|as|amente)(?!\p{L})/giu, 'exat$1'],
+  [/(?<!\p{L})direct(o|a|os|as|amente|or|ora|ores|oras|ório|órios)(?!\p{L})/giu, 'diret$1'],
+]
+
+/** `text` in the current Portuguese spelling, keeping each word's capitalisation. */
+export function modernPortuguese(text: string): string {
+  return OLD_PORTUGUESE.reduce((out, [pattern, replacement]) => out.replace(pattern, (...match) => {
+    const word = match[0] as string
+    const groups = match.slice(1, -2).filter(g => typeof g === 'string')
+    const fixed = replacement.replace(/\$(\d)/g, (_, i) => groups[Number(i) - 1] ?? '')
+    if (word === word.toUpperCase()) return fixed.toUpperCase()
+    return word[0] === word[0].toUpperCase() ? fixed[0].toUpperCase() + fixed.slice(1) : fixed
+  }), text)
+}
+
+/** For a post in Portuguese, its reader-facing text in the current spelling (the fields copyTexts reads, and hashtags). */
+export function withModernSpelling(copy: any, code: string): any {
+  if (!/^pt/i.test(code || '') || !copy || typeof copy !== 'object') return copy
+  const fix = (value: any) => (typeof value === 'string' ? modernPortuguese(value) : value)
+  const out = { ...copy }
+  for (const key of ['headline', 'subheadline', 'supportingText', 'cta', 'caption']) out[key] = fix(out[key])
+  if (Array.isArray(out.hashtags)) out.hashtags = out.hashtags.map(fix)
+  if (Array.isArray(out.slides)) out.slides = out.slides.map((s: any) => (s && typeof s === 'object' ? { ...s, headline: fix(s.headline), body: fix(s.body), cta: fix(s.cta) } : s))
+  return out
 }

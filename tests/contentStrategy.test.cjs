@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const { stripTypeScriptTypes } = require('node:module')
 const load = path => stripTypeScriptTypes(fs.readFileSync(path, 'utf8').replace(/^import .*$/gm, '').replace(/export /g, ''))
-const strategy = new Function(load('lib/services/contentLanguage.ts') + load('lib/services/contentAngles.ts') + load('lib/services/ideaRequest.ts') + load('lib/services/postImages.ts') + load('lib/services/copyFacts.ts') + ';return {postLanguage,readSlideCount,slideCountRule,fitOutline,readLanguageChoice,lengthOf,contentLanguage,languageIssues,copyTexts,chooseAngle,ideaHistory,topicSimilarity,readIdeaRequest,ideaRequestBlock,formatRule,finalFormat,IDEA_REQUEST_RULE,postImageIds,prepareIdeaImages,postImagesBlock,inventedFigures,ideaOutline,outlineIssue,recurringSubjects,mentionsSubject,chooseCarouselLength,CAROUSEL_LENGTHS}')()
+const strategy = new Function(load('lib/services/contentLanguage.ts') + load('lib/services/contentAngles.ts') + load('lib/services/ideaRequest.ts') + load('lib/services/postImages.ts') + load('lib/services/copyFacts.ts') + ';return {postLanguage,readSlideCount,slideCountRule,fitOutline,readLanguageChoice,lengthOf,contentLanguage,languageIssues,copyTexts,withModernSpelling,chooseAngle,ideaHistory,topicSimilarity,readIdeaRequest,ideaRequestBlock,formatRule,finalFormat,IDEA_REQUEST_RULE,postImageIds,prepareIdeaImages,postImagesBlock,inventedFigures,ideaOutline,outlineIssue,recurringSubjects,mentionsSubject,chooseCarouselLength,CAROUSEL_LENGTHS}')()
 const { contentLanguage, languageIssues, chooseAngle, ideaHistory, topicSimilarity, readIdeaRequest } = strategy
 const { EXTRACTED_CONTEXT_RULES } = new Function(load('lib/services/generationBrandContext.ts') + ';return {EXTRACTED_CONTEXT_RULES}')()
 
@@ -117,21 +117,35 @@ test('copy in the wrong language is regenerated once with precise feedback, then
 })
 
 test('nothing on an Instagram graphic is clickable: button CTAs are removed in code, Instagram actions are kept', async () => {
-  const slides = cta => [
+  const slides = (cta, middle = '') => [
     { slideNumber: 1, purpose: 'hook', headline: 'Dados sem decisões', body: 'Veja porquê.', cta: '' },
-    { slideNumber: 2, purpose: 'explanation', headline: 'Meça o que importa', body: 'Três números chegam para começar.', cta: '' },
-    { slideNumber: 3, purpose: 'summary', headline: 'Comece pelo essencial', body: 'Escolha um número esta semana.', cta },
+    { slideNumber: 2, purpose: 'explanation', headline: 'Meça o que importa', body: 'Três números chegam para começar.', cta: middle },
+    { slideNumber: 3, purpose: 'closing', headline: 'Comece pelo essencial', body: 'Escolha um número esta semana.', cta },
   ]
-  const run = async cta => {
-    const output = { format: 'carousel', headline: '', subheadline: '', supportingText: '', cta: '', slides: slides(cta), caption: 'Texto', hashtags: [] }
+  const run = async (cta, middle) => {
+    const output = { format: 'carousel', headline: '', subheadline: '', supportingText: '', cta: '', slides: slides(cta, middle), caption: 'Texto', hashtags: [] }
     const { run } = handler('copywritingHandler', 'handleGenerateCopywriting', [output, output])
-    return (await run({ brandContext: { id: 'flow-k' }, idea: { format: 'carousel', topic: 'Dados' } })).body.slides.at(-1).cta
+    return (await run({ brandContext: { id: 'flow-k' }, idea: { format: 'carousel', topic: 'Dados' } })).body.slides
   }
-  assert.equal(await run('Saiba mais'), '')
-  assert.equal(await run('Explore more'), '')
-  assert.equal(await run('Clique aqui e descubra'), '')
-  assert.equal(await run('Envie-nos uma mensagem'), 'Envie-nos uma mensagem')
-  assert.equal(await run('Saiba mais pelo link na bio'), 'Saiba mais pelo link na bio')
+  // The closing slide never ends without a next step: button wording gives way to a plain one in the post's language.
+  const plain = 'Guarde este post'
+  assert.equal((await run('Saiba mais')).at(-1).cta, plain)
+  assert.equal((await run('Explore more')).at(-1).cta, plain)
+  assert.equal((await run('Clique aqui e descubra')).at(-1).cta, plain)
+  assert.equal((await run('')).at(-1).cta, plain)
+  assert.equal((await run('Envie-nos uma mensagem')).at(-1).cta, 'Envie-nos uma mensagem')
+  assert.equal((await run('Saiba mais pelo link na bio')).at(-1).cta, 'Saiba mais pelo link na bio')
+  // Other slides only lose button wording.
+  assert.equal((await run('Envie-nos uma mensagem', 'Saiba mais'))[1].cta, '')
+})
+
+test('the closing call to action follows the post language, and stays empty where none is written', () => {
+  const { closingCta } = new Function(load('lib/handlers/copywritingHandler.ts') + ';return { closingCta }')()
+  assert.equal(closingCta('pt-BR'), 'Salve este post')
+  assert.equal(closingCta('pt-PT'), 'Guarde este post')
+  assert.equal(closingCta('en-GB'), 'Save this post')
+  assert.equal(closingCta('es'), 'Guarda este post')
+  assert.equal(closingCta('nl'), '')
 })
 
 test('a typed idea is cleaned and capped, and an unknown format falls back to auto', () => {

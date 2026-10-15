@@ -1,4 +1,5 @@
 import { parseStyledText, resolveCanvasClass } from '@/lib/styleParser'
+import { uploadFile } from '@/lib/client/directUpload'
 
 /* Constants and pure helpers shared by the editor's canvas and panels. */
 
@@ -7,7 +8,6 @@ export const MIN_ZOOM = 0.08
 export const MAX_ZOOM = 4
 export const ZOOM_STEP = 0.1
 export const SNAP_THRESHOLD = 8
-export const MAX_UPLOAD_BYTES = 6 * 1024 * 1024
 
 /** Selection colours on the canvas: a tool convention, readable on light and dark posts alike. */
 export const SELECT = '#6366f1'
@@ -284,23 +284,13 @@ export function isValidHex(hex) {
 
 export const CHECKER = 'repeating-conic-gradient(#d9d5ca 0% 25%, #ffffff 0% 50%) 50% / 8px 8px'
 
-/** Reads a picked file as a data URL for the upload endpoint. */
-export function readAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
-
-/** Uploads an image file and returns its URL. */
+/**
+ * Uploads an image file and returns its URL: straight to storage (up to 25 MB) when the server offers it, otherwise
+ * inside the request (up to 3 MB). Errors keep their billing code (apiError), so a full plan can offer an upgrade.
+ */
 export async function uploadImage(file) {
   if (!file.type.startsWith('image/')) throw new Error(`${file.name} is not an image`)
-  if (file.size > MAX_UPLOAD_BYTES) throw new Error(`${file.name} is larger than 6 MB`)
-  const data = await readAsDataUrl(file)
-  const res = await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data }) })
-  const result = await res.json().catch(() => ({}))
-  if (!res.ok || !result.url) throw new Error(result.error || `Could not upload ${file.name}`)
+  const result = await uploadFile('/api/uploads', file, { purpose: 'editor' })
+  if (!result.url) throw new Error(`Could not upload ${file.name}`)
   return result.url
 }

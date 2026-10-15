@@ -5,6 +5,7 @@ import { AlertCircle, ArrowRight, ImagePlus, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { ACCEPTED_TYPES, MAX_POST_IMAGES, discardPostImage, imageFiles, uploadPostImage } from '@/lib/client/postImages'
+import { billingAction } from '@/lib/client/billing'
 import { appButton } from '../ui'
 import { AUTO_SETTINGS, PostSettings, languageOption } from './PostSettings'
 
@@ -52,6 +53,8 @@ function usePostPhotos(brandId) {
     // Updated now, not on the next render, so two quick additions can never pass the limit.
     current.current = [...current.current, ...added]
     setPhotos(list => [...list, ...added])
+    // A plan limit stops every photo of this batch: it is offered once, with the way to more space.
+    let limitShown = false
     for (const photo of added) {
       uploadPostImage(photo.file, brandId)
         .then(asset => {
@@ -59,7 +62,13 @@ function usePostPhotos(brandId) {
           if (!current.current.some(p => p.key === photo.key)) { discardPostImage(asset.id, brandId); return }
           update(photo.key, { status: 'ready', asset, file: null })
         })
-        .catch(error => update(photo.key, { status: 'error', error: error.message || 'Upload failed' }))
+        .catch(error => {
+          update(photo.key, { status: 'error', error: error.message || 'Upload failed' })
+          if (!error.code || limitShown) return
+          limitShown = true
+          const { href, label } = billingAction(error)
+          toast.error(error.message, { duration: 12000, action: { label, onClick: () => window.location.assign(href) } })
+        })
     }
   }, [brandId])
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Info, Loader2, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
@@ -32,9 +32,15 @@ const SIZES = { sm: 'max-w-[440px]', md: 'max-w-[560px]', lg: 'max-w-[760px]', x
 /** The popup frame: optional tone icon, title, description, any content and a footer. */
 export function Popup({
   open, onOpenChange, title, description, tone, icon, size = 'md', footer, children,
-  dismissible = true, className, onInteractOutside, onEscapeKeyDown, ...contentProps
+  dismissible = true, className, onInteractOutside, onEscapeKeyDown, onCloseAutoFocus, ...contentProps
 }) {
   const style = tone ? TONES[tone] || TONES.default : null
+  // What had focus when the popup opened, read during the render that opens it: the dialog's own effects run first
+  // and move focus inside. A popup without a trigger would otherwise send focus to the page when it closes.
+  const opener = useRef(null)
+  const wasOpen = useRef(false)
+  if (open && !wasOpen.current && typeof document !== 'undefined') opener.current = document.activeElement
+  wasOpen.current = Boolean(open)
   const Icon = icon === undefined ? style?.icon : icon
   return (
     <Dialog open={open} onOpenChange={next => (dismissible || next) && onOpenChange?.(next)}>
@@ -42,6 +48,13 @@ export function Popup({
         hideClose={!dismissible}
         onInteractOutside={e => { onInteractOutside?.(e); if (!dismissible) e.preventDefault() }}
         onEscapeKeyDown={e => { onEscapeKeyDown?.(e); if (!dismissible) e.preventDefault() }}
+        onCloseAutoFocus={e => {
+          onCloseAutoFocus?.(e)
+          const back = opener.current
+          if (e.defaultPrevented || !back?.isConnected || typeof back.focus !== 'function') return
+          e.preventDefault()
+          back.focus()
+        }}
         // Without a description, Radix expects aria-describedby to be cleared explicitly.
         {...(description ? {} : { 'aria-describedby': undefined })}
         className={cn(SIZES[size] || size, 'max-h-[calc(100dvh-32px)] overflow-y-auto', className)}

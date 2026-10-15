@@ -1,13 +1,6 @@
-import { notFound } from 'next/navigation'
-import { getFlow } from '@/lib/data/flows'
-import RendersBoard from '@/components/RendersBoard'
+import { redirect } from 'next/navigation'
 
-export const metadata = { title: 'Renders & API · Batkle' }
-
-export default async function BrandRendersPage({ params }) {
-  const { brandId } = await params
-  const flow = await getFlow(brandId)
-  if (!flow) notFound()
-
-  return <RendersBoard brandName={flow.brandContext?.name || flow.name} flowId={flow.id} />
+// Renders and the API moved to the developer dashboard, which covers every brand of the account.
+export default function BrandRendersPage() {
+  redirect('/developers/dashboard#renders')
 }

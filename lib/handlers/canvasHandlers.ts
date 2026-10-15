@@ -8,12 +8,13 @@ import { NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { corsify } from '@/lib/services/middleware'
 
-export async function handleGetCanvases(db: any) {
-  const list = await db.collection('canvases').find({ globalDesignEditor: { $exists: false } }).sort({ updatedAt: -1 }).limit(500).toArray()
+/** Posts belong to the account that made them (`ownerId`); the API route checks ownership before the by-ID handlers. */
+export async function handleGetCanvases(db: any, ownerId: string) {
+  const list = await db.collection('canvases').find({ ownerId, globalDesignEditor: { $exists: false } }).sort({ updatedAt: -1 }).limit(500).toArray()
   return corsify(NextResponse.json(list.map(({ _id, ...rest }: any) => rest)))
 }
 
-export async function handleCreateCanvas(db: any, body: any) {
+export async function handleCreateCanvas(db: any, body: any, ownerId: string) {
   const isCarousel = body.type === 'carousel'
   const w = body.width || 1080
   const h = body.height || 1080
@@ -21,6 +22,7 @@ export async function handleCreateCanvas(db: any, body: any) {
 
   const newCanvas = {
     id: uuidv4(),
+    ownerId,
     name: body.name || 'Untitled Canvas',
     type: isCarousel ? 'carousel' : 'single',
     width: w,
@@ -47,13 +49,14 @@ export async function handleCreateCanvas(db: any, body: any) {
   return corsify(NextResponse.json(rest))
 }
 
-export async function handleDuplicateCanvas(db: any, srcId: string) {
+export async function handleDuplicateCanvas(db: any, srcId: string, ownerId: string) {
   const src = await db.collection('canvases').findOne({ id: srcId })
   if (!src) return corsify(NextResponse.json({ error: 'Not found' }, { status: 404 }))
 
   const newCanvas = {
     ...src,
     id: uuidv4(),
+    ownerId,
     name: (src.name || 'Canvas') + ' (Copy)',
     nodes: (src.nodes || []).map((n: any) => ({ ...n, id: uuidv4() })),
     createdAt: new Date(),
@@ -83,6 +86,7 @@ export async function handleUpdateCanvas(db: any, id: string, body: any) {
   const current = await db.collection('canvases').findOne({ id })
   const update = { ...await persistInlineImages(db, body), id, updatedAt: new Date() }
   delete update.globalDesignEditor
+  delete (update as any).ownerId
   if (current?.globalDesignEditor) update.globalDesignEditor = current.globalDesignEditor
   delete (update as any)._id
   delete (update as any).createdAt

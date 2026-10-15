@@ -119,3 +119,6 @@ credentials.json
 .credentials
 /.next-dev/
 !.env.example
+
+# Clerk keyless mode (temporary development keys)
+.clerk/

@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Sparkles, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { filterIdeas } from '@/lib/client/ideaStatus'
+import { scheduleState } from '@/lib/client/schedule'
 import { cn } from '@/lib/utils'
 import { useAppShell } from '../AppShell'
 import { usePopup } from '../popup'
@@ -13,11 +15,14 @@ import { IdeaComposer } from './IdeaComposer'
 import { FeaturedPost } from './FeaturedPost'
 import { IdeaRow } from './IdeaRow'
 import { PostPreview } from './PostPreview'
+import { ScheduleDialog } from '../schedule/ScheduleDialog'
+import { useSchedule } from '../schedule/useSchedule'
 
 const FILTERS = [
   { value: 'all', label: 'All ideas' },
   { value: 'building', label: 'Building' },
   { value: 'ready', label: 'Ready' },
+  { value: 'approved', label: 'Approved' },
   { value: 'carousel', label: 'Carousels' },
   { value: 'single', label: 'Single posts' },
 ]
@@ -50,7 +55,9 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState(() => new Set())
   const [preview, setPreview] = useState(null) // { id, page }
+  const [scheduling, setScheduling] = useState(null) // id of the idea whose post is being scheduled
   const popup = usePopup()
+  const schedule = useSchedule(flowId)
 
   useEffect(() => { if (loaded && !loadError) setCount('creation', ideas.length) }, [loaded, loadError, ideas.length, setCount])
 
@@ -59,8 +66,29 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
   const usesStarterDesigns = hasBrand && !(brandContext?.designs || []).some(d => d.source === 'global')
   const locked = !hasBrand || !loaded || loadError
   const featured = ideas.find(i => i.id === creation.featuredId)
-  const visible = filterIdeas(ideas, filter, statusOf)
+  const visible = filter === 'approved' ? ideas.filter(i => schedule.byIdea.has(i.id)) : filterIdeas(ideas, filter, statusOf)
   const previewIdea = preview && ideas.find(i => i.id === preview.id)
+
+  // Where each built post stands on its way out: approved, scheduled, due or posted (see lib/client/schedule.js).
+  const approvalOf = idea => {
+    const entry = schedule.byIdea.get(idea.id) || null
+    return { entry, state: scheduleState(entry, statusOf(idea.id).canvas?.id || null) }
+  }
+  // Approving opens the schedule straight away; a post that is already approved goes straight to its schedule.
+  const handleApproval = async idea => {
+    const { state } = approvalOf(idea)
+    if (state === 'unapproved' || state === 'changed') {
+      const status = statusOf(idea.id)
+      if (!status.canvas?.id) return
+      const entry = await schedule.approve({ idea, canvas: status.canvas, copy: status.copy })
+      if (!entry) return
+      toast.success(state === 'changed' ? 'This version is approved' : 'Post approved')
+      if (entry.status !== 'approved') return
+    }
+    setScheduling(idea.id)
+  }
+  const schedulingIdea = scheduling && ideas.find(i => i.id === scheduling)
+  const schedulingEntry = schedulingIdea ? schedule.byIdea.get(schedulingIdea.id) || null : null
 
   const toggle = id => setSelected(prev => {
     const next = new Set(prev)
@@ -137,9 +165,12 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
                 className="mt-6"
                 idea={featured}
                 status={statusOf(featured.id)}
+                approval={approvalOf(featured)}
+                onApproval={() => handleApproval(featured)}
                 onPreview={page => setPreview({ id: featured.id, page })}
                 onBuild={() => creation.startBuild(featured)}
                 onRetry={() => creation.retry(featured)}
+                limit={creation.limitOf(featured.id)}
                 onRebuild={() => creation.rebuildDesign(featured)}
                 onNewVersion={() => creation.newVersion(featured)}
               />
@@ -190,12 +221,15 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
                         idea={idea}
                         number={ideas.indexOf(idea) + 1}
                         status={statusOf(idea.id)}
+                        approval={approvalOf(idea)}
+                        onApproval={() => handleApproval(idea)}
                         selecting={selecting}
                         selected={selected.has(idea.id)}
                         onToggle={() => toggle(idea.id)}
                         onPreview={page => setPreview({ id: idea.id, page })}
                         onBuild={() => creation.startBuild(idea)}
                         onRetry={() => creation.retry(idea)}
+                        limit={creation.limitOf(idea.id)}
                       />
                     ))}
                   </ul>
@@ -246,9 +280,20 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
         onOpenChange={open => !open && setPreview(null)}
         idea={previewIdea}
         status={previewIdea ? statusOf(previewIdea.id) : null}
+        approval={previewIdea ? approvalOf(previewIdea) : null}
+        onApproval={() => { if (!previewIdea) return; setPreview(null); handleApproval(previewIdea) }}
         initialPage={preview?.page || 0}
         onRebuild={() => previewIdea && creation.rebuildDesign(previewIdea)}
         onNewVersion={() => previewIdea && creation.newVersion(previewIdea)}
+      />
+
+      <ScheduleDialog
+        open={!!schedulingEntry}
+        onOpenChange={open => !open && setScheduling(null)}
+        entry={schedulingEntry}
+        canvas={schedulingIdea ? statusOf(schedulingIdea.id).canvas : null}
+        onSave={changes => schedule.update(schedulingEntry.id, changes)}
+        onUnschedule={() => schedule.update(schedulingEntry.id, { status: 'approved' })}
       />
 
     </div>

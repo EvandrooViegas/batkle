@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowRight, Check, Loader2, RefreshCw, Search } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Loader2, RefreshCw, Search } from 'lucide-react'
 import GlobalDesignPreview from '@/components/GlobalDesignPreview'
 import { cn } from '@/lib/utils'
 import { appButton } from '../ui'
@@ -18,9 +18,9 @@ async function readJson(response, fallback) {
 
 /**
  * Step 4: the designs this brand's posts use. At least one is required to finish, so every brand starts
- * with a look it chose. Previews use the researched colours, fonts and logo.
+ * with a look it chose. Previews use the researched colours, fonts and logo. `onBack` returns to the previous step.
  */
-export default function DesignStep({ flowId, brand, eyebrow = 'Step 4 of 4 · Design', doneLabel = 'Continue', onDone, headingRef }) {
+export default function DesignStep({ flowId, brand, eyebrow = 'Step 4 of 4 · Design', doneLabel = 'Continue', onDone, onBack, headingRef }) {
   const [families, setFamilies] = useState(null) // null while loading
   const [selected, setSelected] = useState([])
   const [loadError, setLoadError] = useState('')
@@ -106,6 +106,7 @@ export default function DesignStep({ flowId, brand, eyebrow = 'Step 4 of 4 · De
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" onClick={() => setReload(n => n + 1)} className={appButton('primary', 'md')}><RefreshCw className="size-4" />Try again</button>
             <button type="button" onClick={() => onDone(brand)} className={appButton('outline', 'md')}>Choose later in the brand profile</button>
+            {onBack && <button type="button" onClick={onBack} className={appButton('quiet', 'md')}><ArrowLeft className="size-4" />Back</button>}
           </div>
         </div>
       ) : families.length === 0 ? (
@@ -177,9 +178,16 @@ export default function DesignStep({ flowId, brand, eyebrow = 'Step 4 of 4 · De
       {families !== null && !loadError && (
         <div className="sticky bottom-0 z-10 -mx-5 mt-8 border-t border-bk-line bg-bk-alt/95 px-5 py-4 backdrop-blur sm:-mx-8 sm:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[14px] font-semibold" aria-live="polite">
-              {families.length === 0 ? 'Starter designs' : count ? `${count} design${count === 1 ? '' : 's'} selected` : 'No design selected yet'}
-            </p>
+            <div className="flex items-center gap-3">
+              {onBack && (
+                <button type="button" onClick={onBack} disabled={saving} className={appButton('quiet', 'md', 'h-11 -ml-2')}>
+                  <ArrowLeft className="size-4" />Back
+                </button>
+              )}
+              <p className="text-[14px] font-semibold" aria-live="polite">
+                {families.length === 0 ? 'Starter designs' : count ? `${count} design${count === 1 ? '' : 's'} selected` : 'No design selected yet'}
+              </p>
+            </div>
             <button type="button" onClick={finish} disabled={saving} aria-disabled={families.length > 0 && !count} className={appButton('primary', 'md', cn('h-11 px-5', families.length > 0 && !count && 'opacity-60'))}>
               {saving && <Loader2 className="size-4 animate-spin" />}
               {doneLabel}

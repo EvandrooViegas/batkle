@@ -1,16 +1,15 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { ArrowUpRight, Check, CheckCheck, Copy, Download, ExternalLink, ImageIcon, Layers, Loader2, RefreshCw, Trash2 } from 'lucide-react'
+import { Check, CheckCheck, Copy, Download, ExternalLink, ImageIcon, Layers, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Popup, usePopup } from '@/components/app/popup'
-import { Eyebrow, SegmentedTabs, appButton, displayClass, pageShell, panelClass } from '@/components/app/ui'
+import { SegmentedTabs, appButton, panelClass } from '@/components/app/ui'
 import { cn } from '@/lib/utils'
 
 const iconButton = 'inline-flex size-8 items-center justify-center rounded-lg text-bk-fg transition-colors hover:bg-bk-alt focus-visible:outline focus-visible:outline-2 focus-visible:outline-bk-fg [&_svg]:size-4'
 
-function useCopy() {
+export function useCopy() {
   const [copied, setCopied] = useState(false)
   const copy = async text => {
     try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { toast.error('Could not copy') }
@@ -46,6 +45,7 @@ function RenderRow({ render, onApprove, onDelete, origin }) {
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-x-2 text-[14px] font-bold">
           {carousel ? `Carousel · ${render.pages?.length || 0} slides` : 'Single post'}
+          <span className="rounded-full bg-bk-chip px-2 py-px text-[11px] font-bold text-bk-fg/80">{render.source === 'api' ? 'API' : 'App'}</span>
           <span className="text-[12.5px] font-normal tabular-nums text-bk-muted">{time}</span>
         </p>
         {render.payload && (
@@ -84,50 +84,8 @@ function RenderRow({ render, onApprove, onDelete, origin }) {
   )
 }
 
-/** The API reference beside the log: how to render a post with new values, the request and what comes back. */
-function ApiReference({ origin, flowId }) {
-  const [copied, copy] = useCopy()
-  const curl = `curl -X POST ${origin}/api/render \\\n  -H "Content-Type: application/json" \\\n  -d '{"canva_id": "<post id>",\n       "data": {"headline": "New text"}}'`
-  const response = `{\n  "url": "${origin}/api/rendered/<id>",\n  "render_id": "<id>",\n  "type": "single"\n}`
-  const steps = [
-    ['Open a post', 'Any post from Creation or Studio opens in the editor.'],
-    ['Name the layers to change', 'In the editor’s API tab, give a text or image layer an API key, such as headline.'],
-    ['Send new values', 'POST the post id with a value for each key. Carousels take keys per slide: _top, _1, _2… _bottom.'],
-  ]
-  return (
-    <aside aria-labelledby="api-title" className="overflow-hidden rounded-[24px] bg-bk-ink text-bk-cream xl:sticky xl:top-8">
-      <div className="p-6">
-        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-bk-cream/60">API</p>
-        <h2 id="api-title" className="mt-2 font-bk-display text-[24px] font-bold leading-tight tracking-[-0.03em]">Render any post from your own code</h2>
-        <ol className="mt-5 space-y-4">
-          {steps.map(([title, text], i) => (
-            <li key={title} className="flex gap-3">
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-bk-butter text-[12px] font-bold text-bk-ink">{i + 1}</span>
-              <div>
-                <p className="text-[14px] font-bold">{title}</p>
-                <p className="mt-0.5 text-[13px] leading-relaxed text-bk-cream/70">{text}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </div>
-      <div className="border-t border-white/10 p-6">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="font-mono text-[12px] font-bold"><span className="text-bk-butter">POST</span> /api/render</span>
-          <button type="button" onClick={() => copy(curl)} className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-semibold text-bk-cream/80 transition-colors hover:bg-white/10 hover:text-bk-cream">{copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}{copied ? 'Copied' : 'Copy'}</button>
-        </div>
-        <pre className="overflow-x-auto rounded-lg bg-black/30 p-3 font-mono text-[11.5px] leading-relaxed">{curl}</pre>
-        <p className="mb-2 mt-4 font-mono text-[12px] font-bold text-bk-cream/70">Returns</p>
-        <pre className="overflow-x-auto rounded-lg bg-black/30 p-3 font-mono text-[11.5px] leading-relaxed text-bk-cream/85">{response}</pre>
-        <p className="mt-3 text-[12px] leading-relaxed text-bk-cream/60">A single post returns a PNG link; a carousel returns a ZIP with one PNG per slide.</p>
-        {flowId && <Link href={`/app/${flowId}/creation`} className="mt-4 inline-flex items-center gap-1 text-[13px] font-semibold text-bk-butter hover:underline hover:underline-offset-4">Open your posts<ArrowUpRight className="size-3.5" /></Link>}
-      </div>
-    </aside>
-  )
-}
-
-/** Every render made through the API or downloaded from the editor, as a log by day beside the API reference. */
-export default function RendersBoard({ brandName, flowId }) {
+/** Every render of the account's posts downloaded in the editor, as a log by day. */
+export default function RenderLog() {
   const popup = usePopup()
   const [renders, setRenders] = useState([])
   const [loading, setLoading] = useState(true)
@@ -184,41 +142,35 @@ export default function RendersBoard({ brandName, flowId }) {
   }
 
   return (
-    <div className={pageShell}>
-      <div className="mx-auto max-w-[1360px]">
-        <header className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <Eyebrow>{brandName ? `${brandName} · Renders & API` : 'Batkle · Renders & API'}</Eyebrow>
-            <h1 className={cn(displayClass, 'mt-1.5 text-[clamp(26px,2.6vw,34px)] leading-[1.05]')}>Renders & API</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <SegmentedTabs label="Filter renders" value={tab} onChange={setTab} items={[['all', 'All', renders.length], ['waiting', 'To approve', waiting.length], ['approved', 'Approved', approved.length]]} />
-            <button type="button" onClick={load} aria-label="Refresh" title="Refresh" className={appButton('outline', 'sm', 'size-10 px-0')}><RefreshCw className="size-4" /></button>
-          </div>
-        </header>
-
-        <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="min-w-0 space-y-6">
-            {loading ? (
-              <div aria-label="Loading renders" className={cn(panelClass, 'h-72 motion-safe:animate-pulse')} />
-            ) : days.length === 0 ? (
-              <div className="flex flex-col items-center rounded-2xl border border-dashed border-bk-field px-6 py-16 text-center">
-                {tab === 'approved' ? <CheckCheck className="size-6 text-bk-muted" /> : <ImageIcon className="size-6 text-bk-muted" />}
-                <p className="mt-2.5 font-bk-display text-[17px] font-bold tracking-[-0.02em]">{tab === 'approved' ? 'Nothing approved yet' : tab === 'waiting' ? 'Nothing to approve' : 'No renders yet'}</p>
-                <p className="mt-1 max-w-[380px] text-[13.5px] text-bk-muted">{tab === 'approved' ? 'Approve a render from the All tab.' : 'Download a post from the editor, or call the API, and it appears here.'}</p>
-              </div>
-            ) : days.map(day => (
-              <section key={day.label} aria-label={day.label}>
-                <h2 className="mb-2 flex items-baseline gap-2 text-[13px] font-bold">{day.label}<span className="font-normal text-bk-muted">{day.items.length} render{day.items.length === 1 ? '' : 's'}</span></h2>
-                <ul className={cn(panelClass, 'divide-y divide-bk-line overflow-hidden')}>
-                  {day.items.map(r => <RenderRow key={r.id} render={r} onApprove={approve} onDelete={remove} origin={origin} />)}
-                </ul>
-              </section>
-            ))}
-          </div>
-          <ApiReference origin={origin} flowId={flowId} />
+    <section aria-labelledby="renders-title">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 id="renders-title" className="font-bk-display text-[20px] font-bold tracking-[-0.03em]">Renders</h2>
+          <p className="mt-1 text-[13.5px] text-bk-muted">Images of your posts downloaded from the editor. The API sends its images straight back and keeps no copy.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <SegmentedTabs label="Filter renders" value={tab} onChange={setTab} items={[['all', 'All', renders.length], ['waiting', 'To approve', waiting.length], ['approved', 'Approved', approved.length]]} />
+          <button type="button" onClick={load} aria-label="Refresh renders" title="Refresh" className={appButton('outline', 'sm', 'size-10 px-0')}><RefreshCw className="size-4" /></button>
         </div>
       </div>
-    </div>
+      <div className="mt-4 space-y-6">
+        {loading ? (
+          <div aria-label="Loading renders" className={cn(panelClass, 'h-48 motion-safe:animate-pulse')} />
+        ) : days.length === 0 ? (
+          <div className="flex flex-col items-center rounded-2xl border border-dashed border-bk-field px-6 py-14 text-center">
+            {tab === 'approved' ? <CheckCheck className="size-6 text-bk-muted" /> : <ImageIcon className="size-6 text-bk-muted" />}
+            <p className="mt-2.5 font-bk-display text-[17px] font-bold tracking-[-0.02em]">{tab === 'approved' ? 'Nothing approved yet' : tab === 'waiting' ? 'Nothing to approve' : 'No renders yet'}</p>
+            <p className="mt-1 max-w-[380px] text-[13.5px] text-bk-muted">{tab === 'approved' ? 'Approve a render from the All tab.' : 'Download a post from the editor and it appears here.'}</p>
+          </div>
+        ) : days.map(day => (
+          <section key={day.label} aria-label={day.label}>
+            <h3 className="mb-2 flex items-baseline gap-2 text-[13px] font-bold">{day.label}<span className="font-normal text-bk-muted">{day.items.length} render{day.items.length === 1 ? '' : 's'}</span></h3>
+            <ul className={cn(panelClass, 'divide-y divide-bk-line overflow-hidden')}>
+              {day.items.map(r => <RenderRow key={r.id} render={r} onApprove={approve} onDelete={remove} origin={origin} />)}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </section>
   )
 }

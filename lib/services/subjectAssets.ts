@@ -1,9 +1,9 @@
 import sharp from 'sharp'
 import { createHash } from 'node:crypto'
-import { Binary } from 'mongodb'
 import { downloadLogo } from './logoBackground'
 import { compactImage } from './imageStorage'
 import { loadUpload } from './uploadCache'
+import { saveUpload } from './uploadStore'
 import type { ResolvedAssetPlan } from '../handlers/assetResolverHandler'
 
 // General subjects, including people and products. Model card:
@@ -198,7 +198,8 @@ export async function validateSubject(png: Buffer): Promise<{ png: Buffer; width
 }
 
 export async function createSubject(input: Buffer): Promise<{ png: Buffer; width: number; height: number; cropEdges: {left:boolean;right:boolean;bottom:boolean;top:boolean} } | null> {
-  const normalized = await sharp(input, { limitInputPixels: 16000000 }).rotate()
+  // Gallery originals go up to 25 MB (about 40 megapixels); they are scaled down to 1200 px straight away.
+  const normalized = await sharp(input, { limitInputPixels: 40_000_000 }).rotate()
     .resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true }).ensureAlpha().png().toBuffer()
   const existing = await validateSubject(normalized)
   if (existing) return existing
@@ -214,13 +215,13 @@ export async function createSubject(input: Buffer): Promise<{ png: Buffer; width
 }
 
 async function sourceBytes(db: any, url: string): Promise<Buffer> {
-  // Uploaded images are read directly from MongoDB, never fetched through localhost.
+  // Uploaded images are read directly from storage, never fetched through localhost.
   const path = new URL(url, 'http://local.invalid').pathname
   const match = path.match(/^\/api\/uploads\/([a-zA-Z0-9-]+)$/)
   if (match) {
     const upload = await loadUpload(db, match[1])
     if (!upload) throw new Error('Source upload missing')
-    if (upload.bytes.length > 6 * 1024 * 1024) throw new Error('Source too large')
+    if (upload.bytes.length > 25 * 1024 * 1024) throw new Error('Source too large')
     return upload.bytes
   }
   if (url.startsWith('data:image/')) {
@@ -279,10 +280,10 @@ export async function prepareSubjectAssets(db: any, plan: ResolvedAssetPlan): Pr
           if (!cutout) failures.set(asset.url, "No usable foreground silhouette detected")
           if (cutout) {
             const stored = await compactImage(cutout.png, 'image/png')
-            await db.collection('uploads').updateOne({ id }, { $setOnInsert: {
-              id, contentType: stored.contentType, bytes: new Binary(stored.bytes), createdAt: new Date(),
+            await saveUpload(db, {
+              id, bytes: stored.bytes, contentType: stored.contentType,
               subject: { width: cutout.width, height: cutout.height, cropEdges: cutout.cropEdges, model: MODEL },
-            } }, { upsert: true })
+            }, { ifAbsent: true })
             subject = { url: `/api/uploads/${id}`, width: cutout.width, height: cutout.height, cropEdges: cutout.cropEdges }
           }
         }

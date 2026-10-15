@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, Copy, Loader2, X } from 'lucide-react'
+import { CalendarClock, Check, ChevronLeft, ChevronRight, Copy, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { appButton, appLayer, Eyebrow } from '../ui'
 import { PostThumb, editorHref } from './PostThumb'
+import { ScheduleLine, approvalAction } from '../schedule/ScheduleStatus'
 
 const tag = t => (String(t).startsWith('#') ? t : `#${t}`)
 
@@ -14,7 +15,7 @@ const tag = t => (String(t).startsWith('#') ? t : `#${t}`)
  * Full preview of a generated post: every slide, the caption and hashtags, and the post actions.
  * Shows the latest saved canvas, so edits made in the editor appear here too.
  */
-export function PostPreview({ open, onOpenChange, idea, status, initialPage = 0, onRebuild, onNewVersion }) {
+export function PostPreview({ open, onOpenChange, idea, status, approval, onApproval, initialPage = 0, onRebuild, onNewVersion }) {
   const stored = status?.canvas || null
   const [latest, setLatest] = useState(null)
   const [page, setPage] = useState(initialPage)
@@ -39,6 +40,7 @@ export function PostPreview({ open, onOpenChange, idea, status, initialPage = 0,
   const hashtags = Array.isArray(copy?.hashtags) ? copy.hashtags.map(tag) : []
   const href = editorHref(canvas, current)
   const building = status.phase === 'building'
+  const action = status.phase === 'ready' && approval ? approvalAction(approval.state) : null
   const go = delta => setPage(p => Math.max(0, Math.min(total - 1, p + delta)))
 
   const copyCaption = async () => {
@@ -144,7 +146,13 @@ export function PostPreview({ open, onOpenChange, idea, status, initialPage = 0,
             {building && (
               <p className="flex items-center gap-2 text-[14px] font-bold"><Loader2 className="size-4 animate-spin" />Building a new version…</p>
             )}
-            {href && <a href={href} target="_blank" rel="noopener noreferrer" className={appButton('primary', 'md', 'w-full')}>Open in editor</a>}
+            {status.phase === 'ready' && approval && <ScheduleLine state={approval.state} entry={approval.entry} className="mb-1" />}
+            {action && (
+              <button type="button" onClick={onApproval} className={appButton('primary', 'md', 'w-full')}>
+                {action.kind === 'approve' ? <Check className="size-4" strokeWidth={3} /> : <CalendarClock className="size-4" />}{action.label}
+              </button>
+            )}
+            {href && <a href={href} target="_blank" rel="noopener noreferrer" className={appButton(action ? 'outline' : 'primary', 'md', 'w-full')}>Open in editor</a>}
             {copy && (
               <button type="button" onClick={onRebuild} disabled={building} title="Rebuild the design with the same copy. No new AI writing." className={appButton('outline', 'md', 'w-full')}>
                 Rebuild design · keep copy

@@ -1,28 +1,32 @@
 'use client'
 
 import { useState } from 'react'
-import { ArrowLeft, ArrowRight, Briefcase, Globe, Languages, Loader2, Palette, PenLine } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Globe, Loader2, PenLine } from 'lucide-react'
 import { POST_LANGUAGES } from '@/lib/client/onboarding'
 import { cn } from '@/lib/utils'
 import { appButton } from '../ui'
 import { appField } from '../field'
 import { fieldHint, fieldLabel, stepEyebrow, stepHeading, stepLead } from './styles'
 
-const LEARNS = [
-  { icon: Briefcase, title: 'Services and projects', body: 'What you sell, who it is for and the work you are proud of.' },
-  { icon: Languages, title: 'Tone and language', body: 'How you speak, and the language your posts should use.' },
-  { icon: Palette, title: 'Colours, fonts and logo', body: 'Your visual identity, so every post looks like you.' },
-]
-
-/** Step 1: the website to research. */
-export function WebsiteStep({ firstBrand, website, onWebsiteChange, error, onSubmit, onManual, headingRef }) {
+/**
+ * Step 1: the website to research. `replacing` names the brand this onboarding already made, when someone came
+ * back here from its review: the same site updates it, a different one replaces it.
+ */
+/** `blocked`: the plan has no room for another brand (the notice above says why), so nothing here can start one. */
+export function WebsiteStep({ firstBrand, website, onWebsiteChange, error, onSubmit, onManual, replacing, headingRef, blocked = false }) {
   return (
     <div>
       <p className={stepEyebrow}>Step 1 of 4 · Website</p>
       <h1 ref={headingRef} tabIndex={-1} className={stepHeading}>{firstBrand ? 'Let’s add your first brand' : 'Add a new brand'}</h1>
       <p className={stepLead}>
-        Paste your website. Batkle reads up to five pages and builds a brand profile for you to review and adjust.
+        Paste your website. Batkle reads up to five pages to learn what you sell, how you speak, and your colours, fonts and logo, then shows you the profile to check.
       </p>
+
+      {replacing && (
+        <p className="mt-5 max-w-[560px] rounded-xl border border-bk-line bg-bk-surface px-4 py-3 text-[14px] leading-relaxed text-bk-fg/85">
+          <strong className="font-bold">{replacing}</strong> is saved. Researching its own site again refreshes it; a different website replaces it.
+        </p>
+      )}
 
       <form noValidate onSubmit={e => { e.preventDefault(); onSubmit() }} className="mt-8">
         <label htmlFor="onboarding-website" className={fieldLabel}>Website address</label>
@@ -38,7 +42,8 @@ export function WebsiteStep({ firstBrand, website, onWebsiteChange, error, onSub
             inputMode="url"
             autoComplete="url"
             spellCheck={false}
-            autoFocus
+            autoFocus={!blocked}
+            disabled={blocked}
             placeholder="yourbrand.com"
             value={website}
             onChange={e => onWebsiteChange(e.target.value)}
@@ -46,7 +51,7 @@ export function WebsiteStep({ firstBrand, website, onWebsiteChange, error, onSub
             aria-describedby={error ? 'onboarding-website-error' : 'onboarding-website-hint'}
             className="h-12 min-w-0 flex-1 bg-transparent text-[17px] text-bk-fg outline-none placeholder:text-bk-muted/80"
           />
-          <button type="submit" className={appButton('ink', 'md', 'h-12 px-5 text-[15px]')}>
+          <button type="submit" disabled={blocked} className={appButton('ink', 'md', 'h-12 px-5 text-[15px]')}>
             <span className="hidden sm:inline">Start research</span><span className="sm:hidden">Start</span>
             <ArrowRight className="size-4" />
           </button>
@@ -56,19 +61,9 @@ export function WebsiteStep({ firstBrand, website, onWebsiteChange, error, onSub
           : <p id="onboarding-website-hint" className={fieldHint}>Takes about a minute. Useful photos from your site are added to your gallery.</p>}
       </form>
 
-      <ul className="mt-10 grid gap-3 sm:grid-cols-3">
-        {LEARNS.map(({ icon: Icon, title, body }) => (
-          <li key={title} className="rounded-2xl border border-bk-line bg-bk-surface p-4">
-            <span aria-hidden="true" className="flex size-9 items-center justify-center rounded-lg bg-bk-butter text-bk-ink"><Icon className="size-[18px]" /></span>
-            <p className="mt-3 text-[14px] font-bold">{title}</p>
-            <p className="mt-1 text-[13px] leading-relaxed text-bk-muted">{body}</p>
-          </li>
-        ))}
-      </ul>
-
       <div className="mt-10 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-bk-line pt-6 text-[14px] text-bk-muted">
         No website yet?
-        <button type="button" onClick={onManual} className="inline-flex items-center gap-1.5 font-bold text-bk-fg underline decoration-bk-field underline-offset-4 hover:decoration-bk-fg">
+        <button type="button" onClick={onManual} disabled={blocked} className="inline-flex items-center gap-1.5 font-bold text-bk-fg underline decoration-bk-field underline-offset-4 hover:decoration-bk-fg disabled:cursor-not-allowed disabled:opacity-50">
           <PenLine className="size-4" />Set up your brand by hand
         </button>
       </div>
@@ -76,10 +71,10 @@ export function WebsiteStep({ firstBrand, website, onWebsiteChange, error, onSub
   )
 }
 
-/** Without a website: name and post language now, everything else in the brand profile. */
-export function ManualStep({ onBack, onCreate, headingRef }) {
-  const [name, setName] = useState('')
-  const [language, setLanguage] = useState('en-US')
+/** Without a website: name and post language now, everything else in the brand profile. `initial` refills it on the way back. */
+export function ManualStep({ onBack, onCreate, initial, headingRef }) {
+  const [name, setName] = useState(initial?.name || '')
+  const [language, setLanguage] = useState(POST_LANGUAGES.some(o => o.code === initial?.language) ? initial.language : 'en-US')
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
 
@@ -126,7 +121,7 @@ export function ManualStep({ onBack, onCreate, headingRef }) {
         <div className="flex flex-wrap gap-2 pt-2">
           <button type="submit" disabled={creating} className={appButton('primary', 'md', 'h-11 px-5')}>
             {creating ? <Loader2 className="size-4 animate-spin" /> : null}
-            {creating ? 'Creating…' : 'Create brand'}
+            {creating ? 'Saving…' : initial ? 'Continue' : 'Create brand'}
           </button>
           <button type="button" onClick={onBack} disabled={creating} className={appButton('quiet', 'md', 'h-11')}>
             <ArrowLeft className="size-4" />Use a website instead

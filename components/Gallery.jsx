@@ -6,19 +6,16 @@ import { toast } from 'sonner'
 import { useAppShell } from '@/components/app/AppShell'
 import { Popup, usePopup } from '@/components/app/popup'
 import { appField } from '@/components/app/field'
+import { billingAction } from '@/lib/client/billing'
+import { DIRECT_MAX_BYTES, uploadFile } from '@/lib/client/directUpload'
 import { Eyebrow, appButton, displayClass, pageShell, panelClass } from '@/components/app/ui'
 import { cn } from '@/lib/utils'
 
 const uploadKey = file => JSON.stringify([file.name, file.size, file.lastModified])
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = e => resolve(e.target.result)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
+// Images go straight to storage, up to 25 MB. Where the server cannot take them that way, they travel inside the
+// request instead, and uploadFile refuses those over 3 MB (the host's 4.5 MB limit on requests).
+const MAX_UPLOAD_MB = DIRECT_MAX_BYTES / 1024 / 1024
 
 // Transparent PNG cutouts are shown whole, on a checkerboard, so their missing background is visible.
 const CHECKERBOARD = { backgroundImage: 'repeating-conic-gradient(rgb(var(--bk-fg) / 0.07) 0% 25%, transparent 0% 50%)', backgroundSize: '16px 16px' }
@@ -227,8 +224,11 @@ export default function Gallery({ flowId, brandContext }) {
   }, [assets.map(a => a.id + a.status).join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const chooseFiles = files => {
-    const valid = [...files].filter(f => f.type.startsWith('image/'))
-    if (!valid.length) { toast.error('Choose image files (PNG, JPG or WEBP)'); return }
+    const images = [...files].filter(f => f.type.startsWith('image/'))
+    if (!images.length) { toast.error('Choose image files (PNG, JPG or WEBP)'); return }
+    const valid = images.filter(f => f.size <= MAX_UPLOAD_MB * 1024 * 1024)
+    for (const file of images) if (!valid.includes(file)) toast.error(`${file.name} is larger than ${MAX_UPLOAD_MB} MB. Use a smaller image.`)
+    if (!valid.length) return
     setPendingFiles(valid)
     setUploadDescriptions({})
     setSelectedId(null)
@@ -240,17 +240,17 @@ export default function Gallery({ flowId, brandContext }) {
     let successCount = 0
     for (const file of files) {
       try {
-        const res = await fetch('/api/assets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: await fileToDataUrl(file), filename: file.name, brand_id: brandId, description: uploadDescriptions[uploadKey(file)] || '' }),
-        })
-        const asset = await res.json()
-        if (!res.ok) throw new Error(asset.error || 'Upload failed')
+        const asset = await uploadFile('/api/assets', file, { purpose: 'gallery', fields: { filename: file.name, brand_id: brandId, description: uploadDescriptions[uploadKey(file)] || '' } })
         setAssets(prev => [asset, ...prev])
         setPendingFiles(prev => prev.filter(item => item !== file))
         successCount++
       } catch (err) {
+        // A plan limit stops the rest too: say so once, with the way to more space.
+        if (err.code) {
+          const { href, label } = billingAction(err)
+          toast.error(err.message, { duration: 12000, action: { label, onClick: () => window.location.assign(href) } })
+          break
+        }
         toast.error(`${file.name}: ${err.message}`)
       }
     }
@@ -340,7 +340,7 @@ export default function Gallery({ flowId, brandContext }) {
     >
       <span className="flex size-11 items-center justify-center rounded-2xl bg-bk-butter text-bk-ink"><Upload className="size-5" /></span>
       <span className="mt-3 text-[15px] font-bold">Drop photos anywhere</span>
-      <span className="mt-1 text-[12.5px] text-bk-muted">or click to choose. PNG, JPG or WEBP, up to 10 MB each.</span>
+      <span className="mt-1 text-[12.5px] text-bk-muted">or click to choose. PNG, JPG or WEBP, up to {MAX_UPLOAD_MB} MB each.</span>
     </button>
   )
 

@@ -13,7 +13,7 @@ type ImagePos = 'full' | 'top' | 'bottom' | 'left' | 'right' | 'center'
 type Box = { x: number; y: number; width: number; height: number }
 /** `cutout`: the slide's image is a transparent PNG subject standing on the design surface, not a photograph. */
 /** `fill`: a cutout placed in the empty band the copy leaves on a text slide. `frame: false`: no headline box here. */
-export interface SlidePlan { composition: Composition; withImage: boolean; align: Align; anchor: Anchor; imagePos: ImagePos; surface: 'dark' | 'light' | 'brand'; beat?: number; callout?: boolean; badge?: boolean; cutout?: boolean; fill?: boolean; frame?: boolean; variant?: TextVariant; listStyle?: ListVariant; photo?: PhotoVariant; number?: string }
+export interface SlidePlan { composition: Composition; withImage: boolean; align: Align; anchor: Anchor; imagePos: ImagePos; surface: 'dark' | 'light' | 'brand'; beat?: number; callout?: boolean; badge?: boolean; cutout?: boolean; fill?: boolean; frame?: boolean; variant?: TextVariant; listStyle?: ListVariant; photo?: PhotoVariant; number?: string; closing?: boolean }
 
 /**
  * Layout variants inside a composition, so posts in one design do not repeat the same structure. They use only the
@@ -121,6 +121,11 @@ export function planSlides(family: GlobalDesignFamily, copy: any): SlidePlan[] {
         || (last && !wantImage ? prefer('closing') : undefined)
         || rotating[seed % Math.max(1, rotating.length)] || options[0] || 'statement'
     }
+    // The last slide always reads as the end: it takes the study's closing arrangement, unless it follows the study's own
+    // closing reference, shows a photo the person attached, is a list, or images were asked for on every slide.
+    const followsClosingRef = last && refs.length > 1 && observed === refs[refs.length - 1] && composition === observed?.composition
+    if (last && composition !== 'closing' && g.compositions.includes('closing') && !followsClosingRef && !upload && composition !== 'list'
+      && !(wantImage && (choice === 'on' || g.imagery.frequency === 'every'))) { composition = 'closing'; wantImage = false }
     // "With images" on a typography-only study: copy keeps to the top of a plain statement, so the space below it can
     // take a cutout (a spread or backdrop layout never leaves that room). List slides keep their own layout.
     const roomForCutout = choice === 'on' && !hasImagery && composition !== 'list'
@@ -202,7 +207,7 @@ export function planSlides(family: GlobalDesignFamily, copy: any): SlidePlan[] {
       }
     }
     if (counted && index > 0 && !last) variants.number = String(index).padStart(2, '0')
-    plans.push({ composition, withImage: wantImage, align: finalAlign, anchor, imagePos: finalPos, surface, beat: plans.filter(p => p.withImage).length, callout, badge, cutout, ...(frame === undefined ? {} : { frame }), ...variants })
+    plans.push({ composition, withImage: wantImage, align: finalAlign, anchor, imagePos: finalPos, surface, beat: plans.filter(p => p.withImage).length, callout, badge, cutout, ...(frame === undefined ? {} : { frame }), ...(last ? { closing: true } : {}), ...variants })
   })
   return plans
 }
@@ -435,8 +440,13 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
   if (headlineText) specs.push({ role: 'headline', text: headlineText, font: heading, size: hSize, min: Math.max(34, Math.round(hSize * .42)), weight: WEIGHT[g.headline.weight], lineHeight: LEADING[g.headline.leading], letterSpacing: g.headline.tracking === 'tight' ? -Math.round(hSize * .025) : g.headline.tracking === 'wide' ? Math.round(hSize * .04) : 0, color: fg, uppercase: g.headline.case === 'uppercase', highlight: emphasis, pad: boxed ? Math.round(hSize * .7) : emphasis === 'background' ? 28 : 0, padY: boxed ? Math.round(hSize * .2) : 0 })
   if (bodyText) specs.push({ role: 'body', text: bodyText, font: bodyFont, size: bSize, min: 22, weight: 400, lineHeight: 1.32, color: textOnImage ? '#ffffff' : mix(fg, p.surface, .12) })
 
-  const ctaHeight = ctaText ? Math.round(bSize * 1.6) : 0
-  const ctaProminent = plan.composition === 'closing'
+  // The closing slide's call to action is its sign-off: larger, set off by a short accent rule, at the foot of the copy.
+  const ctaProminent = plan.composition === 'closing' || !!plan.closing
+  const signOff = !!plan.closing
+  const ctaScale = signOff ? 1.3 : ctaProminent ? 1.08 : .92
+  const ctaRuleH = signOff ? Math.max(5, Math.round(W * .006)) : 0, ctaRuleGap = signOff ? Math.round(bSize * .7) : 0
+  const ctaLine = signOff ? Math.round(bSize * ctaScale * 1.45) : Math.round(bSize * 1.6)
+  const ctaHeight = ctaText ? ctaLine + ctaRuleH + ctaRuleGap : 0
   if (frame && !textOnImage && plan.composition !== 'split' && frame.width >= W * .9) {
     const comfortable = specs.map(s => ({ ...s, size: Math.round(s.size * .82), min: Math.round(s.size * .82) }))
     const reserve = (ctaText ? ctaHeight + gap : 0) + (g.decorations.some(d => d.kind === 'line') ? Math.round(W * .012) + gap : 0)
@@ -771,14 +781,19 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
   // Nothing on an Instagram graphic is clickable, so the CTA is typography in the accent color: never a button
   // shape, a link underline or an arrow. It stays on one line, shrinking a little when it has to.
   function placeCta(y: number, color = accent, area: { x: number; width: number } = zone) {
-    let size = Math.round(bSize * (ctaProminent ? 1.08 : .92))
+    let size = Math.round(bSize * ctaScale)
     while (size > 22 && countLines(ctaText, size, area.width - 8, bodyFont, 0) > 1) size -= 2
-    push('cta', { type: 'text', x: area.x, ...line(y, ctaHeight, size, 1.15), width: area.width, text: ctaText, fontFamily: bodyFont, fontSize: size, fontWeight: 700, lineHeight: 1.15, color, textAlign: align })
+    if (signOff) {
+      const ruleW = Math.round(W * .08)
+      push('cta-rule', { type: 'shape', shape: 'rect', x: align === 'center' ? Math.round(area.x + (area.width - ruleW) / 2) : align === 'right' ? area.x + area.width - ruleW : area.x, y: Math.round(y), width: ruleW, height: ctaRuleH, fill: color })
+      y += ctaRuleH + ctaRuleGap
+    }
+    push('cta', { type: 'text', x: area.x, ...line(y, ctaLine, size, 1.15), width: area.width, text: ctaText, fontFamily: bodyFont, fontSize: size, fontWeight: 700, lineHeight: 1.15, color, textAlign: align })
   }
 
   // The largest empty band the copy leaves inside the content area (above or below it). A fill cutout stands in it:
   // on the bottom edge below the copy, or just above the headline, on the side away from the copy's alignment.
-  const COPY = /^(eyebrow|eyebrow-pill|headline|headline-frame|body|cta|item|item-card|marker|marker-glyph|marker-dot|badge|badge-logo|badge-mark|callout-card|accent-line|panel-card|band|lead|rule|sidebar|timeline)$/
+  const COPY = /^(eyebrow|eyebrow-pill|headline|headline-frame|body|cta|cta-rule|item|item-card|marker|marker-glyph|marker-dot|badge|badge-logo|badge-mark|callout-card|accent-line|panel-card|band|lead|rule|sidebar|timeline)$/
   const copyNodes = nodes.filter(n => COPY.test(n.designRole || ''))
   let free: { side: 'top' | 'bottom'; box: Box } | null = null
   if (copyNodes.length) {

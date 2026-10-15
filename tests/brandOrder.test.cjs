@@ -19,7 +19,7 @@ function fakeDb(docs) {
   }
 }
 
-const flowsModule = db => new Function('cache', 'connectToMongo', 'ensureMinimumBrandDesigns', load('lib/data/flows.ts') + ';return {getFlows,lastUsedAt}')(f => f, async () => db, x => x)
+const flowsModule = db => new Function('cache', 'connectToMongo', 'ensureMinimumBrandDesigns', 'currentUserId', load('lib/data/flows.ts') + ';return {getFlows,lastUsedAt}')(f => f, async () => db, x => x, async () => 'user_1')
 
 test('brands are listed most recently used first, so /app opens the last one used', async () => {
   const db = fakeDb([

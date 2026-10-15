@@ -1,8 +1,8 @@
 import sharp from 'sharp'
-import { Binary } from 'mongodb'
 import { createHash } from 'node:crypto'
 import { fetchWebsiteResource } from './websiteFetch'
 import { compactImage } from './imageStorage'
+import { saveUpload } from './uploadStore'
 
 /** Store original pixels and source context; no generated images or per-image AI calls. */
 export async function importWebsiteImages(db: any, brandId: string, images: any[], baseUrl: string) {
@@ -19,8 +19,9 @@ export async function importWebsiteImages(db: any, brandId: string, images: any[
       const thumbnail = await sharp(resource.bytes).rotate().resize(400, 400, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer()
       const now = new Date(), originalId = `website_${sourceId}_original`, thumbId = `website_${sourceId}_thumb`
       const stored = await compactImage(resource.bytes, resource.contentType)
-      await db.collection('uploads').updateOne({ id: originalId }, { $setOnInsert: { id: originalId, contentType: stored.contentType, bytes: new Binary(stored.bytes), createdAt: now } }, { upsert: true })
-      await db.collection('uploads').updateOne({ id: thumbId }, { $setOnInsert: { id: thumbId, contentType: 'image/jpeg', bytes: new Binary(thumbnail), createdAt: now } }, { upsert: true })
+      // Imported from the brand's website, not uploaded by the person: no owner, so they never count against a plan.
+      await saveUpload(db, { id: originalId, bytes: stored.bytes, contentType: stored.contentType, createdAt: now }, { ifAbsent: true })
+      await saveUpload(db, { id: thumbId, bytes: thumbnail, contentType: 'image/jpeg', createdAt: now }, { ifAbsent: true })
       const filename = decodeURIComponent(new URL(image.url).pathname.split('/').pop() || 'website-photo')
       const asset = {
         id: `website_${sourceId}`, brand_id: brandId, source: 'website', source_url: image.url, source_page: image.sourcePage,

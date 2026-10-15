@@ -5,33 +5,76 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
-import { Check, Code2, Fingerprint, Images, LayoutTemplate, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings, Sun, Trash2, Wand2, X } from 'lucide-react'
+import { useClerk, useUser } from '@clerk/nextjs'
+import { CalendarClock, Check, Code2, CreditCard, Fingerprint, Images, LayoutTemplate, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings, Sun, Trash2, Wand2, X } from 'lucide-react'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetClose, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { BatkleLogo } from '@/components/landing/brand'
-import CustomCursor from '@/components/landing/CustomCursor'
+import { clerkAppearance } from '@/components/auth/clerkAppearance'
 import SmoothScroll from '@/components/landing/SmoothScroll'
 import { cn } from '@/lib/utils'
 import { BrandTile, Eyebrow, SIDEBAR_COOKIE, appButton, appLayer, brandLogo } from './ui'
 import { usePopup } from './popup'
-
-// Placeholder until the authentication system exists.
-const ACCOUNT = { name: 'Evandro Viegas', email: 'evandroviegas.digital@gmail.com', initials: 'EV' }
+import CreditsMeter, { creditsLabel } from './billing/CreditsMeter'
+import PlanBadge, { PlanMark, planLabel } from './billing/PlanBadge'
+import { useBilling } from './billing/useBilling'
 
 const ShellContext = createContext({ setCount: () => {} })
+
+function initialsOf(name) {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  return ((parts[0]?.[0] || '?') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
+}
+
+/**
+ * The signed-in person: Clerk's live profile once it has loaded (it changes in account settings), the server's
+ * copy before that. Also opens account settings in Batkle's colours, and signs out.
+ */
+function useAccount(fallback) {
+  const { user } = useUser()
+  const clerk = useClerk()
+  const { resolvedTheme } = useTheme()
+  const name = user?.fullName || fallback?.name || 'Your account'
+  return {
+    name,
+    email: user?.primaryEmailAddress?.emailAddress || fallback?.email || '',
+    imageUrl: user?.hasImage ? user.imageUrl : null,
+    initials: initialsOf(name),
+    openSettings: () => clerk.openUserProfile({ appearance: clerkAppearance(resolvedTheme === 'dark') }),
+    signOut: () => clerk.signOut({ redirectUrl: '/' }),
+  }
+}
+
+/** The account photo, or initials on ink with the butter ring. */
+function Avatar({ account, size, ringOffset }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn('flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-bk-ink font-bold text-bk-cream ring-2 ring-bk-butter ring-offset-2', ringOffset)}
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.36) }}
+    >
+      {account.imageUrl ? <img src={account.imageUrl} alt="" className="size-full object-cover" /> : account.initials}
+    </span>
+  )
+}
+
+const menuClass = cn(appLayer, 'w-60 rounded-xl border-bk-line bg-bk-surface p-1.5 shadow-bk-pop')
+const menuItemClass = 'gap-2.5 rounded-lg px-2 py-1.5 text-[13px] font-semibold focus:bg-bk-alt focus:text-bk-fg'
 /** Lets a page update its sidebar count (for example, Creation's idea count) without a reload. */
 export const useAppShell = () => useContext(ShellContext)
 
 function navItems(brandId) {
   return [
     { key: 'creation', label: 'Creation', href: `/app/${brandId}/creation`, count: 'creation', Icon: Wand2 },
+    { key: 'schedule', label: 'Schedule', href: `/app/${brandId}/schedule`, count: 'schedule', Icon: CalendarClock },
     { key: 'gallery', label: 'Gallery', href: `/app/${brandId}/gallery`, count: 'gallery', Icon: Images },
     { key: 'brand-information', label: 'Brand profile', href: `/app/${brandId}/brand-information`, Icon: Fingerprint },
     { key: 'design-library', label: 'Design Library', href: `/app/${brandId}/design-library`, Icon: LayoutTemplate },
-    { key: 'renders', label: 'Renders & API', href: `/app/${brandId}/renders`, Icon: Code2 },
+    // The account-wide developer dashboard: API keys, credits, usage and renders.
+    { key: 'developers', label: 'API & usage', href: '/developers/dashboard', Icon: Code2 },
   ]
 }
 
@@ -65,7 +108,7 @@ function ThemeButton({ compact }) {
 
 function BrandSwitcher({ flows, brand, activeSlug, onDelete, compact }) {
   const router = useRouter()
-  const slug = ['creation', 'gallery', 'brand-information', 'design-library', 'renders'].includes(activeSlug) ? activeSlug : 'creation'
+  const slug = ['creation', 'schedule', 'gallery', 'brand-information', 'design-library'].includes(activeSlug) ? activeSlug : 'creation'
 
   return (
     // Non-modal so opening the delete dialog from a menu item never leaves the page unclickable.
@@ -111,7 +154,7 @@ function BrandSwitcher({ flows, brand, activeSlug, onDelete, compact }) {
   )
 }
 
-function SidebarContent({ flows, brand, counts, activeSlug, collapsed = false, onToggle, onNavigate, onDelete }) {
+function SidebarContent({ flows, brand, counts, account, credits, activeSlug, collapsed = false, onToggle, onNavigate, onDelete }) {
   const toggleLabel = collapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'
   const toggle = onToggle && (
     <RailTip show={collapsed} label={toggleLabel}>
@@ -190,31 +233,61 @@ function SidebarContent({ flows, brand, counts, activeSlug, collapsed = false, o
       <div className={cn('mt-auto w-full border-t border-bk-line pt-3', collapsed && 'flex flex-col items-center gap-2')}>
         {collapsed ? (
           <>
-            <RailTip show label={`${ACCOUNT.name} · Account settings`}>
-              <button type="button" onClick={accountSoon} aria-label="Account settings" className="flex size-9 items-center justify-center rounded-full bg-bk-ink text-[12px] font-bold text-bk-cream ring-2 ring-bk-butter ring-offset-2 ring-offset-bk-bg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-bk-fg">
-                {ACCOUNT.initials}
-              </button>
-            </RailTip>
+            {credits.summary && (
+              <RailTip show label={creditsLabel(credits.summary)}>
+                {/* The tooltip needs an element it can hold; the link inside takes the focus and the click. */}
+                <span className="inline-flex"><CreditsMeter summary={credits.summary} compact onNavigate={onNavigate} /></span>
+              </RailTip>
+            )}
+            <DropdownMenu modal={false}>
+              <RailTip show label={`${account.name}${credits.summary ? ` · ${planLabel(credits.summary)} plan` : ''} · Account`}>
+                <DropdownMenuTrigger aria-label={credits.summary ? `Account · ${planLabel(credits.summary)} plan` : 'Account'} className="relative rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-bk-fg">
+                  <Avatar account={account} size={36} ringOffset="ring-offset-bk-bg" />
+                  <PlanMark summary={credits.summary} />
+                </DropdownMenuTrigger>
+              </RailTip>
+              <DropdownMenuContent align="start" side="right" className={menuClass}>
+                <DropdownMenuLabel className="px-2 pb-1.5 pt-1">
+                  <span className="flex items-center gap-2">
+                    <span className="min-w-0 truncate text-[13px] font-bold">{account.name}</span>
+                    <PlanBadge summary={credits.summary} />
+                  </span>
+                  <span className="block truncate text-[11.5px] font-normal text-bk-muted">{account.email}</span>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-bk-line" />
+                <DropdownMenuItem onSelect={account.openSettings} className={menuItemClass}><Settings /> Account settings</DropdownMenuItem>
+                <DropdownMenuItem asChild className={menuItemClass}><Link href="/app/settings"><CreditCard /> Plan &amp; billing</Link></DropdownMenuItem>
+                <DropdownMenuItem onSelect={account.signOut} className={menuItemClass}><LogOut /> Sign out</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <ThemeButton compact />
           </>
         ) : (
           <>
+            <CreditsMeter summary={credits.summary} loading={credits.loading} onNavigate={onNavigate} className="mb-2.5" />
             <div className="flex items-center gap-2.5 rounded-xl border border-bk-line bg-bk-surface p-2.5">
-              <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-full bg-bk-ink text-[11px] font-bold text-bk-cream ring-2 ring-bk-butter ring-offset-2 ring-offset-bk-surface">
-                {ACCOUNT.initials}
-              </span>
+              <Avatar account={account} size={32} ringOffset="ring-offset-bk-surface" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-bold leading-tight">{ACCOUNT.name}</p>
-                <p className="truncate text-[11px] text-bk-muted">{ACCOUNT.email}</p>
+                <p className="truncate text-[13px] font-bold leading-tight">{account.name}</p>
+                {/* The plan first, so a long email never pushes it out of sight. */}
+                <p className="mt-0.5 flex min-w-0 items-center gap-1.5">
+                  <PlanBadge summary={credits.summary} />
+                  <span className="truncate text-[11px] text-bk-muted">{account.email}</span>
+                </p>
               </div>
-              <button type="button" onClick={accountSoon} aria-label="Account settings" className={appButton('outline', 'xs', 'size-8 px-0')}>
+              <button type="button" onClick={() => { onNavigate?.(); account.openSettings() }} aria-label="Account settings" title="Account settings" className={appButton('outline', 'xs', 'size-8 px-0')}>
                 <Settings className="size-4" />
               </button>
             </div>
-            <div className="mt-2.5 flex items-center justify-between px-1">
-              <button type="button" onClick={accountSoon} className="text-[12.5px] text-bk-muted underline underline-offset-4 hover:text-bk-fg">
-                Account settings
-              </button>
+            <div className="mt-2.5 flex items-center justify-between gap-2 px-1">
+              <div className="flex min-w-0 items-center gap-3">
+                <Link href="/app/settings" onClick={onNavigate} className="truncate text-[12.5px] text-bk-muted underline underline-offset-4 hover:text-bk-fg">
+                  Plan &amp; billing
+                </Link>
+                <button type="button" onClick={account.signOut} className="inline-flex shrink-0 items-center gap-1.5 text-[12.5px] text-bk-muted underline underline-offset-4 hover:text-bk-fg">
+                  Sign out
+                </button>
+              </div>
               <ThemeButton />
             </div>
           </>
@@ -224,11 +297,7 @@ function SidebarContent({ flows, brand, counts, activeSlug, collapsed = false, o
   )
 }
 
-function accountSoon() {
-  toast.info('Account settings arrive with sign-in.')
-}
-
-export default function AppShell({ flows, brand, counts: initialCounts, initialCollapsed = false, children }) {
+export default function AppShell({ flows, brand, counts: initialCounts, account: serverAccount, initialCollapsed = false, children }) {
   const router = useRouter()
   const pathname = usePathname()
   const activeSlug = pathname.split('/')[3] || 'creation'
@@ -236,6 +305,10 @@ export default function AppShell({ flows, brand, counts: initialCounts, initialC
   const [collapsed, setCollapsed] = useState(initialCollapsed)
   const [menuOpen, setMenuOpen] = useState(false)
   const popup = usePopup()
+  const account = useAccount(serverAccount)
+  // The sidebar's credits meter: loaded once, and again whenever something on the page spends or adds credits.
+  const billing = useBilling({ follow: true })
+  const credits = useMemo(() => ({ summary: billing.data?.summary || null, loading: !billing.data && !billing.error }), [billing.data, billing.error])
 
   const setCount = useCallback((key, value) => setCounts(prev => (prev[key] === value ? prev : { ...prev, [key]: value })), [])
   const context = useMemo(() => ({ setCount }), [setCount])
@@ -284,7 +357,7 @@ export default function AppShell({ flows, brand, counts: initialCounts, initialC
     router.refresh()
   }
 
-  const sidebarProps = { flows, brand, counts, activeSlug, onDelete: deleteBrand }
+  const sidebarProps = { flows, brand, counts, account, credits, activeSlug, onDelete: deleteBrand }
 
   return (
     <ShellContext.Provider value={context}>
@@ -332,7 +405,6 @@ export default function AppShell({ flows, brand, counts: initialCounts, initialC
       </TooltipProvider>
 
       <SmoothScroll />
-      <CustomCursor />
     </ShellContext.Provider>
   )
 }

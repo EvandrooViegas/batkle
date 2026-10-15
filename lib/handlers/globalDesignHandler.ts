@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
-import { Binary } from 'mongodb'
 import sharp from 'sharp'
 import { ADMIN_COOKIE, adminConfigured, validAdminKey, adminSession, isDesignAdmin, requireDesignAdmin } from '@/lib/designs/global/admin'
 import { listGlobalDesigns, getGlobalRecord, saveGlobalDraft, publishGlobalDesign, retireGlobalDesign, hydrateBrandFamilies, DesignLibraryError } from '@/lib/designs/global/store'
 import { analyzeDesignReferences } from '@/lib/designs/global/analyze'
 import { retrySeconds } from '@/lib/services/ai/requestBudget'
 import { compactImage } from '@/lib/services/imageStorage'
+import { saveUpload } from '@/lib/services/uploadStore'
 
 export async function handleGlobalDesignRequest(db: any, request: Request, path: string[]) {
   try {
@@ -46,7 +46,7 @@ export async function handleGlobalDesignRequest(db: any, request: Request, path:
       if (!meta.width || !meta.height) throw new DesignLibraryError('Invalid reference image.')
       const id = randomUUID()
       const stored = await compactImage(bytes, `image/${match[1]}`)
-      await db.collection('uploads').insertOne({ id, bytes: new Binary(stored.bytes), contentType: stored.contentType, purpose: 'design-reference', createdAt: new Date() })
+      await saveUpload(db, { id, bytes: stored.bytes, contentType: stored.contentType, purpose: 'design-reference' })
       return NextResponse.json({ id, url: `/api/uploads/${id}`, name: String(body.name || 'Reference').slice(0, 200), width: meta.width, height: meta.height })
     }
     if (id === 'analyze' && method === 'POST') return NextResponse.json(await analyzeDesignReferences(db, await request.json()))

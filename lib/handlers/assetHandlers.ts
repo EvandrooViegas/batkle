@@ -3,18 +3,21 @@
  */
 
 import { NextResponse } from 'next/server'
-import { Binary } from 'mongodb'
 import { v4 as uuidv4 } from 'uuid'
 import sharp from 'sharp'
 import { corsify, getBaseUrl } from '@/lib/services/middleware'
 import { analyseImageBuffer } from '@/lib/services/visionAnalysis'
 import { indexAssetDescription } from '@/lib/services/assetDescription'
 import { compactImage } from '@/lib/services/imageStorage'
+import { DIRECT_UPLOAD_MAX_BYTES, saveUpload, withDirectUpload } from '@/lib/services/uploadStore'
+import { requireUploadRoom } from '@/lib/billing/account'
 
 // ─── thumbnail ────────────────────────────────────────────────────────────────
 
 async function makeThumbnail(buf: Buffer): Promise<Buffer> {
+  // rotate() turns a phone photo upright: the thumbnail is a new image and keeps no EXIF orientation of its own.
   return sharp(buf)
+    .rotate()
     .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 80 })
     .toBuffer()
@@ -38,15 +41,30 @@ export function parseDataUrl(data: string): { mime_type: string; buf: Buffer } |
   return { mime_type, buf: Buffer.from(base64Part, 'base64') }
 }
 
-/** Saves an image (compacted) and a 400 px JPEG thumbnail; returns their URLs and the stored type. */
-export async function storeImageBytes(db: any, buf: Buffer, mime_type: string, baseUrl: string) {
+/**
+ * Saves an image (compacted) and a 400 px JPEG thumbnail; returns their URLs and the stored type. With an owner, the
+ * image is one of the person's own and counts against their plan; its thumbnail is theirs too but never counts.
+ */
+export async function storeImageBytes(db: any, buf: Buffer, mime_type: string, baseUrl: string, ownerId?: string | null) {
   const uploadId = uuidv4()
   const thumbId  = uuidv4()
   const now      = new Date()
   const stored   = await compactImage(buf, mime_type)
-  await db.collection('uploads').insertOne({ id: uploadId, contentType: stored.contentType, bytes: new Binary(stored.bytes), createdAt: now })
-  await db.collection('uploads').insertOne({ id: thumbId, contentType: 'image/jpeg', bytes: new Binary(await makeThumbnail(buf)), createdAt: now })
+  await saveUpload(db, { id: uploadId, bytes: stored.bytes, contentType: stored.contentType, ...(ownerId ? { ownerId, userUpload: true } : {}), createdAt: now })
+  await saveUpload(db, { id: thumbId, bytes: await makeThumbnail(buf), contentType: 'image/jpeg', ...(ownerId ? { ownerId, userUpload: false } : {}), createdAt: now })
   return { url: `${baseUrl}/api/uploads/${uploadId}`, thumbnail_url: `${baseUrl}/api/uploads/${thumbId}`, mime_type: stored.contentType }
+}
+
+/**
+ * Gives back the space a deleted image took in its owner's allowance: its uploads stop counting (`userUpload: false`)
+ * and are marked `removedAt`. The bytes are kept, because posts made with the image link to it directly and would
+ * lose it otherwise; the cost is that storage keeps images nobody can see in the gallery any more. Only the person's
+ * own uploads (those with an owner) change: website imports, AI images and cut-outs are shared and never counted.
+ */
+export async function releaseUploads(db: any, asset: { url?: unknown; thumbnail_url?: unknown } | null) {
+  const ids = [asset?.url, asset?.thumbnail_url].map(url => typeof url === 'string' ? url.match(/\/api\/uploads\/([^/?#]+)/)?.[1] : undefined).filter(Boolean)
+  if (!ids.length) return
+  await db.collection('uploads').updateMany({ id: { $in: ids }, ownerId: { $exists: true } }, { $set: { userUpload: false, removedAt: new Date() } })
 }
 
 export function newAssetId() {
@@ -55,12 +73,29 @@ export function newAssetId() {
 
 // ─── route handlers ───────────────────────────────────────────────────────────
 
-export async function handleUploadAsset(db: any, body: any, request: Request) {
-  const { data, filename, brand_id } = body
+/**
+ * A gallery upload: one of the person's own images, refused with 402 limit_reached when their plan has no room. The
+ * image comes inside the request as a data URL, or was uploaded to R2 first (`upload`, from POST /api/uploads/sign).
+ */
+export async function handleUploadAsset(db: any, body: any, request: Request, userId?: string | null) {
+  if (body?.upload !== undefined) {
+    return withDirectUpload(db, { id: body.upload, ownerId: userId, purpose: 'gallery', brandId: body.brand_id }, image => storeAsset(db, body, request, userId, image.bytes, image.contentType, DIRECT_UPLOAD_MAX_BYTES))
+  }
+  const { data } = body
 
   if (!data || typeof data !== 'string' || !data.startsWith('data:')) {
     return corsify(NextResponse.json({ error: 'data must be a base64 data URL' }, { status: 400 }))
   }
+  const parsed = parseDataUrl(data)
+  if (!parsed) {
+    return corsify(NextResponse.json({ error: 'Invalid data URL' }, { status: 400 }))
+  }
+  return storeAsset(db, body, request, userId, parsed.buf, parsed.mime_type, 10 * 1024 * 1024)
+}
+
+/** The gallery pipeline, however the image arrived. */
+async function storeAsset(db: any, body: any, request: Request, userId: string | null | undefined, buf: Buffer, mime_type: string, maxBytes: number) {
+  const { filename, brand_id } = body
   if (!brand_id) {
     return corsify(NextResponse.json({ error: 'brand_id is required' }, { status: 400 }))
   }
@@ -68,30 +103,28 @@ export async function handleUploadAsset(db: any, body: any, request: Request) {
     return corsify(NextResponse.json({ error: 'Description must be text with at most 2000 characters' }, { status: 400 }))
   }
 
-  const parsed = parseDataUrl(data)
-  if (!parsed) {
-    return corsify(NextResponse.json({ error: 'Invalid data URL' }, { status: 400 }))
-  }
-  const { mime_type, buf } = parsed
-
-  if (buf.length > 10 * 1024 * 1024) {
-    return corsify(NextResponse.json({ error: 'Image too large (max 10MB)' }, { status: 413 }))
+  if (buf.length > maxBytes) {
+    return corsify(NextResponse.json({ error: `Image too large (max ${Math.round(maxBytes / 1024 / 1024)}MB)` }, { status: 413 }))
   }
 
   let width = 0, height = 0
   try {
     const meta = await sharp(buf).metadata()
-    width  = meta.width  ?? 0
-    height = meta.height ?? 0
+    // Phone photos are stored as taken; EXIF orientations 5–8 show them turned, with their sides swapped.
+    const turned = (meta.orientation || 1) >= 5
+    width  = (turned ? meta.height : meta.width)  ?? 0
+    height = (turned ? meta.width : meta.height) ?? 0
   } catch {
     return corsify(NextResponse.json({ error: 'Could not read image metadata' }, { status: 400 }))
   }
 
+  // Before any AI call or storage; a billing error passes through to the route, which answers 402 with its code.
+  if (userId) await requireUploadRoom(db, userId, buf.length)
   const descriptionData=await indexAssetDescription(body.description??'')
   const assetId     = newAssetId()
   const orientation = calcOrientation(width, height)
   const now         = new Date()
-  const { url, thumbnail_url, mime_type: storedType } = await storeImageBytes(db, buf, mime_type, getBaseUrl(request))
+  const { url, thumbnail_url, mime_type: storedType } = await storeImageBytes(db, buf, mime_type, getBaseUrl(request), userId)
 
   const assetDoc: any = {
     id: assetId,
@@ -186,6 +219,8 @@ export async function handleUpdateAsset(db: any, id: string, body: any) {
 }
 
 export async function handleDeleteAsset(db: any, id: string) {
-  await db.collection('assets').deleteOne({ id })
+  const asset = await db.collection('assets').findOne({ id }, { projection: { _id: 0, url: 1, thumbnail_url: 1 } })
+  const result = await db.collection('assets').deleteOne({ id })
+  if (result?.deletedCount) await releaseUploads(db, asset)
   return corsify(NextResponse.json({ success: true }))
 }

@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { corsify } from '@/lib/services/middleware'
+import { billingError, billingErrorBody, chargeCredits, creditPeriod, creditsLeft, effectivePlan, loadBilling, refundCharge } from '@/lib/billing/account'
 import { loadGenerationBrandContext } from '@/lib/services/generationBrandContext'
 import { chooseBrandFamily } from '@/lib/designs/global/generation'
 import { DesignLibraryError } from '@/lib/designs/global/store'
@@ -17,7 +19,7 @@ const COMPOSITION_GUIDE: Record<string, string> = {
   'image-led': 'photograph dominates; compact copy over or beside it',
   'backdrop-type': 'oversized low-opacity word behind smaller foreground copy',
   list: 'headline plus 2-6 short enumerated items (write the items as numbered body lines)',
-  closing: 'conclusion slide: the takeaway, with the call to action when the slide has one',
+  closing: 'the last slide only: the payoff headline, one short line and the call to action as its sign-off',
 }
 
 /** A transparent PNG already in the brand gallery that the plan may reuse; `ref` is the short id shown to the model. */
@@ -56,8 +58,8 @@ Prefer new subjects made for this post. Set "reuse" to a ref only when that cuto
 DESIGN STUDY: ${JSON.stringify(study)}
 COMPOSITIONS this study allows: ${study.compositions.map(c => `"${c}" = ${COMPOSITION_GUIDE[c]}`).join('; ')}.
 Add "design" to every carousel slide (for a single post, add a top-level "design"):
-"design": {"composition": "<one of ${study.compositions.join(', ')}>", "emphasis": ["one or two exact words from the headline to highlight"], "image": null or ${image}${uploadImage}}
-Rules: choose the composition that serves each slide's content, and vary compositions across a carousel while respecting the recurring rules; never give every slide the same composition unless the study demands it. ${imageryRule} Image subjects are written in English. Never put words, logos or brand marks in image subjects. Avoid the anti-patterns.${galleryBlock}${uploadPlanningBlock(uploads)}`
+"design": {"composition": "<one of ${study.compositions.join(', ')}>", "emphasis": ["the one word from the headline that carries its tension or its concrete detail, exactly as written (two at most; never a filler word or the brand name)"], "image": null or ${image}${uploadImage}}
+Rules: choose the composition that serves each slide's content, and vary compositions across a carousel while respecting the recurring rules; never give every slide the same composition unless the study demands it.${study.compositions.includes('closing') ? ' The last carousel slide uses "closing", and no other slide does.' : ''} ${imageryRule} Image subjects are written in English. Never put words, logos or brand marks in image subjects. Avoid the anti-patterns.${galleryBlock}${uploadPlanningBlock(uploads)}`
 }
 
 /** A short subject label for a saved cutout. Descriptions that are generation instructions, not subjects, give ''. */
@@ -129,15 +131,52 @@ export function unplacedUploads(plan: any, uploads: PostImage[]) {
 }
 
 /**
+ * The fewest slides this post can have, known before anything is written: the kept copy's slides, or the number of
+ * slides chosen for the idea. Otherwise 1, since the copywriter picks the length.
+ */
+export function minimumSlides(idea: any, copy?: any): number {
+  if (copy) return Array.isArray(copy.slides) && copy.slides.length ? copy.slides.length : 1
+  const chosen = Number(idea?.slideCount)
+  return idea?.format !== 'single' && Number.isInteger(chosen) && chosen > 1 ? chosen : 1
+}
+
+/** What a post costs: one credit per slide, since every slide gets its own image. The plan has one slot per slide. */
+export function postCredits(plan: any): number {
+  return Math.max(1, Array.isArray(plan?.slots) ? plan.slots.length : 0)
+}
+
+const plural = (n: number) => (n === 1 ? '' : 's')
+
+/** Refuses with the same insufficient_credits error chargeCredits gives when fewer than `credits` are left. */
+async function requireCredits(db: any, userId: string, credits: number) {
+  const account = await loadBilling(db, userId)
+  const left = creditsLeft(account).total
+  if (left >= credits) return
+  const plan = effectivePlan(account)
+  throw billingError(402, 'insufficient_credits',
+    left
+      ? `This needs ${credits} credit${plural(credits)} and you have ${left} left. Buy extra credits or upgrade your plan to keep creating.`
+      : `You've used all your credits${plan.id === 'free' ? ' for this month' : ''}. Buy extra credits or upgrade your plan to keep creating.`,
+    { needed: credits, available: left, plan: plan.id, renewsAt: creditPeriod(new Date(account.creditAnchor)).end })
+}
+
+/**
  * PLAN: one model call returns copy + composition plan; asset needs are derived in code.
  * Existing copy can be re-planned with zero model calls.
+ *
+ * With `userId` (every request from the app), the post is paid for here, one credit per slide, re-plans of kept copy
+ * too since they make new images. An account without enough credits is refused before the model call. The charge's
+ * `chargeRef` goes back to the client, which sends it to /resolve-assets and /design-canvas: they refuse to make
+ * images or the post without it, and give the credits back when they fail.
  */
-export async function handlePlanPost(db: any, body: any) {
+export async function handlePlanPost(db: any, body: any, userId?: string) {
+  let charge: any = null
   try {
     const { idea } = body
     if (!idea) return corsify(NextResponse.json({ error: 'idea (content brief) is required' }, { status: 400 }))
     const brandContext = await loadGenerationBrandContext(db, body)
     if (!brandContext) return corsify(NextResponse.json({ error: 'Brand not found' }, { status: 400 }))
+    if (userId) await requireCredits(db, userId, minimumSlides(idea, body.copy))
     // Photos attached to the idea, re-read from the brand's records (never trusted from the request).
     const uploads = await loadPostImages(db, brandContext.id, postImageIds((idea.images || []).map((i: any) => i?.id)), idea.id)
     const choice = imageChoiceFor(idea)
@@ -179,8 +218,19 @@ export async function handlePlanPost(db: any, body: any) {
     copy = choice === 'auto' ? rest : { ...rest, imageChoice: choice }
     const plan = await planAssets(db, { brandContext, copy, idea, uploads, brand_id: `brand_${brandContext.id}`, designId: selection?.design.id || designId })
     const unplaced = unplacedUploads(plan, uploads)
-    return corsify(NextResponse.json({ copy, plan, needsVisuals: plan.slots.some((s: any) => s.needs_visual), imageMode: plan.layoutPlan?.imageMode || null, unplacedImages: unplaced.length }))
+    // A plan's idea ID repeats on every rebuild, so each charge gets its own reference.
+    let paid = {}
+    if (userId) {
+      const chargeRef = `post_${randomUUID()}`
+      charge = await chargeCredits(db, userId, postCredits(plan), { reason: 'post', ref: chargeRef })
+      paid = { chargeRef, credits: { charged: charge.credits, left: creditsLeft(await loadBilling(db, userId)).total } }
+    }
+    return corsify(NextResponse.json({ copy, plan, needsVisuals: plan.slots.some((s: any) => s.needs_visual), imageMode: plan.layoutPlan?.imageMode || null, unplacedImages: unplaced.length, ...paid }))
   } catch (error: any) {
+    // Credits taken for a plan that never reached the client are given back.
+    if (charge) await refundCharge(db, userId!, charge.id).catch(() => {})
+    const billing = error?.billing ? billingErrorBody(error) : null
+    if (billing) return corsify(NextResponse.json(billing, { status: error.status }))
     return copyErrorResponse(error, 'Post planning failed')
   }
 }

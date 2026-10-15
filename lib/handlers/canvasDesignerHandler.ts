@@ -26,6 +26,7 @@ import Groq from 'groq-sdk'
 import { containPreparedLogo, sampleLogoBackdrop } from '@/lib/services/logoBackground'
 import { prepareSubjectAssets, hydrateSubjectCrops } from '@/lib/services/subjectAssets'
 import { corsify } from '@/lib/services/middleware'
+import { findCharge, refundCharge, settleCharge } from '@/lib/billing/account'
 import type { ResolvedAssetPlan, ResolvedSlot } from './assetResolverHandler'
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
@@ -2141,7 +2142,8 @@ function extractSlideText(copy: any, idx: number, format: string, total: number)
   if (format === 'single') {
     return {
       headline: copySafe(copy.headline, copySafe(copy.slides?.[0]?.headline, 'Untitled')),
-      body:     copySafe(copy.subheadline || copy.supportingText, ''),
+      // The subheadline is a short label now; the supporting line is the body (older posts may only have the first).
+      body:     copySafe(copy.supportingText || copy.subheadline, ''),
       cta:      copySafe(copy.cta, ''),
       eyebrow:  '',
       cover:     false,
@@ -2438,7 +2440,27 @@ async function softenCanvasLogos(canvas: any, logoUrl: string | null, variants?:
   }
 }
 
-export async function handleDesignCanvas(db: any, body: any, persist = true) {
+/**
+ * BUILD. A new post saved for `ownerId` (every request from the app) is built only on the credits its plan took
+ * (`body.chargeRef`, see handlePlanPost): the charge is settled when the post is made and given back when it fails.
+ * Previews and design switches (persist=false) make no new images and are never charged.
+ */
+export async function handleDesignCanvas(db: any, body: any, persist = true, ownerId?: string) {
+  if (!persist || !ownerId) return designCanvas(db, body, persist, ownerId)
+  let charge: any
+  try { charge = typeof body?.chargeRef === 'string' ? await findCharge(db, ownerId, body.chargeRef) : null }
+  catch (error: any) { return corsify(NextResponse.json({ error: error.message || 'Canvas design failed' }, { status: error.status || 500 })) }
+  const slides = Array.isArray(body?.resolvedPlan?.slots) ? body.resolvedPlan.slots.length : 0
+  if (!charge || slides > charge.credits) return corsify(NextResponse.json({ error: 'This post has to start again from the beginning. Please try again.' }, { status: 409 }))
+  const response = await designCanvas(db, body, persist, ownerId)
+  try {
+    if (response.status < 400) await settleCharge(db, ownerId, charge.id)
+    else await refundCharge(db, ownerId, charge.id)
+  } catch (error) { console.warn('[canvas-designer] could not settle the post’s credits:', (error as Error).message) }
+  return response
+}
+
+async function designCanvas(db: any, body: any, persist: boolean, ownerId?: string) {
   try {
     let { brandContext, copy, resolvedPlan: inputPlan, canvasName } = body as {
       brandContext: any; copy: any; resolvedPlan: ResolvedAssetPlan; canvasName?: string
@@ -2454,7 +2476,7 @@ export async function handleDesignCanvas(db: any, body: any, persist = true) {
       // Logo variants let the composer pick the version that reads on each surface; a logo that cannot be processed keeps its original file.
       if (brandContext?.logo) try { await ensureBrandLogoVariants(db, brandContext) } catch (error) { console.warn('[canvas] logo variants unavailable:', (error as Error).message) }
       const canvas = renderGlobalPost(globalSelection.family, brandContext, copy, inputPlan, globalSelection.design, uuidv4, canvasName)
-      const saved = await persistInlineImages(db, canvas)
+      const saved = await persistInlineImages(db, ownerId ? { ...canvas, ownerId } : canvas)
       if (persist) await db.collection('canvases').insertOne(saved)
       const { _id, ...result } = saved as any
       return corsify(NextResponse.json(result))
@@ -2552,7 +2574,7 @@ export async function handleDesignCanvas(db: any, body: any, persist = true) {
     await softenCanvasLogos(canvas, logoUrl, logoVariants,db)
 
     // ── Persist ────────────────────────────────────────────────────────────
-    const saved = await persistInlineImages(db, { ...canvas, designSelection: {paletteId:palettePick.id,id:preset?.id || selected.id,name:preset?.name || selected.name,tags:preset?.tags || selected.tags,compositionIndex:designCompositionIndex}, designInput:{brandContext,copy,resolvedPlan}, designCampaign: { brand: campaignBrand, index: campaignIndex, concept: campaignConcept(resolvedPlan), issues: designIssues(direction, copy, resolvedPlan) } })
+    const saved = await persistInlineImages(db, { ...canvas, ...(ownerId ? { ownerId } : {}), designSelection: {paletteId:palettePick.id,id:preset?.id || selected.id,name:preset?.name || selected.name,tags:preset?.tags || selected.tags,compositionIndex:designCompositionIndex}, designInput:{brandContext,copy,resolvedPlan}, designCampaign: { brand: campaignBrand, index: campaignIndex, concept: campaignConcept(resolvedPlan), issues: designIssues(direction, copy, resolvedPlan) } })
     if (persist) await db.collection('canvases').insertOne(saved)
     const { _id, ...result } = saved as any
     return corsify(NextResponse.json(result))

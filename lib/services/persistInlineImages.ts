@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { Binary } from 'mongodb'
 import { compactImage } from './imageStorage'
+import { saveUpload } from './uploadStore'
 
 /** Keep image bytes out of flow/canvas BSON documents, including legacy retries. */
 export async function persistInlineImages<T>(db: any, value: T): Promise<T> {
@@ -18,9 +18,8 @@ export async function persistInlineImages<T>(db: any, value: T): Promise<T> {
       const id = 'image-' + createHash('sha256').update(contentType).update(bytes).digest('hex')
       if (!await db.collection('uploads').findOne({ id }, { projection: { _id: 1 } })) {
         const stored = await compactImage(bytes, contentType)
-        await db.collection('uploads').updateOne({ id }, { $setOnInsert: {
-          id, contentType: stored.contentType, bytes: new Binary(stored.bytes), createdAt: new Date(),
-        } }, { upsert: true })
+        // Images inside saved posts and brands (AI images, logos and their variants): no owner, so no plan counts them.
+        await saveUpload(db, { id, bytes: stored.bytes, contentType: stored.contentType }, { ifAbsent: true })
       }
       const url = `/api/uploads/${id}`
       uploads.set(item, url)

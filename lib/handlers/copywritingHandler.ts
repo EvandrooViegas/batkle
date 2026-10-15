@@ -4,11 +4,11 @@ import { NextResponse } from 'next/server'
 import { corsify } from '@/lib/services/middleware'
 import Groq from 'groq-sdk'
 import { loadGenerationBrandContext, EXTRACTED_CONTEXT_RULES } from '@/lib/services/generationBrandContext'
-import { postLanguage, languageIssues, copyTexts, type ContentLanguage } from '@/lib/services/contentLanguage'
+import { postLanguage, languageIssues, copyTexts, withModernSpelling, type ContentLanguage } from '@/lib/services/contentLanguage'
 import { inventedFigures } from '@/lib/services/copyFacts'
 import { mentionsSubject } from '@/lib/services/contentAngles'
 
-const SYSTEM_PROMPT = `You are an expert Instagram copywriter specialized in creating high-quality social media content for businesses.
+const SYSTEM_PROMPT = `You are an expert Instagram copywriter who writes the words on social media graphics for businesses.
 
 Your job is to transform a structured Instagram Content Brief into the complete written content for an Instagram post.
 
@@ -36,17 +36,39 @@ IMPORTANT RULES:
 * Write in the OUTPUT LANGUAGE given at the end of these instructions, exactly. Never mix languages or regional variants.
 * Ground the post in the brief: build it on the specific service, project, audience problem or differentiator the brief names, using concrete details from the Brand Profile (scope, process, who it serves, named projects when relevant). Avoid generic advice that could fit any company.
 * Match the company's positioning and tone.
-* Write naturally and humanly.
-* Avoid generic AI-sounding phrases.
-* Avoid exaggerated marketing language.
-* Avoid clickbait.
 * Never use emojis or emoji number/keycap symbols. Use ordinary numbers and punctuation.
-* Avoid excessive use of exclamation marks.
-* Avoid repetitive phrases.
-* Avoid unnecessarily complicated language.
-* Keep visual copy concise because it will be displayed on an Instagram graphic.
+* Avoid exclamation marks: one at most in the whole post.
+* Avoid clickbait: everything the graphic promises, the post delivers.
 * The caption can contain more context than the visual.
 * The visual and caption should communicate the same central idea without simply duplicating each other.
+
+HOW THE GRAPHIC READS:
+
+People decide in about a second whether a post is for them. The words on the graphic are few, direct and specific, so the right reader recognises themselves at once and everyone else scrolls on.
+* Speak to the reader, not about the company: name who the post is for, or a moment they live, a mistake they make or a belief they hold. The brief's targetAudience says who that reader is.
+* Be concrete: a real moment, action, object, place or month the reader knows ("the last post is from August", "pressing Boost and waiting") instead of abstractions ("online presence", "visibility", "quality", "solutions", "results").
+* One thing per line, in plain spoken words, the way the brand would say it to a customer face to face. Short words, short sentences.
+* No marketing filler in any language: never "discover", "unlock", "elevate", "transform", "take it to the next level", "innovative solutions", "we are passionate about", "in today's digital world" (in Portuguese, never "descubra", "saiba como", "transforme", "eleve", "potencie", "alavanque", "soluções inovadoras").
+* No industry jargon or acronyms the reader would not use themselves (such as CPC, CTR, funnel, KPI): say what they mean in everyday words.
+* Every word earns its place: cut anything the reader would not miss.
+
+THE HEADLINE (a single post's headline, and a carousel's cover headline) is the hook, and often the whole message:
+* 5–14 words, one complete thought. Shorter is better once it says who or what it is about.
+* It works on its own: someone who reads only the headline knows what the post is about and whether it is for them.
+* Shapes that work. The examples come from different businesses and are in English to show the shape only: never reuse their words; write yours in the output language, about this brand and this brief, and pick the shape that fits the brief instead of always the same one.
+  - Call out the reader and their situation: "Landlords who heard about the leak from the tenant downstairs"
+  - A scene they know: "POV: the kitchen renovation was meant to take three weeks. It's month four."
+  - Correct a belief: "A bigger website is not a better website."
+  - Name the struggle, then side with the reader: "No time to cook on weeknights? Makes sense."
+  - The costly mistake: "The most expensive renovation mistake: choosing the tiles before the plan."
+  - A specific promise the slides deliver (carousels): "4 signs your website is losing clients"
+* Never a label or topic name ("Our methodology", "Our services", "About us"), never the company name or slogan on its own, never a vague line that could open any brand's post.
+* Start from the brief's "hook" and "targetAudience", and sharpen them.
+
+THE CALL TO ACTION (a single post's cta, and the closing carousel slide's cta) is short and direct:
+* 1–3 words, never more than 4: an action the reader can take right now on Instagram, such as "Send a DM", "Talk to us", "Ask for a quote", "Book a visit", "Comment YES" or "Save this post" (written in the output language).
+* Service, offer, project and trust posts invite contact; educational and insight posts may ask to save or share the post instead. When the Brand Profile says how the brand is contacted (its suggestedCtas, messages, the link in the bio), use that.
+* The graphic is an image, not a web page: nothing on it can be clicked. Never button wording such as "Click here", "Learn more", "Explore more", "Saiba mais" or "Clique aqui", and never "visit our website" without the address.
 
 CONTENT STRUCTURE:
 
@@ -66,37 +88,37 @@ Each slide should have:
 * body
 * cta
 
-THE COVER (slide 1) has one job: make the viewer stop and swipe. Its headline is the hook, not a title.
-* 3–8 words when possible, never more than 10. Instantly understandable and about this post's exact subject.
-* Open a question in the reader's mind that the next slides answer. Strong patterns: a specific promise ("4 signs your website is losing clients"), a common mistake ("The mistake that delays most renovations"), a question the audience is already asking, a surprising truth stated in the brand information, or a tension between what people expect and what actually works.
-* Never a label or topic name ("Our methodology", "Our values", "About us"), never the company name or slogan on its own, never a vague statement that could open any post.
-* Start from the brief's "hook" and sharpen it; keep it honest: every promise on the cover is delivered by the slides that follow, with no invented numbers and no clickbait.
-The cover body is a 2–14 word teaser that raises the stakes or hints at the payoff without giving it away; when it fits, end it with a natural nudge to keep reading (such as "Swipe to see all four", written in the output language). Set the cover cta to an empty string.
+THE COVER (slide 1) has one job: make the right viewer stop and swipe. Its headline follows THE HEADLINE above and opens a question that the next slides answer; every promise on it is delivered by the slides that follow, with no invented numbers. Build it on the most concrete detail the brief and outline give (a scene, a moment, a number of signs), never a general statement about the topic.
+The cover body is optional: at most 12 words that hint at the payoff or invite the swipe (such as "Swipe to see all four", written in the output language). Leave it empty when the headline already pulls the reader in. Set the cover cta to an empty string.
 
 THE REST OF THE CAROUSEL pays off the cover. Every slide stays on the cover's exact subject and moves it one step forward: one point per slide, in an order where each slide builds on the previous one. Never switch to a different topic, service or audience midway, never repeat a point, and never add filler slides. If the cover promises a number of signs, steps or mistakes, deliver exactly that number.
+Each slide's headline states its point as a short statement (3–9 words): the point itself, never a label such as "Targeting" or "Step 2". Its body is at most two short sentences, or a list.
 When a slide names steps, phases, options, benefits or tips (3–6 of them), write them as separate lines in its body: an optional short intro line, then one line per item starting with "1." or "-", each item 1–6 words. Never pack them into one sentence; they are laid out as a designed list.
-The final slide closes the loop the cover opened: the takeaway that answers the hook. Give it a cta only when the post's objective calls for an action; otherwise leave the cta empty and let the caption carry the next step.
+THE CLOSING SLIDE (the last one) ends the post on purpose. It must never read like one more point, or leave the reader expecting another slide.
+* Its headline lands the payoff in 3–9 words: the conclusion, the one thing to remember, or the direct answer to the cover's question. It adds no new point, step or tip, and never contains the call to action: that goes in the cta alone.
+* Its body is optional: one short line (at most 12 words) that brings it back to the reader.
+* Its cta is required and follows THE CALL TO ACTION above.
 Do not put too much text on a slide.
 
 FIELD DEFINITIONS:
 
 "format": The Instagram format. Allowed values: "single" or "carousel". Must match the Content Brief.
 
-"headline": The main piece of text that should attract attention. Short, clear and easy to understand. For a single post, this is the primary headline on the graphic. For a carousel, the headline on slide 1 should act as the main hook. Avoid making headlines unnecessarily long.
+"headline": The main text on the graphic; see THE HEADLINE. For a carousel, slide 1's headline is the hook and every other slide's headline states that slide's point.
 
-"subheadline": A short sentence that provides context or expands on the headline. Optional when it does not add value. For carousels, leave this empty; the cover contains only its headline.
+"subheadline": For a single post, a 1–3 word label shown small and in capitals above the headline: the subject or who the post is for (such as "Paid ads", "Social media" or "For you", written in the output language). Never a sentence. Leave it empty when it adds nothing. For carousels, leave this empty.
 
-"supportingText": Short supporting copy that explains or reinforces the main message. Concise enough to appear on a graphic. Do not write a long paragraph.
+"supportingText": For a single post, optional: at most two short sentences (about 15 words in total, often fewer) under the headline that give the turn: why it matters, or what actually works and what the brand does about it (such as "Likes don't pay the bills. Targeting, creative and optimisation do."). Never repeat the headline in other words. Leave it empty when the headline already says it all.
 
-"cta": Optional. A short call to action appropriate to the post, or an empty string when the slide does not need one. Do not force a sales CTA into educational content. The graphic is an image, not a web page: nothing on it can be clicked. Write an action the reader can take on Instagram (save the post, share it, comment a word, send a message, follow the account, use the link in the bio), never button wording such as "Click here", "Learn more", "Explore more", "Saiba mais" or "Clique aqui".
+"cta": Required on a single post and on the closing (last) carousel slide, and empty on the cover; on other slides, an empty string. See THE CALL TO ACTION.
 
 "slides": An array containing the content of every carousel slide: one per outline entry when the brief has an outline, otherwise as many as the content requires (usually 3–10), without padding or a fixed default.
 
 "slideNumber": The numerical order of the slide. Start at 1.
 
-"purpose": The communication role of the slide. Examples: "hook", "context", "problem", "explanation", "example", "solution", "summary", "cta". Keep it short.
+"purpose": The communication role of the slide. Examples: "hook", "context", "problem", "explanation", "example", "solution", "closing". Keep it short.
 
-"body": The main explanatory text for the slide. Enough to communicate the idea but concise enough for an Instagram graphic. Avoid large paragraphs. Use short sentences or compact structures.
+"body": The slide's supporting text: at most two short sentences, or a list as described above. Never a paragraph.
 
 "caption": The Instagram caption that accompanies the visual. Should expand on the topic, add context not obvious from the graphic, be useful to the audience, match the company's tone, encourage interaction when appropriate, and end with a natural CTA when appropriate. Do not simply copy the slide text. Normally 2–5 short paragraphs.
 
@@ -108,13 +130,14 @@ QUALITY CONTROL — before returning verify:
 1. Is the content directly related to the Content Brief?
 2. Does it match the brand?
 3. Is every factual claim supported?
-4. Would the cover make someone stop scrolling and swipe, without being clickbait? Is it a hook rather than a title?
-5. Is the visual copy concise?
-6. Does every carousel slide have a clear purpose, and does it follow the outline when there is one?
-7. Does the whole carousel stay on the cover's subject, tell a logical story and deliver what the cover promised?
-8. Does the caption add value instead of repeating the graphic?
-9. Is the CTA appropriate?
-10. Is the language correct for the brand's language variant?
+4. Reading only the headline, would the target reader know in one second that the post is for them, and would anyone else know it is not?
+5. Is the headline concrete (a real moment, action or detail), never abstract, generic or a title?
+6. Is every line on the graphic as short as it can be, and is the cta 1–3 words?
+7. Does every carousel slide have a clear purpose, and does it follow the outline when there is one?
+8. Does the whole carousel stay on the cover's subject, tell a logical story and deliver what the cover promised?
+9. Does the caption add value instead of repeating the graphic?
+10. Does the closing slide clearly end the post, with the payoff and a short call to action?
+11. Is the language correct for the brand's language variant?
 
 Return ONLY valid JSON. Do not return Markdown. Do not return explanations. Do not return text outside the JSON.`
 
@@ -156,7 +179,7 @@ If the format is "single", populate:
 and return an empty "slides" array.
 
 If the format is "carousel", populate:
-* slides (one per outline entry when the brief has an outline; the first is the hook, the last closes the loop it opened)
+* slides (one per outline entry when the brief has an outline; the first is the hook, the last is the closing slide: the payoff and a call to action)
 * caption
 * hashtags
 * visualNotes
@@ -172,6 +195,26 @@ const SITE_CTA = /(?<!\p{L})(visite|visita|visit|acesse|aceda|acede|aceder|acess
 export function isButtonCta(cta: any): boolean {
   if (typeof cta !== 'string' || /link (?:na|in|en la|dans la) bio/i.test(cta)) return false
   return BUTTON_CTA.test(cta) || (SITE_CTA.test(cta) && !/\w\.[a-z]{2,}\b/i.test(cta))
+}
+
+// The closing slide always ends on a next step. When the model leaves it out (or wrote button wording that was
+// removed), a plain one in the post's language; languages without one here keep the slide as written.
+const CLOSING_CTA: [RegExp, string][] = [
+  [/^en/, 'Save this post'], [/^pt-BR/, 'Salve este post'], [/^pt/, 'Guarde este post'],
+  [/^es/, 'Guarda este post'], [/^fr/, 'Enregistrez ce post'], [/^de/, 'Speichere diesen Beitrag'],
+  [/^it/, 'Salva questo post'],
+]
+export function closingCta(languageCode: string): string {
+  return CLOSING_CTA.find(([code]) => code.test(languageCode))?.[1] || ''
+}
+
+// "Stop wasting money – talk to us": the call to action has its own place on the closing slide, so a contact phrase
+// tacked onto the end of its headline after a dash or comma is a repeat. Only common contact phrases are recognised.
+const TRAILING_CTA = /\s*[–—,:-]\s*(fale connosco|fale com(?:igo| a gente)|contacte-nos|contacte[‑-]nos|contacte|envie[‑-]?nos (?:uma )?(?:mensagem|dm)|envie (?:uma )?(?:mensagem|dm)|mande (?:uma )?mensagem|marque j[áa]|peça (?:já )?(?:o seu )?orçamento|contact us|talk to us|get in touch|send us a (?:dm|message)|dm us|message us|contáctanos|escríbenos|háblanos|contactez-nous)\s*[.!]?$/iu
+/** A closing headline without a call to action repeated at its end; unchanged when too little would be left. */
+export function withoutTrailingCta(headline: string): string {
+  const trimmed = String(headline || '').replace(TRAILING_CTA, '').trim()
+  return trimmed.split(/\s+/u).filter(Boolean).length >= 2 ? trimmed : String(headline || '')
 }
 
 async function getGroqModel(groq: Groq): Promise<string> {
@@ -190,17 +233,28 @@ export function briefOutline(idea: any): string[] {
   return Array.isArray(idea?.outline) ? idea.outline.filter((s: any) => typeof s === 'string' && s.trim()).slice(0, 10) : []
 }
 
+// The graphic's copy is read in a second: the most words its lines may take (the prompt explains each).
+export const COPY_LIMITS = { headline: 14, coverBody: 12, label: 4, cta: 4 }
+const wordCount = (text: any) => String(text || '').trim().split(/\s+/u).filter(Boolean).length
+
 /** Style problems are worth one corrective retry but never worth failing a post that is otherwise complete. */
 function styleIssues(parsed: any, language: ContentLanguage, idea?: any): string[] {
   const issues: string[] = []
+  const ctaIssue = (cta: any, where: string) => { const n = wordCount(cta); if (n > COPY_LIMITS.cta) issues.push(`${where} call to action has ${n} words; use 1–3`) }
   if (parsed.format === 'carousel') {
     const cover = parsed.slides[0]
-    const coverWords = cover.headline.trim().split(/\s+/u).filter(Boolean).length
-    const teaserWords = String(cover.body || '').trim().split(/\s+/u).filter(Boolean).length
-    if (coverWords > 10) issues.push(`Carousel cover has ${coverWords} words; maximum is 10`)
-    if (teaserWords < 2 || teaserWords > 14) issues.push(`Carousel cover teaser must contain 2–14 words; received ${teaserWords}`)
+    const coverWords = wordCount(cover.headline)
+    const teaserWords = wordCount(cover.body)
+    if (coverWords > COPY_LIMITS.headline) issues.push(`Carousel cover has ${coverWords} words; maximum is ${COPY_LIMITS.headline}`)
+    if (teaserWords > COPY_LIMITS.coverBody) issues.push(`Carousel cover body has ${teaserWords} words; use at most ${COPY_LIMITS.coverBody}, or leave it empty`)
+    ctaIssue(parsed.slides[parsed.slides.length - 1].cta, "The closing slide's")
     const outline = briefOutline(idea)
     if (outline.length >= 3 && parsed.slides.length !== outline.length) issues.push(`The carousel has ${parsed.slides.length} slides but the brief's outline has ${outline.length} entries; write exactly one slide per outline entry`)
+  } else {
+    const headlineWords = wordCount(parsed.headline)
+    if (headlineWords > COPY_LIMITS.headline) issues.push(`The headline has ${headlineWords} words; maximum is ${COPY_LIMITS.headline}`)
+    if (wordCount(parsed.subheadline) > COPY_LIMITS.label) issues.push('The subheadline is the small label above the headline: 1–3 words, never a sentence')
+    ctaIssue(parsed.cta, 'The')
   }
   const mixed = languageIssues(copyTexts(parsed), language)
   if (mixed.length) issues.push(`Language: the copy ${mixed.join('; ')}`)
@@ -274,6 +328,9 @@ export async function writeCopy(brandContext: any, idea: any, design?: PlanningD
       }
       // Nothing on an Instagram graphic is clickable: web-button wording is removed, never retried.
       for (const item of parsed.format === 'carousel' ? parsed.slides : [parsed]) if (item && isButtonCta(item.cta)) item.cta = ''
+      const closing = parsed.format === 'carousel' ? parsed.slides[parsed.slides.length - 1] : null
+      if (closing && !String(closing.cta || '').trim()) closing.cta = closingCta(language.code)
+      if (closing?.cta && typeof closing.headline === 'string') closing.headline = withoutTrailingCta(closing.headline)
       design?.validate(parsed)
       // Result figures must come from the profile or the person's own request. A draft that invents them
       // is never kept as a fallback: a failed post is better than a published false claim.
@@ -293,7 +350,8 @@ export async function writeCopy(brandContext: any, idea: any, design?: PlanningD
       throw Object.assign(new Error(`AI could not generate complete, valid copywriting (${validationFeedback}). Please retry; your saved content is unchanged.`), { status: 502 })
     }
   }
-  return { copy: cleanCopy(parsed), raw: parsed }
+  // Models still write some pre-1990 Portuguese spellings ("optimização"); those are corrected, never retried.
+  return { copy: cleanCopy(withModernSpelling(parsed, language.code)), raw: parsed }
 }
 
 export function copyErrorResponse(error: any, fallback: string) {

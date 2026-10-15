@@ -1,20 +1,30 @@
 'use client'
 
-import { Loader2, RefreshCw } from 'lucide-react'
+import { CalendarClock, Check, Loader2, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { appButton } from '../ui'
+import UpgradeNotice from '../billing/UpgradeNotice'
+import { ScheduleLine, approvalAction } from '../schedule/ScheduleStatus'
 import { StageBar } from './StageBar'
 import { SlideCarousel } from './SlideCarousel'
 import { editorHref } from './PostThumb'
 
 const PHASE_LABEL = { building: 'Building now', ready: 'Post ready', failed: 'Needs attention', idea: 'New idea' }
 
-/** The idea the user is working on: live build progress, its slides, and the next actions. */
-export function FeaturedPost({ idea, status, onPreview, onBuild, onRetry, onRebuild, onNewVersion, className = '' }) {
+/**
+ * The idea the user is working on: live build progress, its slides, and the next actions. A ready post leads with
+ * its approval step (`approval`: { state, entry }, see scheduleState): approve it, then schedule it.
+ */
+export function FeaturedPost({ idea, status, approval, onApproval, onPreview, onBuild, onRetry, onRebuild, onNewVersion, limit = null, className = '' }) {
   const { phase, canvas, steps, error, slides } = status
   const building = phase === 'building'
   const href = editorHref(canvas)
+  const action = phase === 'ready' && approval ? approvalAction(approval.state) : null
+  // Until a post is scheduled, approving or scheduling it is the next step; after that, editing is.
+  const approvalFirst = action && ['unapproved', 'changed', 'approved'].includes(approval.state)
   const expected = slides || status.copy?.slides?.length || (idea.format === 'carousel' ? 5 : 1)
+  // Rebuilding with the same copy makes the same slides, at one credit each.
+  const keptSlides = status.copy?.slides?.length || 1
   const meta = [PHASE_LABEL[phase], idea.format === 'carousel' ? 'Carousel' : 'Single post', idea.pillar].filter(Boolean).join(' · ')
 
   return (
@@ -32,31 +42,42 @@ export function FeaturedPost({ idea, status, onPreview, onBuild, onRetry, onRebu
           {idea.topic}
         </h2>
         {idea.hook && <p className="mt-2.5 line-clamp-2 text-[13.5px] italic leading-relaxed text-bk-cream/75">“{idea.hook}”</p>}
+        {phase === 'ready' && approval && <ScheduleLine state={approval.state} entry={approval.entry} tone="dark" className="mt-3" />}
 
         {phase !== 'idea' && <StageBar steps={steps} tone="dark" className="mt-5" />}
-        {phase === 'failed' && error && <p className="mt-3 line-clamp-3 text-[13px] text-[#F0826F]">{error}</p>}
+        {phase === 'failed' && (limit
+          ? <UpgradeNotice error={limit} className="mt-4 text-bk-cream" />
+          : error && <p className="mt-3 line-clamp-3 text-[13px] text-[#F0826F]">{error}</p>)}
 
         <div className="mt-5 flex flex-wrap items-center gap-2">
           {phase === 'idea' && (
             <button type="button" onClick={onBuild} className={appButton('primary', 'md')}>Generate post</button>
           )}
-          {phase === 'failed' && (
+          {phase === 'failed' && !limit && (
             <button type="button" onClick={onRetry} className={appButton('primary', 'md')}><RefreshCw className="size-3.5" />Retry</button>
           )}
           {phase === 'failed' && href && (
             <a href={href} target="_blank" rel="noopener noreferrer" className={appButton('onDark', 'md')}>Open last post</a>
           )}
+          {approvalFirst && (
+            <button type="button" onClick={onApproval} className={appButton('primary', 'md')}>
+              {action.kind === 'approve' ? <Check className="size-4" strokeWidth={3} /> : <CalendarClock className="size-4" />}{action.label}
+            </button>
+          )}
           {(phase === 'ready' || phase === 'building') && (
             href
-              ? <a href={href} target="_blank" rel="noopener noreferrer" className={appButton('primary', 'md')}>Open in editor</a>
+              ? <a href={href} target="_blank" rel="noopener noreferrer" className={appButton(approvalFirst ? 'onDark' : 'primary', 'md')}>Open in editor</a>
               : <span className={appButton('primary', 'md', 'pointer-events-none opacity-80')}><Loader2 className="size-3.5 animate-spin" />Building…</span>
+          )}
+          {action && !approvalFirst && (
+            <button type="button" onClick={onApproval} className={appButton('onDark', 'md')}><CalendarClock className="size-4" />{action.label}</button>
           )}
           {status.copy && (phase === 'ready' || (building && canvas)) && (
             <button
               type="button"
               onClick={onRebuild}
               disabled={building}
-              title="Rebuild the design with the same copy. No new AI writing."
+              title={`Rebuild the design with the same copy. No new AI writing. Uses ${keptSlides} credit${keptSlides === 1 ? '' : 's'}.`}
               className={appButton('onDark', 'md')}
             >
               Rebuild design · keep copy

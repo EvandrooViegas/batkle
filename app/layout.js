@@ -1,8 +1,11 @@
 import './globals.css'
+import { ClerkProvider } from '@clerk/nextjs'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/theme-provider'
 import DeferredFonts from '@/components/DeferredFonts'
 import { PopupProvider } from '@/components/app/popup'
+import { clerkAppearance } from '@/components/auth/clerkAppearance'
+import { batkleFonts } from '@/lib/batkleFonts'
 
 export const metadata = {
   title: 'Batkle',
@@ -31,20 +34,30 @@ const GOOGLE_FONTS_HREF =
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link rel="preload" as="style" href={GOOGLE_FONTS_HREF} />
-        <script dangerouslySetInnerHTML={{__html:'window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);'}} />
-      </head>
-      <body className="bg-background text-foreground">
-        <DeferredFonts href={GOOGLE_FONTS_HREF} />
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
-          <PopupProvider>{children}</PopupProvider>
-          <Toaster position="top-center" />
-        </ThemeProvider>
-      </body>
-    </html>
+    // Sign-in, sign-up and onboarding are Batkle's own pages; Clerk's account settings dialog follows the app's look.
+    <ClerkProvider
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      signInFallbackRedirectUrl="/app"
+      signUpFallbackRedirectUrl="/app"
+      afterSignOutUrl="/"
+      appearance={clerkAppearance()}
+    >
+      <html lang="en" suppressHydrationWarning>
+        <head>
+          <link rel="preconnect" href="https://fonts.googleapis.com" />
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+          <link rel="preload" as="style" href={GOOGLE_FONTS_HREF} />
+          <script dangerouslySetInnerHTML={{__html:'window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);'}} />
+        </head>
+        <body className={`bg-background text-foreground ${batkleFonts}`}>
+          <DeferredFonts href={GOOGLE_FONTS_HREF} />
+          <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+            <PopupProvider>{children}</PopupProvider>
+            <Toaster position="top-center" />
+          </ThemeProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   )
 }

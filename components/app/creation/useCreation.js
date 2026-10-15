@@ -3,12 +3,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { runPostGeneration } from '@/lib/client/postGeneration'
+import { billingAction, isBillingCode } from '@/lib/client/billing'
 import { ideaStatus, retryCopy } from '@/lib/client/ideaStatus'
 
 // Same shape as the saved flow.creationState, so existing ideas and posts load unchanged.
 const EMPTY = { ideas: [], copyResults: {}, planResults: {}, resolveResults: {}, designResults: {} }
 const RESULT_KINDS = ['copyResults', 'planResults', 'resolveResults', 'designResults']
 const without = (obj, key) => { const { [key]: _removed, ...rest } = obj; return rest }
+
+/** A failed build as an error toast; a plan limit (no credits left) also offers the way to more. */
+function failureToast(error, fallback) {
+  if (!isBillingCode(error?.code)) return toast.error(error?.message || fallback)
+  const { href, label } = billingAction(error)
+  toast.error(error.message, { duration: 12000, action: { label, onClick: () => window.location.assign(href) } })
+}
 
 /**
  * State and actions for the Creation page: ideas, their post builds, and saving to the brand.
@@ -23,7 +31,7 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [running, setRunning] = useState({})   // ideaId → stage running now
-  const [failures, setFailures] = useState({}) // ideaId → { stage, message } from this session
+  const [failures, setFailures] = useState({}) // ideaId → { stage, message, code?, billing? } from this session
   const [focusId, setFocusId] = useState(null) // the idea the user acted on last; shown in the featured card
   const [busy, setBusy] = useState(null)       // 'create' | 'suggest' while an idea is being written
 
@@ -127,7 +135,8 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
       })
       return true
     } catch (error) {
-      setFailures(f => ({ ...f, [idea.id]: { stage: current, message: error.message } }))
+      // A plan limit keeps its code and details, so the idea can offer an upgrade instead of a retry.
+      setFailures(f => ({ ...f, [idea.id]: { stage: current, message: error.message, ...(isBillingCode(error.code) ? { code: error.code, billing: error.billing } : {}) } }))
       throw error
     } finally {
       locks.current.delete(idea.id)
@@ -136,7 +145,7 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
   }, [brandContext, brandId, patch])
 
   const startBuild = useCallback((idea, options) => {
-    build(idea, options).then(ok => ok && toast.success('Post ready to edit')).catch(error => toast.error(error.message || 'Post could not be created'))
+    build(idea, options).then(ok => ok && toast.success('Post ready to edit')).catch(error => failureToast(error, 'Post could not be created'))
   }, [build])
 
   const retry = useCallback(idea => startBuild(idea, { keepCopy: retryCopy(statusOf(idea.id)) }), [startBuild, statusOf])
@@ -192,9 +201,17 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
     const ideas = dataRef.current.ideas.filter(i => ids.has(i.id))
     if (!ideas.length) return
     toast.info(`Creating ${ideas.length} post${ideas.length > 1 ? 's' : ''}…`)
-    let failed = 0
+    let failed = 0, made = 0
     for (const idea of ideas) {
-      try { await build(idea) } catch { failed++ }
+      try { if (await build(idea)) made++ } catch (error) {
+        failed++
+        // Out of credits (or another plan limit): the rest of the batch would fail the same way, so it stops here.
+        if (isBillingCode(error.code)) {
+          failureToast(error)
+          if (made) toast.success(`${made} of ${ideas.length} posts ready to edit`)
+          return
+        }
+      }
     }
     if (failed) toast.error(`${failed} of ${ideas.length} posts could not be created`)
     else toast.success(`${ideas.length} post${ideas.length > 1 ? 's' : ''} ready to edit`)
@@ -226,8 +243,11 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
     return data.ideas.find(i => data.designResults[i.id]?.canvas)?.id ?? data.ideas[0]?.id ?? null
   }, [focusId, running, data.ideas, data.designResults])
 
+  /** The plan limit that stopped this idea's last build in this session (an Error-like { message, code, billing }), or null. */
+  const limitOf = useCallback(id => (isBillingCode(failures[id]?.code) ? failures[id] : null), [failures])
+
   return {
-    brandContext, loaded, loadError, busy,
+    brandContext, loaded, loadError, busy, limitOf,
     ideas: data.ideas, copyResults: data.copyResults,
     statusOf, featuredId, isRunning: id => !!running[id], anyRunning: Object.keys(running).length > 0,
     createIdea, startBuild, retry, rebuildDesign, newVersion, buildMany, deleteIdeas, deleteAll,

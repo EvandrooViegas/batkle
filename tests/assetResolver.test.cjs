@@ -318,3 +318,27 @@ test('when OpenAI fails, fal then Pollinations draw the subject on a studio back
  assert.match(result.resolvedAsset.url,/^data:image\/png;base64,/,'kept as an inline image, not an expiring link')
  assert.match(result.warning,/no credits left; fal: HTTP 403 \(no balance left\); generated with Pollinations instead/)
 })
+
+test('standard quality (Free) never calls OpenAI: fal draws the subject and no fallback warning is given',async()=>{
+ const png=await require('sharp')({create:{width:64,height:64,channels:3,background:'#dddddd'}}).png().toBuffer()
+ const calls=[]
+ const fetch=async(url)=>{
+  calls.push(String(url).replace(/\?.*/,''))
+  if(String(url)==='https://fal.run/fal-ai/flux/schnell')return new Response(JSON.stringify({images:[{url:'https://fal.media/out.png',width:768,height:1024}]}),{status:200,headers:{'content-type':'application/json'}})
+  if(String(url)==='https://fal.media/out.png')return new Response(png,{status:200,headers:{'content-type':'image/png'}})
+  throw Error('unexpected '+url)
+ }
+ const e=engine(fetch,async()=>{throw Error('OpenAI must not be called on standard quality')},{FAL_KEY:'fal-test',POLLINATIONS_API_KEY:'poll-test'})
+ const request={...slot,slot_id:'a',needs_visual:true,preferred_source:'ai_generated',treatment:'isolated_subject',subject_description:'hard hat on a stack of blueprints',frame_aspect:.6}
+ const result=await e.resolveSlot(null,request,null,'key',null,new Set(),'standard')
+ assert.deepEqual(calls,['https://fal.run/fal-ai/flux/schnell','https://fal.media/out.png'])
+ assert.equal(result.source,'ai_generated');assert.match(result.resolvedAsset.url,/^data:image\/png;base64,/)
+ assert.equal(result.warning,null)
+ // A photo slot that may use a cutout follows the same quality.
+ const photo=await engine(async url=>String(url).includes('unsplash')?{ok:true,json:async()=>({results:[]})}:fetch(url),async()=>{throw Error('OpenAI must not be called on standard quality')},{FAL_KEY:'fal-test'})
+  .resolveSlot(null,{...request,slot_id:'b',preferred_source:'unsplash',treatment:'environmental',cutout_fallback:true},null,'key',null,new Set(),'standard')
+ assert.equal(photo.source,'ai_generated');assert.match(photo.warning,/used a transparent cutout instead/)
+ // Without any standard provider, the reason is still given.
+ const none=await engine(async()=>{throw Error('no network')},async()=>{throw Error('OpenAI must not be called')}).resolveSlot(null,{...request,slot_id:'c'},null,null,null,new Set(),'standard')
+ assert.equal(none.resolvedAsset,null);assert.match(none.warning,/No AI image provider is available/)
+})

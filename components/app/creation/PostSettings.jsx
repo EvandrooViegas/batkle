@@ -241,7 +241,8 @@ export function PostSettings({ value, onChange, brandContext, photoCount = 0, di
             />
           </Row>
 
-          <Row label="Slides" hint={value.format === 'single' ? 'A single post has one slide.' : value.slides === 'auto' ? 'Auto fits the length to the idea: 3–4 slides for one insight, up to 10 for a process or story.' : 'Counts the cover and the closing slide.'}>
+          {/* Each slide gets its own image, so each slide is one credit. */}
+          <Row label="Slides" hint={value.format === 'single' ? 'A single post has one slide, so it uses 1 credit.' : value.slides === 'auto' ? 'Auto fits the length to the idea: 3–4 slides for one insight, up to 10 for a process or story. Each slide uses 1 credit.' : `Counts the cover and the closing slide. This post will use ${value.slides} credits.`}>
             <Choice
               label="Number of slides"
               options={SLIDE_COUNTS.map(n => ({ value: n, label: n === 'auto' ? 'Auto' : String(n), title: n === 'auto' ? undefined : `${n} slides` }))}

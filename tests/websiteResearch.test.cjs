@@ -88,11 +88,12 @@ test('website import stores brand-scoped reusable photos and prevents duplicate 
   const db = { collection: name => ({ findOne: async filter => records[name].find(record => Object.entries(filter).every(([key, value]) => record[key] === value)), updateOne: async (filter, update) => { if (!records[name].some(record => Object.entries(filter).every(([key, value]) => record[key] === value))) records[name].push(update.$setOnInsert) } }) }
   const sharp = () => ({ metadata: async () => ({ width: 1000, height: 600, format: 'jpeg' }), rotate() { return this }, resize() { return this }, jpeg() { return this }, toBuffer: async () => Buffer.from('thumbnail') })
   const fetcher = async url => { calls.push(url); return { bytes: Buffer.from('same photo'), contentType: 'image/jpeg' } }
-  const importer = new Function('sharp', 'Binary', 'createHash', 'fetchWebsiteResource', 'compactImage', stripTypeScriptTypes(source('lib/services/importWebsiteImages.ts')) + ';return importWebsiteImages')(sharp, class { constructor(value) { this.value = value } }, require('node:crypto').createHash, fetcher, require('./uploadTestHelpers.cjs').keepImage)
+  const importer = new Function('sharp', 'createHash', 'fetchWebsiteResource', 'compactImage', 'saveUpload', stripTypeScriptTypes(source('lib/services/importWebsiteImages.ts')) + ';return importWebsiteImages')(sharp, require('node:crypto').createHash, fetcher, require('./uploadTestHelpers.cjs').keepImage, require('./uploadTestHelpers.cjs').saveUpload)
   const image = { url: 'https://business.test/facade.jpg', sourcePage: 'https://business.test/projects', description: 'Fachada', search_description: 'Facade', description_tags: ['facade'] }
   const first = await importer(db, 'brand-a', [image, { ...image, url: 'https://business.test/copy.jpg' }], 'http://localhost:3000')
   assert.equal(first.imported, 1); assert.equal(first.existing, 1)
   assert.equal(records.uploads.length, 2)
+  assert.ok(records.uploads.every(upload => upload.ownerId === undefined && upload.userUpload === undefined), 'website photos never count against a plan')
   assert.equal(records.assets[0].source, 'website')
   assert.equal(records.assets[0].status, 'ready')
   assert.equal(records.assets[0].description, 'Fachada')

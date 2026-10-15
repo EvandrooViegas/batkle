@@ -7,9 +7,10 @@ const { stripTypeScriptTypes } = require('node:module')
 const source = fs.readFileSync(require('node:path').join(__dirname, '../lib/services/subjectAssets.ts'), 'utf8').replace(/^import .*$/gm, '').replace(/export /g, '')
 const service = vm.runInNewContext(stripTypeScriptTypes(source) + '\n({hydrateSubjectCrops,validateSubject,createSubject,prepareSubjectAssets,cleanSubjectMask,restoreSubjectSurfaces,removeStudioBackground})', {
   require, sharp, Buffer, Blob, Uint8Array, URL, console,
-  createHash: require('node:crypto').createHash, Binary: require('mongodb').Binary,
+  createHash: require('node:crypto').createHash,
   downloadLogo: async () => { throw new Error('offline fixture') },
   loadUpload: require('./uploadTestHelpers.cjs').loadUpload, compactImage: require('./uploadTestHelpers.cjs').keepImage,
+  saveUpload: require('./uploadTestHelpers.cjs').saveUpload,
 })
 async function fixture(background = 'transparent') {
   return sharp(Buffer.from(`<svg width="100" height="120"><rect width="100" height="120" fill="${background}"/><rect x="30" y="20" width="40" height="80" fill="red"/></svg>`)).png().toBuffer()
