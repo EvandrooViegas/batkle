@@ -17,14 +17,15 @@ import { IdeaRow } from './IdeaRow'
 import { PostPreview } from './PostPreview'
 import { ScheduleDialog } from '../schedule/ScheduleDialog'
 import { useSchedule } from '../schedule/useSchedule'
+import { SurfaceContext, surfaceWords } from './surface'
 
-const FILTERS = [
+const filtersFor = w => [
   { value: 'all', label: 'All ideas' },
   { value: 'building', label: 'Building' },
   { value: 'ready', label: 'Ready' },
   { value: 'approved', label: 'Approved' },
-  { value: 'carousel', label: 'Carousels' },
-  { value: 'single', label: 'Single posts' },
+  { value: 'carousel', label: w.noun === 'story' ? 'Several frames' : 'Carousels' },
+  { value: 'single', label: w.noun === 'story' ? 'One frame' : 'Single posts' },
 ]
 
 function Notice({ tone = 'info', children }) {
@@ -47,8 +48,15 @@ function ListSkeleton() {
   )
 }
 
-export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
-  const creation = useCreation({ flowId, brandContext: suppliedBrand })
+/**
+ * Creation (posts, 4:5) and Stories (9:16): the brand's ideas for that surface, the one being worked on, and the list.
+ * Stories are built the same way, composed clear of the bars Meta draws over a story.
+ */
+export default function CreationPage({ flowId, brandContext: suppliedBrand, surface = 'post' }) {
+  const w = surfaceWords(surface)
+  const story = surface === 'story'
+  const FILTERS = filtersFor(w)
+  const creation = useCreation({ flowId, brandContext: suppliedBrand, surface })
   const { brandContext, ideas, statusOf, loaded, loadError, busy } = creation
   const { setCount } = useAppShell()
   const [filter, setFilter] = useState('all')
@@ -59,7 +67,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
   const popup = usePopup()
   const schedule = useSchedule(flowId)
 
-  useEffect(() => { if (loaded && !loadError) setCount('creation', ideas.length) }, [loaded, loadError, ideas.length, setCount])
+  useEffect(() => { if (loaded && !loadError) setCount(story ? 'stories' : 'creation', ideas.length) }, [loaded, loadError, ideas.length, setCount, story])
 
   const brandName = brandContext?.name || 'Your brand'
   const hasBrand = !!(brandContext?.name || brandContext?.about)
@@ -100,7 +108,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
   const confirmDeleteAll = async () => {
     const ok = await popup.confirm({
       title: `Delete all ${ideas.length} ideas?`,
-      description: `This clears the idea list for ${brandName}. Posts you already built stay in Studio and the editor.`,
+      description: `This clears the ${w.noun} ideas for ${brandName}. What you already built stays in the Gallery and the editor.`,
       tone: 'danger',
       confirmLabel: 'Delete all',
     })
@@ -111,7 +119,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
     const ids = new Set(selected)
     const ok = await popup.confirm({
       title: ids.size === 1 ? 'Delete this idea?' : `Delete ${ids.size} ideas?`,
-      description: 'Posts you already built from them stay in Studio and the editor.',
+      description: `${w.Noun === 'Story' ? 'Stories' : 'Posts'} you already built from them stay in the Gallery and the editor.`,
       tone: 'danger',
       confirmLabel: ids.size === 1 ? 'Delete idea' : `Delete ${ids.size} ideas`,
     })
@@ -121,11 +129,13 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
   }
 
   return (
+    <SurfaceContext.Provider value={w}>
     <div className="px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pt-8">
       <div className="mx-auto max-w-[1160px]">
         <header>
-          <Eyebrow>{brandName} · Creation</Eyebrow>
-          <h1 className={cn(displayClass, 'mt-1.5 text-[clamp(26px,2.6vw,34px)] leading-[1.05]')}>Content ideas</h1>
+          <Eyebrow>{brandName} · {story ? 'Stories' : 'Posts'}</Eyebrow>
+          <h1 className={cn(displayClass, 'mt-1.5 text-[clamp(26px,2.6vw,34px)] leading-[1.05]')}>{story ? 'Stories' : 'Content ideas'}</h1>
+          {story && <p className="mt-2 max-w-[640px] text-[14px] leading-relaxed text-bk-muted">Instagram and Facebook stories (9:16) in your brand’s design. Words and logo stay clear of the bars Meta draws over the top and bottom.</p>}
         </header>
 
         {!hasBrand && (
@@ -142,7 +152,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
         )}
         {usesStarterDesigns && (
           <Notice>
-            <span>Posts use your saved starter designs. Choose designs from the Global Design Library for more variety.</span>
+            <span>{story ? 'Stories use designs from the Design Library. Choose at least one for this brand first.' : 'Posts use your saved starter designs. Choose designs from the Global Design Library for more variety.'}</span>
             <Link href={`/app/${flowId}/brand-information`} className="font-bold underline underline-offset-4">Choose designs</Link>
           </Notice>
         )}
@@ -180,7 +190,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
               <div className="mt-6 rounded-2xl border border-dashed border-bk-field px-6 py-10 text-center motion-safe:animate-bk-page">
                 <Sparkles className="mx-auto size-6 text-bk-muted" aria-hidden="true" />
                 <p className="mt-2.5 font-bk-display text-[17px] font-bold tracking-[-0.02em]">No ideas yet</p>
-                <p className="mx-auto mt-1 max-w-[400px] text-[13.5px] text-bk-muted">Describe a post above, or leave it empty and Batkle will suggest one from your brand profile.</p>
+                <p className="mx-auto mt-1 max-w-[400px] text-[13.5px] text-bk-muted">Describe a {w.noun} above, or leave it empty and Batkle will suggest one from your brand profile.</p>
               </div>
             ) : (
               <>
@@ -269,7 +279,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
               onClick={() => { const ids = new Set(selected); endSelection(); creation.buildMany(ids) }}
               className={appButton('primary', 'sm')}
             >
-              Generate posts
+              Generate {w.plural}
             </button>
           </div>
         </div>
@@ -297,5 +307,6 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
       />
 
     </div>
+    </SurfaceContext.Provider>
   )
 }

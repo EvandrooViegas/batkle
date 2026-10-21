@@ -1,12 +1,19 @@
 import { NextResponse } from 'next/server'
 import { selectBrandFamilies } from '@/lib/designs/global/store'
+import type { Viewer } from '@/lib/designs/global/access'
+import { billingErrorBody } from '@/lib/billing/account'
 
 // Brand Design now imports reviewed global structures; it never invents coordinates.
-export async function handleBrandDesigns(db: any, body: any) {
+/** Switches designs on for a brand. With the account (`viewer`), a design newly switched on must be one it may use. */
+export async function handleBrandDesigns(db: any, body: any, viewer?: Viewer) {
   try {
     if (typeof body.flowId !== 'string' || !Array.isArray(body.familyIds) || !body.familyIds.every((id: any) => typeof id === 'string')) return NextResponse.json({ error: 'Choose designs from the Global Design Library.', code: 'GLOBAL_SELECTION_REQUIRED' }, { status: 400 })
-    return NextResponse.json(await selectBrandFamilies(db, body.flowId, body.familyIds))
-  } catch (error: any) { return NextResponse.json({ error: error.message }, { status: error.status || 500 }) }
+    return NextResponse.json(await selectBrandFamilies(db, body.flowId, body.familyIds, viewer))
+  } catch (error: any) {
+    // A member's design on a Free plan keeps its upgrade code, so the page can offer the upgrade.
+    const billing = billingErrorBody(error)
+    return NextResponse.json(billing || { error: error.message }, { status: error.status || 500 })
+  }
 }
 
 export async function handleDeleteBrandDesign(db: any, body: any) {

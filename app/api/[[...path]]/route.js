@@ -1,5 +1,7 @@
 import { handleGlobalDesignRequest } from '@/lib/handlers/globalDesignHandler'
 import { isDesignAdmin, requireDesignAdmin } from '@/lib/designs/global/admin'
+import { loadViewer } from '@/lib/designs/global/viewer'
+import { recordSignupAttribution } from '@/lib/analytics/visits'
 import { publicMessage } from '@/lib/services/publicError'
 import { handleBrandDesigns, handleDeleteBrandDesign } from '@/lib/handlers/brandDesignHandler'
 import { NextResponse } from 'next/server'
@@ -22,7 +24,7 @@ import { handleDesignCanvas, handleSwitchDesign } from '@/lib/handlers/canvasDes
 import { handleUploadPostImage, handleDeletePostImage } from '@/lib/handlers/postImageHandler'
 import { handleClearOnboardingDraft, handleCompleteOnboarding, handleSaveOnboardingDraft } from '@/lib/handlers/accountHandlers'
 import { requireOwnBrands, requireUserId } from '@/lib/auth'
-import { BILLING_CODES, billingErrorBody } from '@/lib/billing/account'
+import { BILLING_CODES, billingErrorBody, isAdminUser } from '@/lib/billing/account'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -94,7 +96,7 @@ async function requireNamedBrands(db, userId, request) {
 /** A post the caller may open. Design Library editor canvases stay with the library admin, as before. */
 async function requireCanvas(db, userId, request, id) {
   const canvas = await db.collection('canvases').findOne({ id }, { projection: { _id: 0, ownerId: 1, globalDesignEditor: 1 } })
-  if (canvas?.globalDesignEditor) requireDesignAdmin(request)
+  if (canvas?.globalDesignEditor) { if (!(await isAdminUser(db, userId))) requireDesignAdmin(request) }
   else if (canvas && canvas.ownerId !== userId) throw notFound('Not found')
 }
 
@@ -124,13 +126,17 @@ async function routeRequest(request, { params }) {
     const userId = isPublicRoute(route, method) ? null : await requireUserId()
     if (userId) await requireNamedBrands(db, userId, request)
 
-    if (route === '/account/onboarding' && method === 'POST') return await handleCompleteOnboarding(db, userId, await request.json())
+    if (route === '/account/onboarding' && method === 'POST') {
+      // Where the account came from (the attribution cookie), saved once for the admin dashboard; never blocks onboarding.
+      await recordSignupAttribution(db, userId, request.headers.get('cookie')).catch(error => console.warn('[analytics] attribution not saved:', error?.message))
+      return await handleCompleteOnboarding(db, userId, await request.json())
+    }
     if (route === '/account/onboarding/draft' && method === 'POST') return await handleSaveOnboardingDraft(db, userId, await request.json())
     if (route === '/account/onboarding/draft' && method === 'DELETE') return await handleClearOnboardingDraft(db, userId)
 
-    if (path[0] === 'global-designs') return await handleGlobalDesignRequest(db, request, path.slice(1))
+    if (path[0] === 'global-designs') return await handleGlobalDesignRequest(db, request, path.slice(1), userId)
 
-    if (route === '/brand-designs' && method === 'POST') return await handleBrandDesigns(db, await request.json())
+    if (route === '/brand-designs' && method === 'POST') return await handleBrandDesigns(db, await request.json(), await loadViewer(db, userId, isDesignAdmin(request)))
 
     if (route === '/brand-designs' && method === 'DELETE') return await handleDeleteBrandDesign(db, await request.json())
 

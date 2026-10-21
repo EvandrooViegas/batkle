@@ -21,7 +21,6 @@ export default function ReviewStep({ result, choices, onContinue, onOpenProfile,
 
   const services = list(brand.services).map(shortName)
   const summary = researchSummary(result)
-  const skipped = result.imageImport?.skipped || 0
 
   const submit = async (target, e) => {
     e?.preventDefault()
@@ -79,10 +78,9 @@ export default function ReviewStep({ result, choices, onContinue, onOpenProfile,
           </section>
         )}
 
-        {(result.logoWarning || skipped > 0) && (
+        {result.logoWarning && (
           <ul className="space-y-2 rounded-2xl border border-[#F2A900]/40 bg-[#F2A900]/[0.08] p-4 text-[13px] leading-relaxed">
             {result.logoWarning && <li className="flex gap-2"><AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#9A6B00] dark:text-[#F2C14E]" />Logo versions could not be prepared ({String(result.logoWarning).replace(/\.$/, '')}). You can change the logo in the brand profile.</li>}
-            {skipped > 0 && <li className="flex gap-2"><AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#9A6B00] dark:text-[#F2C14E]" />{skipped} website {skipped === 1 ? 'image was' : 'images were'} too small or could not be imported.</li>}
           </ul>
         )}
 

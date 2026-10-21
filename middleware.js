@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 
 // Pages that need an account.
-const isAppPage = createRouteMatcher(['/app(.*)', '/onboarding(.*)', '/studio(.*)', '/renders(.*)', '/design-library(.*)', '/editor(.*)', '/carousel(.*)', '/flow(.*)'])
+const isAppPage = createRouteMatcher(['/app(.*)', '/onboarding(.*)', '/studio(.*)', '/renders(.*)', '/design-library(.*)', '/editor(.*)', '/carousel(.*)', '/flow(.*)', '/admin(.*)'])
 // Sign-in pages: someone already signed in goes straight to the app.
 const isAuthPage = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)'])
 
@@ -10,7 +10,8 @@ const isAuthPage = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)'])
  * API routes that need no session: images and renders are linked from posts, exports and the server-side renderer,
  * and /api/v1 is the developer API, which checks the caller's API key itself (lib/developer/api.ts). Services call
  * the others and prove who they are themselves: Stripe signs its webhook, the reminders job sends CRON_SECRET and
- * Twilio signs its callbacks. The newsletter sign-up and its unsubscribe link are public. Everything else under /api
+ * Twilio signs its callbacks. The newsletter sign-up and its unsubscribe link are public, and so is /api/track, which
+ * counts a visit to a public page (lib/analytics/visits.ts). Everything else under /api
  * needs an account.
  */
 function isPublicApi(request) {
@@ -20,7 +21,7 @@ function isPublicApi(request) {
   if (pathname === '/api/v1' || pathname.startsWith('/api/v1/')) return true
   if (pathname.startsWith('/api/cron/')) return true
   if (pathname === '/api/newsletter/unsubscribe') return true
-  if (method === 'POST' && (pathname === '/api/stripe/webhook' || pathname === '/api/newsletter' || pathname.startsWith('/api/twilio/'))) return true
+  if (method === 'POST' && (pathname === '/api/stripe/webhook' || pathname === '/api/newsletter' || pathname === '/api/track' || pathname.startsWith('/api/twilio/'))) return true
   return method === 'GET' && (/^\/api\/(uploads|rendered)\/[^/]+$/.test(pathname) || pathname === '/api' || pathname === '/api/')
 }
 

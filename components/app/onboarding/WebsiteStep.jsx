@@ -58,7 +58,7 @@ export function WebsiteStep({ firstBrand, website, onWebsiteChange, error, onSub
         </div>
         {error
           ? <p id="onboarding-website-error" role="alert" className="mt-2 text-[14px] font-semibold text-[#C2412F] dark:text-[#F0826F]">{error}</p>
-          : <p id="onboarding-website-hint" className={fieldHint}>Takes about a minute. Useful photos from your site are added to your gallery.</p>}
+          : <p id="onboarding-website-hint" className={fieldHint}>Takes about a minute. Add your own photos in the Gallery afterwards.</p>}
       </form>
 
       <div className="mt-10 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-bk-line pt-6 text-[14px] text-bk-muted">

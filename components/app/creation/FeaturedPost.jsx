@@ -8,6 +8,7 @@ import { ScheduleLine, approvalAction } from '../schedule/ScheduleStatus'
 import { StageBar } from './StageBar'
 import { SlideCarousel } from './SlideCarousel'
 import { editorHref } from './PostThumb'
+import { useSurfaceWords } from './surface'
 
 const PHASE_LABEL = { building: 'Building now', ready: 'Post ready', failed: 'Needs attention', idea: 'New idea' }
 
@@ -16,6 +17,7 @@ const PHASE_LABEL = { building: 'Building now', ready: 'Post ready', failed: 'Ne
  * its approval step (`approval`: { state, entry }, see scheduleState): approve it, then schedule it.
  */
 export function FeaturedPost({ idea, status, approval, onApproval, onPreview, onBuild, onRetry, onRebuild, onNewVersion, limit = null, className = '' }) {
+  const w = useSurfaceWords()
   const { phase, canvas, steps, error, slides } = status
   const building = phase === 'building'
   const href = editorHref(canvas)
@@ -25,7 +27,7 @@ export function FeaturedPost({ idea, status, approval, onApproval, onPreview, on
   const expected = slides || status.copy?.slides?.length || (idea.format === 'carousel' ? 5 : 1)
   // Rebuilding with the same copy makes the same slides, at one credit each.
   const keptSlides = status.copy?.slides?.length || 1
-  const meta = [PHASE_LABEL[phase], idea.format === 'carousel' ? 'Carousel' : 'Single post', idea.pillar].filter(Boolean).join(' · ')
+  const meta = [phase === 'ready' ? `${w.Noun} ready` : PHASE_LABEL[phase], idea.format === 'carousel' ? w.several : w.single, idea.pillar].filter(Boolean).join(' · ')
 
   return (
     <section
@@ -51,13 +53,13 @@ export function FeaturedPost({ idea, status, approval, onApproval, onPreview, on
 
         <div className="mt-5 flex flex-wrap items-center gap-2">
           {phase === 'idea' && (
-            <button type="button" onClick={onBuild} className={appButton('primary', 'md')}>Generate post</button>
+            <button type="button" onClick={onBuild} className={appButton('primary', 'md')}>Generate {w.noun}</button>
           )}
           {phase === 'failed' && !limit && (
             <button type="button" onClick={onRetry} className={appButton('primary', 'md')}><RefreshCw className="size-3.5" />Retry</button>
           )}
           {phase === 'failed' && href && (
-            <a href={href} target="_blank" rel="noopener noreferrer" className={appButton('onDark', 'md')}>Open last post</a>
+            <a href={href} target="_blank" rel="noopener noreferrer" className={appButton('onDark', 'md')}>Open last {w.noun}</a>
           )}
           {approvalFirst && (
             <button type="button" onClick={onApproval} className={appButton('primary', 'md')}>
@@ -101,7 +103,7 @@ export function FeaturedPost({ idea, status, approval, onApproval, onPreview, on
           <SlideCarousel canvas={canvas} count={Math.min(expected, 6)} onOpen={onPreview} dimmed={building && !!canvas} />
         ) : (
           <p className="max-w-[220px] rounded-xl border border-dashed border-white/15 px-5 py-7 text-center text-[12.5px] leading-relaxed text-white/45">
-            {phase === 'failed' ? 'No post yet. Retry to build it.' : 'Your post preview appears here once it is built.'}
+            {phase === 'failed' ? `No ${w.noun} yet. Retry to build it.` : `Your ${w.noun} preview appears here once it is built.`}
           </p>
         )}
       </div>

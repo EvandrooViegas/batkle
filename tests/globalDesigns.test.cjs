@@ -15,8 +15,10 @@ const resolve = load('lib/designs/global/resolve.ts', ['resolveBrandTokens', 're
 const study = load('lib/designs/global/study.ts', ['variantImageMode', 'familyImagery', 'familyCutouts', 'familyPhotoLed', 'familyGrammar', 'deriveGrammar', 'reconcileStudy', 'studyForPlanning'], { ...types })
 const compose = load('lib/designs/global/compose.ts', ['planSlides', 'composeSlide', 'imageFrame', 'brandPalette', 'listItems', 'previewSlide', 'SAMPLE_DECK', 'imageChoiceOf'], { ...resolve, ...study })
 const validate = load('lib/designs/global/validate.ts', ['validatePost', 'validatePage'])
-const store = load('lib/designs/global/store.ts', ['DesignLibraryError', 'ensureGlobalDesignLibrary', 'getGlobalVersion', 'listGlobalDesigns', 'getGlobalRecord', 'saveGlobalDraft', 'publishGlobalDesign', 'retireGlobalDesign', 'selectBrandFamilies', 'hydrateBrandFamilies'], { INITIAL_GLOBAL_FAMILIES: seeds, ...types, ...study })
-const generation = load('lib/designs/global/generation.ts', ['chooseBrandFamily', 'globalLayoutPlan', 'renderGlobalPost'], { ...compose, ...store, ...study, ...validate })
+const access = load('lib/designs/global/access.ts', ['ANONYMOUS', 'BATKLE_AUTHOR', 'VISIBILITIES', 'isOfficial', 'visibilityOf', 'canSee', 'canUse', 'canKeepUsing', 'canEdit', 'libraryInfo', 'upgradeToUseError'])
+const store = load('lib/designs/global/store.ts', ['DesignLibraryError', 'ensureGlobalDesignLibrary', 'getGlobalVersion', 'listGlobalDesigns', 'listLibrary', 'listOwnRecords', 'usableFamilyIds', 'getGlobalRecord', 'saveGlobalDraft', 'publishGlobalDesign', 'retireGlobalDesign', 'selectBrandFamilies', 'hydrateBrandFamilies'], { INITIAL_GLOBAL_FAMILIES: seeds, ...types, ...study, ...access })
+// loadViewer reads billing and teams; tests pass a viewer instead of a userId.
+const generation = load('lib/designs/global/generation.ts', ['chooseBrandFamily', 'globalLayoutPlan', 'renderGlobalPost'], { ...compose, ...store, ...study, ...validate, ...access, loadViewer: async () => { throw Error('pass a viewer in tests') } })
 const auth = load('lib/designs/global/admin.ts', ['validAdminKey', 'adminSession', 'isDesignAdmin', 'requireDesignAdmin'], { ...crypto })
 
 function memoryDb() {
@@ -150,6 +152,37 @@ test('brand selection keeps one or more distinct published families, stores refe
   assert.deepEqual(cleared.brandContext.designs.map(d => d.id), ['legacy'])
   assert.equal(await generation.chooseBrandFamily(db, { ...cleared.brandContext, id: 'brand' }, {}), null)
   await assert.rejects(store.selectBrandFamilies(db, 'brand', Array.from({ length: 25 }, (_, i) => `f-${i}`)), /up to 24/)
+})
+
+test('a brand’s designs take turns, and each remembers the composition its last post opened with', async () => {
+  const db = memoryDb(); await store.ensureGlobalDesignLibrary(db)
+  await db.collection('flows').insertOne({ id: 'brand', brandContext: { colors: ['#123456'] } })
+  const { brandContext } = await store.selectBrandFamilies(db, 'brand', [seeds[0].id, seeds[1].id])
+  const brand = { ...brandContext, id: 'brand' }
+  // Newest first, as the canvases query sorts them.
+  const posts = [], queries = []
+  const canvases = { find: query => { queries.push(query); return { sort: () => ({ limit: n => ({ toArray: async () => posts.slice(0, n) }) }) } } }
+  const withPosts = { collection: name => name === 'canvases' ? canvases : db.collection(name) }
+  const post = (designId, cover) => posts.unshift({ designSelection: { id: designId }, designInput: { resolvedPlan: { layoutPlan: { slots: [{ composition: cover }] } } } })
+  // The same copy every time: only the history changes the choice.
+  const content = { headline: 'Same copy every time' }
+  const first = await generation.chooseBrandFamily(withPosts, brand, content)
+  assert.equal(queries[0].flowId, 'brand', 'only this brand’s posts count')
+  post(first.design.id, 'statement')
+  const second = await generation.chooseBrandFamily(withPosts, brand, content)
+  assert.notEqual(second.design.id, first.design.id, 'the next post comes out in the other design')
+  assert.equal(second.lastCover, undefined, 'this design has no post yet')
+  post(second.design.id, 'list')
+  const third = await generation.chooseBrandFamily(withPosts, brand, content)
+  assert.equal(third.design.id, first.design.id)
+  assert.equal(third.lastCover, 'statement', 'it knows how this design’s last post opened')
+  assert.equal(third.score, undefined)
+  // A design picked for the post is kept whatever the history, with its last cover.
+  const picked = await generation.chooseBrandFamily(withPosts, brand, content, second.design.id)
+  assert.equal(picked.design.id, second.design.id)
+  assert.equal(picked.lastCover, 'list')
+  // Without history (a database that cannot answer) selection still works.
+  assert.ok(await generation.chooseBrandFamily({ collection: name => name === 'canvases' ? { find: () => { throw Error('offline') } } : db.collection(name) }, brand, content))
 })
 
 test('admin sessions require the configured key, expire, and reject cross-origin writes', () => {
@@ -341,4 +374,4 @@ test('dense reference patterns expand into editable shapes without losing size p
   assert.throws(() => expandReferencePatterns({ ...value, patterns: [{ ...value.patterns[0], rows: 60, columns: 60 }] }), /1600/)
 })
 
-module.exports = { load, seeds, resolve, types, store, generation, study, compose }
+module.exports = { load, seeds, resolve, types, store, generation, study, compose, access, memoryDb }

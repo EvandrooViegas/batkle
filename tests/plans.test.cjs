@@ -11,13 +11,18 @@ const rowNamed = label => pricingRows().find(row => row.label === label)
 
 test('a feature that is not built yet never shows a tick: its plans say "Coming soon"', () => {
   const soon = pricingRows().filter(row => row.comingSoon)
-  assert.deepEqual(soon.map(row => row.label), ['Text reminders', 'Create your own designs', 'Ad designs in Meta and Google sizes'])
+  assert.deepEqual(soon.map(row => row.label), ['Text reminders'])
   for (const row of soon) {
     assert.ok(!row.values.includes(true), row.label)
     assert.ok(row.values.every(value => value === false || value === 'Coming soon'), row.label)
   }
-  assert.deepEqual(byPlan(rowNamed('Ad designs in Meta and Google sizes')), { free: false, pro: false, business: 'Coming soon' })
   assert.deepEqual(byPlan(rowNamed('Text reminders')), { free: false, pro: 'Coming soon', business: 'Coming soon' })
+})
+
+test('designs are made on Pro and Business; Free browses the ones members publish', () => {
+  assert.deepEqual(byPlan(rowNamed('Create and share your own designs')), { free: false, pro: true, business: true })
+  assert.deepEqual(byPlan(rowNamed('Designs published by other members')), { free: 'Browse only', pro: true, business: true })
+  assert.deepEqual(byPlan(rowNamed('Facebook and Instagram ads')), { free: false, pro: false, business: true })
 })
 
 test('taking text reminders out of COMING_SOON shows each plan’s texts a month again', () => {

@@ -18,11 +18,15 @@ function failureToast(error, fallback) {
   toast.error(error.message, { duration: 12000, action: { label, onClick: () => window.location.assign(href) } })
 }
 
+// Which page an idea belongs to: posts (Creation) or stories (Stories, built at 9:16). Ideas saved before stories have none.
+export const surfaceOf = idea => (idea?.surface === 'story' ? 'story' : 'post')
+
 /**
- * State and actions for the Creation page: ideas, their post builds, and saving to the brand.
+ * State and actions for the Creation and Stories pages: ideas, their post builds, and saving to the brand. Both pages
+ * share the brand's saved ideas; each sees and changes only its own (`surface`).
  * Saves are serialized and always send the latest state, so a slow save never overwrites a newer one.
  */
-export function useCreation({ flowId, brandContext: suppliedBrand }) {
+export function useCreation({ flowId, brandContext: suppliedBrand, surface = 'post' }) {
   const [savedBrand, setSavedBrand] = useState(null)
   const brandContext = useMemo(() => ({ ...(savedBrand || suppliedBrand), id: flowId || suppliedBrand?.id }), [savedBrand, suppliedBrand, flowId])
   const brandId = flowId ? `brand_${flowId}` : null
@@ -145,7 +149,8 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
   }, [brandContext, brandId, patch])
 
   const startBuild = useCallback((idea, options) => {
-    build(idea, options).then(ok => ok && toast.success('Post ready to edit')).catch(error => failureToast(error, 'Post could not be created'))
+    const noun = surfaceOf(idea) === 'story' ? 'Story' : 'Post'
+    build(idea, options).then(ok => ok && toast.success(`${noun} ready to edit`)).catch(error => failureToast(error, `${noun} could not be created`))
   }, [build])
 
   const retry = useCallback(idea => startBuild(idea, { keepCopy: retryCopy(statusOf(idea.id)) }), [startBuild, statusOf])
@@ -161,7 +166,7 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
     if (busy) return null
     setBusy(andBuild ? 'create' : 'suggest')
     try {
-      const recent = dataRef.current.ideas.slice(0, 30)
+      const recent = dataRef.current.ideas.filter(i => surfaceOf(i) === surface).slice(0, 30)
       const res = await fetch('/api/generate-content-ideas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -180,6 +185,7 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
       if (!written) throw new Error('No idea returned')
       const idea = {
         ...written,
+        ...(surface === 'story' ? { surface: 'story' } : {}),
         ...(imageChoice === 'on' || imageChoice === 'off' ? { imageChoice } : {}),
         ...(designId && designId !== 'auto' ? { designId } : {}),
       }
@@ -194,13 +200,15 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
     } finally {
       setBusy(null)
     }
-  }, [busy, brandContext, flowId, startBuild, statusOf])
+  }, [busy, brandContext, flowId, startBuild, statusOf, surface])
 
   /** Builds several posts one after another, so a batch never multiplies concurrent AI requests. */
   const buildMany = useCallback(async ids => {
     const ideas = dataRef.current.ideas.filter(i => ids.has(i.id))
     if (!ideas.length) return
-    toast.info(`Creating ${ideas.length} post${ideas.length > 1 ? 's' : ''}…`)
+    const noun = surface === 'story' ? 'stor' : 'post'
+    const plural = n => `${noun}${noun === 'stor' ? (n > 1 ? 'ies' : 'y') : n > 1 ? 's' : ''}`
+    toast.info(`Creating ${ideas.length} ${plural(ideas.length)}…`)
     let failed = 0, made = 0
     for (const idea of ideas) {
       try { if (await build(idea)) made++ } catch (error) {
@@ -208,14 +216,14 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
         // Out of credits (or another plan limit): the rest of the batch would fail the same way, so it stops here.
         if (isBillingCode(error.code)) {
           failureToast(error)
-          if (made) toast.success(`${made} of ${ideas.length} posts ready to edit`)
+          if (made) toast.success(`${made} of ${ideas.length} ${plural(2)} ready to edit`)
           return
         }
       }
     }
-    if (failed) toast.error(`${failed} of ${ideas.length} posts could not be created`)
-    else toast.success(`${ideas.length} post${ideas.length > 1 ? 's' : ''} ready to edit`)
-  }, [build])
+    if (failed) toast.error(`${failed} of ${ideas.length} ${plural(2)} could not be created`)
+    else toast.success(`${ideas.length} ${plural(ideas.length)} ready to edit`)
+  }, [build, surface])
 
   const deleteIdeas = useCallback(ids => {
     const keep = ([id]) => !ids.has(id)
@@ -227,29 +235,36 @@ export function useCreation({ flowId, brandContext: suppliedBrand }) {
     toast.success(`${ids.size} idea${ids.size > 1 ? 's' : ''} deleted`)
   }, [])
 
+  // Clears this page's ideas only: the other page's (posts or stories) stay.
   const deleteAll = useCallback(() => {
-    setData({ ...EMPTY })
-    setFailures({})
+    const ids = new Set(dataRef.current.ideas.filter(i => surfaceOf(i) === surface).map(i => i.id))
+    const keep = ([id]) => !ids.has(id)
+    setData(d => ({
+      ideas: d.ideas.filter(i => !ids.has(i.id)),
+      ...Object.fromEntries(RESULT_KINDS.map(k => [k, Object.fromEntries(Object.entries(d[k]).filter(keep))])),
+    }))
+    setFailures(f => Object.fromEntries(Object.entries(f).filter(keep)))
     setFocusId(null)
     toast.success('Ideas cleared')
-  }, [])
+  }, [surface])
 
   // The featured card follows what the user did last, then any running build, then the newest finished post,
   // then the newest idea.
+  const ideas = useMemo(() => data.ideas.filter(i => surfaceOf(i) === surface), [data.ideas, surface])
   const featuredId = useMemo(() => {
-    if (focusId && data.ideas.some(i => i.id === focusId)) return focusId
-    const runningId = Object.keys(running)[0]
+    if (focusId && ideas.some(i => i.id === focusId)) return focusId
+    const runningId = Object.keys(running).find(id => ideas.some(i => i.id === id))
     if (runningId) return runningId
-    return data.ideas.find(i => data.designResults[i.id]?.canvas)?.id ?? data.ideas[0]?.id ?? null
-  }, [focusId, running, data.ideas, data.designResults])
+    return ideas.find(i => data.designResults[i.id]?.canvas)?.id ?? ideas[0]?.id ?? null
+  }, [focusId, running, ideas, data.designResults])
 
   /** The plan limit that stopped this idea's last build in this session (an Error-like { message, code, billing }), or null. */
   const limitOf = useCallback(id => (isBillingCode(failures[id]?.code) ? failures[id] : null), [failures])
 
   return {
     brandContext, loaded, loadError, busy, limitOf,
-    ideas: data.ideas, copyResults: data.copyResults,
-    statusOf, featuredId, isRunning: id => !!running[id], anyRunning: Object.keys(running).length > 0,
+    ideas, copyResults: data.copyResults,
+    statusOf, featuredId, isRunning: id => !!running[id], anyRunning: Object.keys(running).some(id => ideas.some(i => i.id === id)),
     createIdea, startBuild, retry, rebuildDesign, newVersion, buildMany, deleteIdeas, deleteAll,
   }
 }

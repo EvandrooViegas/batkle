@@ -61,7 +61,8 @@ export function Choice({ label, options, value, onChange, disabled, unavailable 
   )
 }
 
-function Row({ label, hint, children }) {
+/** A labelled setting in a settings popover (Post settings, Ad settings). */
+export function Row({ label, hint, children }) {
   return (
     <div>
       <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-bk-muted">{label}</p>

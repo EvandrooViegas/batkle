@@ -42,12 +42,28 @@ test('sites without HTTPS are read over HTTP after both HTTPS addresses fail', a
   assert.deepEqual(requested, ['https://oldshop.pt/', 'https://www.oldshop.pt/', 'http://oldshop.pt/'])
 })
 
-test('only placeholders explain themselves; a dead site reports the first failure', async () => {
+test('a placeholder and a site that cannot be opened both explain themselves, keeping the first failure', async () => {
   const parked = web({ 'https://parked.pt/': registrar, 'https://www.parked.pt/': registrar, 'http://parked.pt/': registrar, 'http://www.parked.pt/': registrar })
   await assert.rejects(fetchHomepage('https://parked.pt', parked.fetchPage), /parked\.pt only shows a placeholder page from its domain provider/)
   const dead = web({ 'https://dead.pt/': Error('connect ECONNREFUSED') })
-  await assert.rejects(fetchHomepage('https://dead.pt', dead.fetchPage), /ECONNREFUSED/)
+  await assert.rejects(fetchHomepage('https://dead.pt', dead.fetchPage), error => {
+    assert.equal(error.message, 'Batkle couldn’t open dead.pt. Check the address, or try again in a few minutes.')
+    assert.equal(error.unreachable, true)
+    assert.match(error.cause.message, /ECONNREFUSED/, 'the original failure stays for the logs')
+    return true
+  })
   assert.equal(dead.requested.length, 4)
+})
+
+test('why a site could not be opened, in words people can act on', () => {
+  const { unreachableMessage } = new Function('load', source + ';return { unreachableMessage }')(require('cheerio').load)
+  const http = status => Object.assign(Error(`Request failed with status code ${status}`), { response: { status } })
+  assert.match(unreachableMessage('ikaruspay.com', http(404)), /^ikaruspay\.com answered “page not found”/)
+  assert.match(unreachableMessage('shop.pt', http(403)), /blocks automatic visitors/)
+  assert.match(unreachableMessage('shop.pt', http(503)), /having problems right now \(error 503\)/)
+  assert.match(unreachableMessage('shop.pt', Object.assign(Error('getaddrinfo ENOTFOUND shop.pt'), { code: 'ENOTFOUND' })), /couldn’t find shop\.pt/)
+  assert.match(unreachableMessage('shop.pt', Object.assign(Error('timeout of 12000ms exceeded'), { code: 'ECONNABORTED' })), /took too long/)
+  assert.match(unreachableMessage('shop.pt', Object.assign(Error('certificate has expired'), { code: 'CERT_HAS_EXPIRED' })), /security certificate/)
 })
 
 test('placeholder detection leaves real sites alone, including script-only app shells', () => {

@@ -132,7 +132,7 @@ export default function BrandOnboarding({ initialWebsite = '', firstBrand = fals
       setPhase('finishing')
       // Posts are planned from an English profile; if this fails, the brand profile page retries it.
       try { brand = (await loadEnglishProfile(flowId, brand)) || brand } catch {}
-      setResult({ flowId, domain: site.domain, website: site.url, brand, pages: data.pagesAnalyzed, imageImport: data.imageImport, logoWarning: data.logoVariantsError })
+      setResult({ flowId, domain: site.domain, website: site.url, brand, pages: data.pagesAnalyzed, logoWarning: data.logoVariantsError })
       setChoices(languageChoices(brand, contentLanguage))
       setLimit(null)
       setPhase('done')

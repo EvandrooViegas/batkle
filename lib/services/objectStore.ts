@@ -7,7 +7,7 @@ import { AwsClient } from 'aws4fetch'
  */
 
 export interface StoredObject { bytes: Buffer; contentType: string }
-type Fetch = (request: Request) => Promise<Response>
+type Fetch = (url: string, init: RequestInit) => Promise<Response>
 
 const options: { fetch: Fetch | null; timeoutMs: number } = { fetch: null, timeoutMs: 15_000 }
 
@@ -62,15 +62,18 @@ async function send<T>(method: string, key: string, action: string, init: { body
   for (let attempt = 1; ; attempt++) {
     let reason = ''
     try {
-      const request = await client(config).sign(url, {
+      const signed = await client(config).sign(url, { method, body: init.body, headers: init.contentType ? { 'Content-Type': init.contentType } : {} })
+      // Sent as the URL, the signed headers and the bytes themselves, never as the signed Request: Next.js's fetch
+      // reads a Request's body back as a stream, which loses its length, and R2 refuses an upload without one
+      // (411 MissingContentLength).
+      const response = await (options.fetch || fetch)(signed.url, {
         method,
-        body: init.body,
-        headers: init.contentType ? { 'Content-Type': init.contentType } : {},
+        headers: signed.headers,
+        body: init.body ? new Uint8Array(init.body) : undefined,
         signal: AbortSignal.timeout(options.timeoutMs),
         // Next.js would otherwise cache these GETs like page data.
         cache: 'no-store',
       })
-      const response = await (options.fetch || fetch)(request)
       if (response.status < 500 || attempt === 2) return await handle(response)
       reason = `HTTP ${response.status}`
       await drain(response)

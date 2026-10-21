@@ -1,4 +1,6 @@
 import { chooseBrandFamily, renderGlobalPost } from '@/lib/designs/global/generation'
+import { storyArea, toStoryCanvas } from '@/lib/designs/global/story'
+import { STORY_SAFE } from '@/lib/ads/meta'
 import { budgetedModels, budgetedCompletion } from '@/lib/services/ai/requestBudget'
 import { canvasBrand } from '@/lib/designs/canvasBrand'
 import { arrangeReadableBody, backgroundCompositionForDesign, fitPlannedLayout, fitResolvedSlide, subjectOverlaps, parseDesignSequence, parseDesignBullets, planPostLayout } from '@/lib/designs/postLayout'
@@ -2472,10 +2474,15 @@ async function designCanvas(db: any, body: any, persist: boolean, ownerId?: stri
     }
     if (!copy || !Array.isArray(inputPlan?.slots) || !inputPlan.slots.length) return corsify(NextResponse.json({ error: 'copy and resolvedPlan.slots are required' }, { status: 400 }))
     const globalSelection = await chooseBrandFamily(db, brandContext, copy, body.designId || inputPlan.designId || inputPlan.layoutPlan?.designId)
+    // A story (9:16) is composed in the part of the frame Meta's bars leave clear, then placed in the full frame.
+    const story = body.size === 'story'
+    if (story && !globalSelection) return corsify(NextResponse.json({ error: 'Stories use designs from the Design Library. Switch one on for this brand first.' }, { status: 409 }))
     if (globalSelection) {
       // Logo variants let the composer pick the version that reads on each surface; a logo that cannot be processed keeps its original file.
       if (brandContext?.logo) try { await ensureBrandLogoVariants(db, brandContext) } catch (error) { console.warn('[canvas] logo variants unavailable:', (error as Error).message) }
-      const canvas = renderGlobalPost(globalSelection.family, brandContext, copy, inputPlan, globalSelection.design, uuidv4, canvasName)
+      const family = story ? { ...globalSelection.family, ...storyArea(STORY_SAFE) } : globalSelection.family
+      const rendered = renderGlobalPost(family, brandContext, copy, inputPlan, globalSelection.design, uuidv4, canvasName)
+      const canvas = story ? { ...toStoryCanvas(rendered, STORY_SAFE), story: true } : rendered
       const saved = await persistInlineImages(db, ownerId ? { ...canvas, ownerId } : canvas)
       if (persist) await db.collection('canvases').insertOne(saved)
       const { _id, ...result } = saved as any

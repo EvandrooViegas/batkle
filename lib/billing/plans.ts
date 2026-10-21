@@ -29,8 +29,9 @@ export interface Plan {
   emailReminders: boolean
   /** Text-message reminders each month; 0 when the plan has none. */
   textReminders: number
-  /** Not built yet: shown as "coming soon", never enforced. */
+  /** Creating designs for the Design Library from your own references, and using the ones members publish. */
   customDesigns: boolean
+  /** Meta (Facebook and Instagram) ads: copy within Meta's limits and the creative in each ad size. */
   adDesigns: boolean
   /** Days of free trial a new subscriber gets; 0 for none. */
   trialDays: number
@@ -48,14 +49,14 @@ export const PLANS: Record<PlanId, Plan> = {
   },
   pro: {
     id: 'pro', name: 'Pro', tagline: 'One business posting regularly',
-    price: { month: 19, year: 190 },
+    price: { month: 34.99, year: 349.9 },
     brands: 2, credits: 150, imageQuality: 'high', uploads: { maxBytes: 2 * GB },
     scheduling: true, emailReminders: true, textReminders: 30, customDesigns: true, adDesigns: false, trialDays: 7,
     popular: true,
   },
   business: {
     id: 'business', name: 'Business', tagline: 'Several brands or a lot of content',
-    price: { month: 49, year: 490 },
+    price: { month: 79.99, year: 799.9 },
     brands: 5, credits: 500, imageQuality: 'high', uploads: { maxBytes: 10 * GB },
     scheduling: true, emailReminders: true, textReminders: 100, customDesigns: true, adDesigns: true, trialDays: 7,
   },
@@ -66,11 +67,11 @@ export const PAID_PLAN_IDS: PlanId[] = ['pro', 'business']
 export const INTERVALS: Interval[] = ['month', 'year']
 
 /**
- * Features shown as "Coming soon": not built yet (custom and ad designs), or built but not launched (text reminders,
+ * Features shown as "Coming soon": built but not launched (text reminders,
  * until Twilio is set up). Taking textReminders out turns texts back on everywhere: the plan cards, the comparison
  * table, the trial text, the usage tile, the reminder settings and the phone number in onboarding.
  */
-export const COMING_SOON: Feature[] = ['textReminders', 'customDesigns', 'adDesigns']
+export const COMING_SOON: Feature[] = ['textReminders']
 
 export const isComingSoon = (feature: Feature): boolean => COMING_SOON.includes(feature)
 
@@ -175,8 +176,8 @@ export function pricingRows(): PricingRow[] {
     isComingSoon('textReminders')
       ? { label: 'Text reminders', values: each(p => (p.textReminders ? 'Coming soon' : false)), comingSoon: true }
       : { label: 'Text reminders', values: each(p => (p.textReminders ? `${p.textReminders} a month` : false)) },
-    // Not built yet: the plans that will include them say so, and nothing shows a tick for them.
-    { label: 'Create your own designs', values: each(p => (p.customDesigns ? 'Coming soon' : false)), comingSoon: true },
-    { label: 'Ad designs in Meta and Google sizes', values: each(p => (p.adDesigns ? 'Coming soon' : false)), comingSoon: true },
+    { label: 'Create and share your own designs', values: each(p => p.customDesigns) },
+    { label: 'Designs published by other members', values: each(p => (p.customDesigns ? true : 'Browse only')) },
+    { label: 'Facebook and Instagram ads', values: each(p => p.adDesigns) },
   ]
 }

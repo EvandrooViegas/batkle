@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, Check, Loader2, RefreshCw, Search } from 'lucide-react'
-import GlobalDesignPreview from '@/components/GlobalDesignPreview'
+import GlobalDesignPreview, { designAuthor } from '@/components/GlobalDesignPreview'
 import { cn } from '@/lib/utils'
 import { appButton } from '../ui'
 import { appField } from '../field'
@@ -42,7 +42,7 @@ export default function DesignStep({ flowId, brand, eyebrow = 'Step 4 of 4 · De
       .then(([published, imported]) => {
         if (!live) return
         const mine = new Map(imported.map(item => [item.family.id, item.family]))
-        setFamilies([...published.map(f => mine.get(f.id) || f), ...imported.filter(item => !published.some(f => f.id === item.family.id)).map(item => item.family)])
+        setFamilies([...published.filter(f => f.library?.usable !== false).map(f => mine.get(f.id) || f), ...imported.filter(item => !published.some(f => f.id === item.family.id)).map(item => item.family)])
         setSelected(imported.map(item => item.family.id))
       })
       .catch(e => { if (live) { setLoadError(e.message); setFamilies([]) } })
@@ -152,7 +152,7 @@ export default function DesignStep({ flowId, brand, eyebrow = 'Step 4 of 4 · De
                         <span className="min-w-0 truncate text-[15px] font-bold">{family.name}</span>
                         <span className={cn('shrink-0 text-[12.5px] font-semibold', on ? 'text-bk-fg' : 'text-bk-muted')}>{on ? 'Selected' : 'Select'}</span>
                       </span>
-                      {family.tags?.length > 0 && <span className="mt-0.5 block truncate px-1 text-[12.5px] text-bk-muted">{family.tags.join(' · ')}</span>}
+                      {(designAuthor(family) || family.tags?.length > 0) && <span className="mt-0.5 block truncate px-1 text-[12.5px] text-bk-muted">{[designAuthor(family), (family.tags || []).join(' · ')].filter(Boolean).join(' · ')}</span>}
                     </button>
                     <div role="group" aria-label={`${family.name}: sample slides`} className="mt-2.5 flex gap-1.5 px-1 pb-1">
                       {SAMPLES.map(n => (

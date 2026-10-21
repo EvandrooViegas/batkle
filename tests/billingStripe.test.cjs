@@ -367,8 +367,11 @@ test('the setup script makes products, prices, the coupon and the portal once, a
   assert.deepEqual([...fake.store.products.keys()], ['batkle_pro', 'batkle_business', 'batkle_credits'])
   const byKey = Object.fromEntries(fake.store.prices.map(p => [p.lookup_key, p]))
   assert.deepEqual(Object.keys(byKey).sort(), ['batkle_business_monthly', 'batkle_business_yearly', 'batkle_credits_100', 'batkle_pro_monthly', 'batkle_pro_yearly'])
-  assert.deepEqual([byKey.batkle_pro_monthly.unit_amount, byKey.batkle_pro_monthly.currency, byKey.batkle_pro_monthly.recurring.interval, byKey.batkle_pro_monthly.product], [1900, 'usd', 'month', 'batkle_pro'])
-  assert.deepEqual([byKey.batkle_business_yearly.unit_amount, byKey.batkle_business_yearly.recurring.interval], [49000, 'year'])
+  // Amounts are plans.ts prices in cents, so a price change there never needs this test changed.
+  const cents = dollars => Math.round(dollars * 100)
+  assert.deepEqual([byKey.batkle_pro_monthly.unit_amount, byKey.batkle_pro_monthly.currency, byKey.batkle_pro_monthly.recurring.interval, byKey.batkle_pro_monthly.product], [cents(plans.PLANS.pro.price.month), 'usd', 'month', 'batkle_pro'])
+  assert.deepEqual([byKey.batkle_business_yearly.unit_amount, byKey.batkle_business_yearly.recurring.interval], [cents(plans.PLANS.business.price.year), 'year'])
+  assert.ok(Number.isInteger(byKey.batkle_pro_monthly.unit_amount), 'a price with cents is sent as whole cents')
   assert.deepEqual([byKey.batkle_credits_100.unit_amount, byKey.batkle_credits_100.recurring, byKey.batkle_credits_100.product], [1000, null, 'batkle_credits'])
   assert.deepEqual(fake.store.coupons.get('NEWSLETTER20'), { id: 'NEWSLETTER20', percent_off: 20, duration: 'once', name: 'Newsletter: 20% off the first payment' })
   const [config] = fake.store.configs
@@ -387,7 +390,7 @@ test('the setup script makes products, prices, the coupon and the portal once, a
   assert.equal(fake.count('portal.update'), 1)
 
   // A new price in plans.ts takes over the lookup key; the old price is archived.
-  const changed = { ...plans, PLANS: { ...plans.PLANS, pro: { ...plans.PLANS.pro, price: { month: 21, year: 190 } } } }
+  const changed = { ...plans, PLANS: { ...plans.PLANS, pro: { ...plans.PLANS.pro, price: { month: 21, year: plans.PLANS.pro.price.year } } } }
   const old = byKey.batkle_pro_monthly
   await setupScript.setup(fake.stripe, changed, { log })
   assert.equal(fake.count('prices.create'), 6)

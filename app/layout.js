@@ -6,6 +6,7 @@ import DeferredFonts from '@/components/DeferredFonts'
 import { PopupProvider } from '@/components/app/popup'
 import { clerkAppearance } from '@/components/auth/clerkAppearance'
 import { batkleFonts } from '@/lib/batkleFonts'
+import VisitTracker from '@/components/analytics/VisitTracker'
 
 export const metadata = {
   title: 'Batkle',
@@ -55,6 +56,7 @@ export default function RootLayout({ children }) {
           <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
             <PopupProvider>{children}</PopupProvider>
             <Toaster position="top-center" />
+            <VisitTracker />
           </ThemeProvider>
         </body>
       </html>

@@ -192,6 +192,9 @@ export async function handleGenerateContentIdeas(body: any, db: any) {
     // person's own words ask for them.
     const avoid = angle ? angle.avoid || [] : recurringSubjects(brandContext, history).filter(subject => !mentionsSubject(request, subject))
     const avoidBlock = avoid.length ? `\nAVOID REPEATING (required): the brand's recent ideas already centred on ${avoid.map(s => `"${s}"`).join(', ')}. Do not mention or build this idea on ${avoid.length > 1 ? 'them' : 'it'}; use other details from the brand information.\n` : ''
+    // Terms the profile repeats everywhere (BIM) stay out of what an idea on another part of the brand is about.
+    const aside = angle?.aside || []
+    const asideBlock = aside.length ? `\nSTAY ON THE ANGLE (required): this idea is not about ${aside.map(s => `"${s}"`).join(', ')}. ${aside.length > 1 ? 'They' : 'It'} may come up as a detail inside a slide, never in the topic or the hook.\n` : ''
     const angleBlock = angle ? `\nANGLE FOR THIS IDEA (required):
 - Pillar: ${angle.pillar}
 - Build it on this ${angle.facet.kind === 'company' ? 'part of the company' : angle.facet.kind}: "${angle.facet.label}"${angle.facet.detail && angle.facet.detail !== angle.facet.label ? ` (${angle.facet.detail})` : ''}
@@ -203,6 +206,7 @@ ${slideCount ? lengthLine : length && formatChoice !== 'single' ? `- Length if i
       : buildUserPrompt(brandJson) + angleBlock
         + (previous ? `\nPREVIOUS IDEAS (the new idea must cover a clearly different subject and angle, not a rewording):\n${previous}\n` : ''))
       + avoidBlock
+      + asideBlock
       + (images.length ? `\n${postImagesBlock(images)}\n` : '')
       + `\n${language.rules}`
     const systemPrompt = SYSTEM_PROMPT + '\n\n' + EXTRACTED_CONTEXT_RULES + (request ? '\n\n' + IDEA_REQUEST_RULE : '') + '\n\n' + language.rules
@@ -287,6 +291,8 @@ ${slideCount ? lengthLine : length && formatChoice !== 'single' ? `- Length if i
       if(duplicate)problems.push(`the topic repeats an existing idea ("${String(duplicate.topic).slice(0,120)}"); choose a different subject within the angle`)
       const repeated=avoid.filter(subject=>mentionsSubject([idea.topic,idea.hook,idea.coreMessage,...outline].join(' \n '),subject))
       if(repeated.length)problems.push(`it mentions ${repeated.join(', ')}, which the brand's recent ideas already centred on; build it on other details from the brand information`)
+      const offAngle=aside.filter(subject=>mentionsSubject([idea.topic,idea.hook].join(' \n '),subject))
+      if(offAngle.length)problems.push(`its topic or hook is about ${offAngle.join(', ')}, but the angle is "${angle!.facet.label}"; keep the topic and hook on the angle and leave ${offAngle.join(', ')} to a detail at most`)
       if(!problems.length||attempt===1){ if(problems.length)console.warn('[content-ideas] accepted after retry with:',problems.join('; ')); break }
       feedback=problems.join('; ')
     }
@@ -301,9 +307,10 @@ ${slideCount ? lengthLine : length && formatChoice !== 'single' ? `- Length if i
     const ideaFormat=finalFormat(idea.format,formatChoice,angle?.format)
     // A chosen length holds even when the model overshot it twice: the cover, the first points, then the takeaway.
     const outline=fitOutline(ideaOutline(rawOutline,ideaFormat),slideCount)
-    // `avoid` travels with the brief, so the copywriter leaves the same subjects out of the post. The composer's
+    // `avoid` travels with the brief, so the copywriter leaves the same subjects out of the post, and `aside` keeps
+    // the post's headlines off the terms the idea is not about. The composer's
     // slide count and language travel with it too, so rebuilds keep them.
-    return corsify(NextResponse.json({ideas:[{...brief,id:ideaId,format:ideaFormat,...(outline.length?{outline}:{}),...(slideCount&&ideaFormat==='carousel'?{slideCount}:{}),...(languageChoice?{languageChoice}:{}),...(angle?{angle:{pillar:angle.pillar,facet:angle.facet.label,kind:angle.facet.kind}}:{}),...(avoid.length?{avoid}:{}),...(request?{userRequest:request}:{}),...(images.length?{images:images.map(({ref,...image})=>image)}:{})}]}))
+    return corsify(NextResponse.json({ideas:[{...brief,id:ideaId,format:ideaFormat,...(outline.length?{outline}:{}),...(slideCount&&ideaFormat==='carousel'?{slideCount}:{}),...(languageChoice?{languageChoice}:{}),...(angle?{angle:{pillar:angle.pillar,facet:angle.facet.label,kind:angle.facet.kind}}:{}),...(avoid.length?{avoid}:{}),...(aside.length?{aside}:{}),...(request?{userRequest:request}:{}),...(images.length?{images:images.map(({ref,...image})=>image)}:{})}]}))
   } catch (error: any) {
     console.error('Content ideas generation error:', error)
     return corsify(

@@ -8,6 +8,7 @@ import { ACCEPTED_TYPES, MAX_POST_IMAGES, discardPostImage, imageFiles, uploadPo
 import { billingAction } from '@/lib/client/billing'
 import { appButton } from '../ui'
 import { AUTO_SETTINGS, PostSettings, languageOption } from './PostSettings'
+import { useSurfaceWords } from './surface'
 
 const STARTERS = ['Before and after of a recent project', 'Explain one of our services', 'Meet the team']
 const MAX = 600
@@ -135,6 +136,7 @@ function PhotoTile({ photo, onRemove }) {
  * "Generate another idea" only suggests one.
  */
 export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, onCreate, onSuggest, className = '' }) {
+  const w = useSurfaceWords()
   const [text, setText] = useState('')
   const [settings, setSettings] = useState(AUTO_SETTINGS)
   // The last image choice is remembered on this device; read after mount so the server render always matches.
@@ -212,7 +214,7 @@ export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, 
             Drop photos to add them ({MAX_POST_IMAGES - photos.length} left)
           </div>
         )}
-        <label htmlFor="idea-input" className="sr-only">Post idea</label>
+        <label htmlFor="idea-input" className="sr-only">{w.Noun} idea</label>
         <textarea
           id="idea-input"
           ref={input}
@@ -223,7 +225,7 @@ export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, 
           onChange={e => setText(e.target.value)}
           onPaste={e => { const files = imageFiles(e.clipboardData?.files); if (files.length) { e.preventDefault(); addFiles(files) } }}
           onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); create() } }}
-          placeholder={`Describe a post idea, or leave it empty and let Batkle suggest one. For example: ${exampleFor(brandContext)}.`}
+          placeholder={`Describe a ${w.noun} idea, or leave it empty and let Batkle suggest one. For example: ${exampleFor(brandContext)}.`}
           className="block min-h-[72px] w-full resize-none bg-transparent px-4 pt-3.5 text-[15px] leading-relaxed text-bk-fg outline-none placeholder:text-bk-muted disabled:cursor-not-allowed"
         />
 

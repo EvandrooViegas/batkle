@@ -26,7 +26,10 @@ export default async function AppBrandLayout({ children, params }) {
     logoOnDark: logo.onDark,
     language: contentLanguage(brandContext).code.toUpperCase(),
   }
-  const counts = { creation: flow.creationState?.ideas?.length || 0, schedule: scheduleCount, gallery: galleryCount }
+  // Ideas made on Stories are marked; every other idea is a post's.
+  const ideas = Array.isArray(flow.creationState?.ideas) ? flow.creationState.ideas : []
+  const stories = ideas.filter(i => i?.surface === 'story').length
+  const counts = { creation: ideas.length - stories, stories, schedule: scheduleCount, gallery: galleryCount }
   // Most recently used first; the open brand is the one in use right now, so it leads.
   const ordered = [...flows.filter(f => f.id === flow.id), ...flows.filter(f => f.id !== flow.id)]
   // The saved sidebar state, so a collapsed sidebar does not flash open on reload.

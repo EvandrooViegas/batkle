@@ -17,16 +17,25 @@ function ticksFor(max) {
   return Array.from({ length: Math.ceil(max / step) + 1 }, (_, i) => i * step)
 }
 
+// What a day of API use shows: its credits, and in the tooltip and table its requests and failures.
+const CREDIT_COLUMNS = [
+  { key: 'credits', label: 'Credits', one: 'credit', many: 'credits' },
+  { key: 'requests', label: 'Requests', one: 'request', many: 'requests' },
+  { key: 'errors', label: 'Failed', one: 'failed', many: 'failed', hideZero: true },
+]
+
 /**
- * Credits used per day as columns. Hover a day, or focus the chart and use the arrow keys, to read it; the same
- * numbers are in the table below the chart. Bar colours are gold steps validated against both surfaces.
+ * One number per day as columns: credits used by default, or any `field` of the series. Hover a day, or focus the
+ * chart and use the arrow keys, to read it; `columns` are what the tooltip and the table below it show for each day.
+ * Bar colours are gold steps validated against both surfaces.
  */
-export default function UsageChart({ series }) {
+export default function UsageChart({ series, field = 'credits', title = 'Credits used per day', emptyText = 'No credits used in this period.', columns = CREDIT_COLUMNS }) {
   const [active, setActive] = useState(null)
-  const ticks = ticksFor(Math.max(0, ...series.map(d => d.credits)))
+  const ticks = ticksFor(Math.max(0, ...series.map(d => d[field])))
   const top = ticks.at(-1) || 1
-  const empty = series.every(d => d.credits === 0)
-  const peak = empty ? -1 : series.reduce((best, d, i) => (d.credits > series[best].credits ? i : best), 0)
+  const empty = series.every(d => d[field] === 0)
+  const peak = empty ? -1 : series.reduce((best, d, i) => (d[field] > series[best][field] ? i : best), 0)
+  const shown = d => columns.filter(c => !c.hideZero || d[c.key])
   const day = active != null ? series[active] : null
   const last = series.length - 1
   const labelled = [0, Math.round(last / 2), last]
@@ -50,7 +59,7 @@ export default function UsageChart({ series }) {
           <div
             role="group"
             tabIndex={0}
-            aria-label={`Credits used per day for the last ${series.length} days. Use the arrow keys to read each day.`}
+            aria-label={`${title} for the last ${series.length} days. Use the arrow keys to read each day.`}
             onKeyDown={onKeyDown}
             onFocus={() => setActive(i => i ?? last)}
             onBlur={() => setActive(null)}
@@ -63,11 +72,11 @@ export default function UsageChart({ series }) {
             ))}
             <div className="absolute inset-0 flex items-end gap-[2px]">
               {series.map((d, i) => {
-                const height = d.credits ? Math.max(2, (d.credits / top) * PLOT) : 0
+                const height = d[field] ? Math.max(2, (d[field] / top) * PLOT) : 0
                 return (
                   <div key={d.date} onMouseEnter={() => setActive(i)} className="relative flex h-full min-w-0 flex-1 items-end justify-center">
                     {i === peak && active == null && (
-                      <span aria-hidden="true" className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] font-semibold tabular-nums text-bk-fg/80" style={{ bottom: height + 4 }}>{number(d.credits)}</span>
+                      <span aria-hidden="true" className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] font-semibold tabular-nums text-bk-fg/80" style={{ bottom: height + 4 }}>{number(d[field])}</span>
                     )}
                     <span
                       aria-hidden="true"
@@ -79,7 +88,7 @@ export default function UsageChart({ series }) {
               })}
             </div>
             {empty && (
-              <p className="absolute inset-0 flex items-center justify-center text-[13px] text-bk-muted">No credits used in this period.</p>
+              <p className="absolute inset-0 flex items-center justify-center text-[13px] text-bk-muted">{emptyText}</p>
             )}
             {day && (
               <div
@@ -88,7 +97,7 @@ export default function UsageChart({ series }) {
                 style={{ left: `${((active + 0.5) / series.length) * 100}%`, transform: `translateX(${active < 4 ? '-12%' : active > last - 4 ? '-88%' : '-50%'})` }}
               >
                 <p className="font-bold">{dateLabel(day.date, { weekday: 'short', day: 'numeric', month: 'short' })}</p>
-                <p className="mt-0.5 tabular-nums">{number(day.credits)} credit{day.credits === 1 ? '' : 's'} · {number(day.requests)} request{day.requests === 1 ? '' : 's'}{day.errors ? ` · ${number(day.errors)} failed` : ''}</p>
+                <p className="mt-0.5 tabular-nums">{shown(day).map(c => `${number(day[c.key])} ${day[c.key] === 1 ? c.one : c.many}`).join(' · ')}</p>
               </div>
             )}
           </div>
@@ -99,7 +108,7 @@ export default function UsageChart({ series }) {
               </span>
             ))}
           </div>
-          <p className="sr-only" aria-live="polite">{day ? `${dateLabel(day.date, { weekday: 'long', day: 'numeric', month: 'long' })}: ${day.credits} credits, ${day.requests} requests${day.errors ? `, ${day.errors} failed` : ''}.` : ''}</p>
+          <p className="sr-only" aria-live="polite">{day ? `${dateLabel(day.date, { weekday: 'long', day: 'numeric', month: 'long' })}: ${shown(day).map(c => `${day[c.key]} ${day[c.key] === 1 ? c.one : c.many}`).join(', ')}.` : ''}</p>
         </div>
       </div>
 
@@ -108,15 +117,13 @@ export default function UsageChart({ series }) {
         <div className="mt-2 max-h-72 overflow-auto rounded-xl border border-bk-line">
           <table className="w-full text-left text-[12.5px]">
             <thead className="sticky top-0 bg-bk-surface text-bk-muted">
-              <tr><th className="px-3 py-2 font-semibold">Day</th><th className="px-3 py-2 text-right font-semibold">Credits</th><th className="px-3 py-2 text-right font-semibold">Requests</th><th className="px-3 py-2 text-right font-semibold">Failed</th></tr>
+              <tr><th className="px-3 py-2 font-semibold">Day</th>{columns.map(c => <th key={c.key} className="px-3 py-2 text-right font-semibold">{c.label}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-bk-line">
               {[...series].reverse().map(d => (
                 <tr key={d.date}>
                   <td className="px-3 py-1.5">{dateLabel(d.date, { weekday: 'short', day: 'numeric', month: 'short' })}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{number(d.credits)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{number(d.requests)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{number(d.errors)}</td>
+                  {columns.map(c => <td key={c.key} className="px-3 py-1.5 text-right tabular-nums">{number(d[c.key])}</td>)}
                 </tr>
               ))}
             </tbody>

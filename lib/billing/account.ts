@@ -35,6 +35,8 @@ export interface BillingAccount {
   extraCredits: number
   createdAt: Date
   updatedAt: Date
+  /** Set in memory for an admin account (never saved): Business terms with ADMIN_CREDITS. */
+  admin?: boolean
 }
 
 /** The error codes the app shows as "upgrade" or "buy credits" prompts; their messages are written for people. */
@@ -42,6 +44,33 @@ export const BILLING_CODES = ['insufficient_credits', 'upgrade_required', 'limit
 
 /** Stripe statuses that keep the paid plan: past_due while Stripe retries the card. */
 const PAID_STATUSES: BillingStatus[] = ['active', 'trialing', 'past_due']
+
+// ─── Admin accounts ───────────────────────────────────────────────────────────
+// Whoever signs in with a verified email in ADMIN_EMAILS (comma-separated) is an admin: every feature on Business
+// terms, credits to spare and no brand limit. lib/admin.ts re-exports these; they live here so billing imports nothing.
+
+export const ADMIN_CREDITS = 100_000
+
+export function adminEmails(env: Record<string, string | undefined> = process.env): string[] {
+  return String(env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(e => e.includes('@'))
+}
+
+export const isAdminEmail = (email: unknown, env: Record<string, string | undefined> = process.env) =>
+  typeof email === 'string' && adminEmails(env).includes(email.trim().toLowerCase())
+
+// Billing asks on most requests; a minute of memory spares the read, and a removed email stops working within a minute.
+const adminCache = new Map<string, { admin: boolean; at: number }>()
+
+/** Whether this account is an admin: its verified email is in ADMIN_EMAILS. */
+export async function isAdminUser(db: any, userId: string | null | undefined): Promise<boolean> {
+  if (!userId || !adminEmails().length) return false
+  const hit = adminCache.get(userId)
+  if (hit && Date.now() - hit.at < 60_000) return hit.admin
+  const user = await db.collection('users').findOne({ id: userId }, { projection: { _id: 0, email: 1, emailVerified: 1 } })
+  const admin = Boolean(user?.emailVerified) && isAdminEmail(user?.email)
+  adminCache.set(userId, { admin, at: Date.now() })
+  return admin
+}
 
 export function billingError(status: number, code: string, message: string, details: Record<string, unknown> = {}) {
   return Object.assign(new Error(message), { status, code, billing: true, details })
@@ -100,8 +129,9 @@ export function effectivePlan(account: Pick<BillingAccount, 'plan' | 'status'>):
 }
 
 /** This month's allowances: the plan's, capped during a free trial. */
-export function allowances(account: Pick<BillingAccount, 'plan' | 'status'>): { credits: number; textReminders: number } {
+export function allowances(account: Pick<BillingAccount, 'plan' | 'status' | 'admin'>): { credits: number; textReminders: number } {
   const plan = effectivePlan(account)
+  if (account.admin) return { credits: ADMIN_CREDITS, textReminders: plan.textReminders }
   if (account.status !== 'trialing') return { credits: plan.credits, textReminders: plan.textReminders }
   return { credits: Math.min(plan.credits, TRIAL.credits), textReminders: Math.min(plan.textReminders, TRIAL.textReminders) }
 }
@@ -140,6 +170,8 @@ export async function loadBilling(db: any, userId: string, now = new Date()): Pr
     )
     account = await accounts(db).findOne({ id: userId }, { projection: { _id: 0 } })
   }
+  // An admin works on Business terms; only this copy says so, so Stripe and the saved plan are untouched.
+  if (await isAdminUser(db, userId)) return { ...account!, plan: 'business', status: 'active', interval: account!.interval || 'month', admin: true }
   return account!
 }
 
@@ -165,6 +197,8 @@ export interface BillingSummary {
   uploads: { images: number; bytes: number; maxImages: number | null; maxBytes: number | null; label: string }
   features: Record<Feature, boolean>
   imageQuality: ImageQuality
+  /** An admin account: every feature, no subscription needed. */
+  admin: boolean
 }
 
 /** What the plan settings, the credits meter and upgrade prompts show. */
@@ -194,6 +228,7 @@ export function summarize(account: BillingAccount, usage: { images: number; byte
     uploads: { images: usage.images, bytes: usage.bytes, maxImages: plan.uploads.maxImages ?? null, maxBytes: plan.uploads.maxBytes ?? null, label: uploadsLabel(plan) },
     features: { scheduling: plan.scheduling, emailReminders: plan.emailReminders, textReminders: plan.textReminders > 0, customDesigns: plan.customDesigns, adDesigns: plan.adDesigns },
     imageQuality: plan.imageQuality,
+    admin: Boolean(account.admin),
   }
 }
 
@@ -336,7 +371,7 @@ const FEATURE_NAMES: Record<Feature, [string, boolean]> = {
   emailReminders: ['Email reminders', true],
   textReminders: ['Text reminders', true],
   customDesigns: ['Creating your own designs', false],
-  adDesigns: ['Ad designs', true],
+  adDesigns: ['Facebook and Instagram ads', true],
 }
 
 export async function hasFeature(db: any, userId: string, feature: Feature): Promise<boolean> {
@@ -354,9 +389,10 @@ export async function requireFeature(db: any, userId: string, feature: Feature) 
 
 /** Refuses with limit_reached (402) when the account already has as many brands as its plan allows. */
 export async function requireBrandSlot(db: any, userId: string) {
-  const plan = effectivePlan(await loadBilling(db, userId))
+  const account = await loadBilling(db, userId)
+  const plan = effectivePlan(account)
   const used = await db.collection('flows').countDocuments({ ownerId: userId })
-  if (used < plan.brands) return
+  if (used < plan.brands || account.admin) return
   const next = cheapestPlanForBrands(used + 1)
   throw billingError(402, 'limit_reached', next
     ? `Your ${plan.name} plan includes ${plan.brands} brand${s(plan.brands)}. Upgrade to ${next.name} to add another, or delete a brand you no longer use.`

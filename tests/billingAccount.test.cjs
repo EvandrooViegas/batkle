@@ -549,7 +549,7 @@ it('requireFeature names the feature and the plans that have it', async () => {
     emailReminders: 'Email reminders are part of Pro and Business. Upgrade to use them.',
     textReminders: 'Text reminders are part of Pro and Business. Upgrade to use them.',
     customDesigns: 'Creating your own designs is part of Pro and Business. Upgrade to use it.',
-    adDesigns: 'Ad designs are part of Business. Upgrade to use them.',
+    adDesigns: 'Facebook and Instagram ads are part of Business. Upgrade to use them.',
   }
   for (const [feature, message] of Object.entries(expected)) {
     const error = await refusal(feature)

@@ -55,8 +55,8 @@ test('a detected language outside the list is kept as its own option instead of 
 })
 
 test('the research summary only mentions what happened', () => {
-  assert.equal(researchSummary({ pages: 5, imageImport: { imported: 12 } }), '5 pages read · 12 photos added to your gallery')
-  assert.equal(researchSummary({ pages: 1, imageImport: { imported: 0 } }), '1 page read')
+  assert.equal(researchSummary({ pages: 5 }), '5 pages read')
+  assert.equal(researchSummary({ pages: 1 }), '1 page read')
   assert.equal(researchSummary({}), '')
 })
 

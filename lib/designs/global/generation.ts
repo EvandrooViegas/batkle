@@ -1,4 +1,6 @@
-import { DesignLibraryError, hydrateBrandFamilies } from './store'
+import { DesignLibraryError, hydrateBrandFamilies, usableFamilyIds } from './store'
+import { upgradeToUseError, type Viewer } from './access'
+import { loadViewer } from './viewer'
 import { familyImagery, familyGrammar } from './study'
 import { planSlides, composeSlide, imageFrame, imageChoiceOf } from './compose'
 import { validatePost } from './validate'
@@ -8,28 +10,57 @@ import type { GlobalDesignFamily } from './types'
  * `content` can be the idea (before copy exists) or the copy; selection is stable for the same text.
  * With `imagery`, designs that show images are preferred (the user attached photos to the post).
  */
-export async function chooseBrandFamily(db: any, brand: any, content: any, designId?: string, options: { imagery?: boolean } = {}) {
+export async function chooseBrandFamily(db: any, brand: any, content: any, designId?: string, options: { imagery?: boolean; viewer?: Viewer; userId?: string } = {}) {
   // Explicit legacy selections keep older posts and saved designs editable.
   if (designId && !designId.startsWith('global-')) return null
-  const hydrated = await hydrateBrandFamilies(db, brand)
+  const selectedFamilies = await hydrateBrandFamilies(db, brand)
+  // With the account known, only designs it may use: a member's design on a Free plan (kept from a trial) is skipped,
+  // and asked for by name it offers the upgrade.
+  const viewer = options.viewer || (options.userId ? await loadViewer(db, options.userId) : null)
+  const allowed = viewer ? await usableFamilyIds(db, viewer, selectedFamilies.map(f => f.family.id)) : null
+  const hydrated = allowed ? selectedFamilies.filter(f => allowed.has(f.family.id)) : selectedFamilies
+  if (designId && allowed && selectedFamilies.some(f => f.design.id === designId) && !hydrated.some(f => f.design.id === designId)) throw upgradeToUseError()
   const pictured = options.imagery && !designId ? hydrated.filter(f => familyImagery(f.family).mode !== 'none') : []
   const families = pictured.length ? pictured : hydrated
   // Brands that have not opted into the Global Design Library continue to use their saved legacy/starter designs.
   // One selected study is enough: it composes varied layouts by itself.
   if (!families.length) return null
+  // `lastCover` is the composition the brand's last post in that design opened with, so the next can open differently.
+  const recent = await recentBrandPosts(db, brand?.id, 8)
+  const withCover = <T extends { design: any }>(f: T) => ({ ...f, lastCover: recent.find(p => p.designId === f.design.id)?.cover })
   if (designId) {
     const requested = families.find(f => f.design.id === designId)
     if (!requested) throw new DesignLibraryError('This design is not in the brand’s library.', 404)
-    return requested
+    return withCover(requested)
   }
+  // The brand's designs take turns: one used by its last posts waits until the others have had a post, so
+  // consecutive posts never come out in the same design.
+  const used = recent.slice(0, families.length - 1).map(p => p.designId)
+  const fresh = families.filter(f => !used.includes(f.design.id))
   // Imagery belongs to the design study, so brand image preferences play no part here.
   const text = JSON.stringify(content).toLowerCase()
-  const ranked = families.map(f => ({ ...f, score: f.family.tags.reduce((n, tag) => n + (text.includes(tag.toLowerCase()) ? 2 : 0), 0) }))
+  const ranked = (fresh.length ? fresh : families).map(f => ({ ...f, score: f.family.tags.reduce((n, tag) => n + (text.includes(tag.toLowerCase()) ? 2 : 0), 0) }))
   ranked.sort((a, b) => b.score - a.score)
-  // Stable selection based on content; the same copy always picks the same family.
+  // Among equally fitting designs, the same copy picks the same one.
   const top = ranked.filter(f => f.score === ranked[0].score)
   const hash = [...text].reduce((n, c) => (Math.imul(n, 31) + c.charCodeAt(0)) >>> 0, 0)
-  return top[hash % top.length]
+  const { score, ...picked } = top[hash % top.length]
+  return withCover(picked)
+}
+
+/** The brand's latest Global Design posts, newest first: the design of each and the composition it opened with. */
+export async function recentBrandPosts(db: any, brandId: string | undefined, limit: number): Promise<{ designId?: string; cover?: string }[]> {
+  if (!brandId) return []
+  try {
+    const posts = await db.collection('canvases')
+      .find({ flowId: brandId, 'designSelection.source': 'global' }, { projection: { _id: 0, 'designSelection.id': 1, 'designInput.resolvedPlan.layoutPlan.slots.composition': 1 } })
+      .sort({ createdAt: -1 }).limit(limit).toArray()
+    return posts.map((p: any) => ({ designId: p.designSelection?.id, cover: p.designInput?.resolvedPlan?.layoutPlan?.slots?.[0]?.composition }))
+  } catch (error) {
+    // History only adds variety; a post is never refused for want of it.
+    console.warn('[designs] recent posts unavailable:', (error as Error).message)
+    return []
+  }
 }
 
 const slidesOf = (copy: any) => Array.isArray(copy.slides) && copy.slides.length ? copy.slides : [copy]

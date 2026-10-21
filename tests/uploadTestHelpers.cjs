@@ -137,9 +137,12 @@ function fakeR2({ failures = [] } = {}) {
   const objects = new Map(), requests = []
   const fail = failure => failure instanceof Error ? Promise.reject(failure)
     : new Response(`<?xml version="1.0"?><Error><Code>${failure.code || 'InternalError'}</Code></Error>`, { status: failure.status || failure })
-  const fetch = async request => {
+  // Called as fetch(url, init), the way objectStore sends. A body must arrive as bytes (never a stream), or R2 can't
+  // see its length.
+  const fetch = async (url, init = {}) => {
+    const request = new Request(url, init)
     const key = decodeURIComponent(new URL(request.url).pathname.split('/').slice(2).join('/'))
-    requests.push({ method: request.method, url: request.url, key, headers: Object.fromEntries(request.headers) })
+    requests.push({ method: request.method, url: request.url, key, headers: Object.fromEntries(request.headers), bodyType: init.body == null ? null : init.body instanceof Uint8Array ? 'bytes' : typeof init.body })
     if (failures.length) return fail(failures.shift())
     if (request.method === 'PUT') {
       objects.set(key, { bytes: Buffer.from(await request.arrayBuffer()), contentType: request.headers.get('content-type') })

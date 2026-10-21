@@ -10,7 +10,6 @@ import {
   Palette, Plus, Redo2, SlidersHorizontal, Sun, Trash2, Underline, Undo2, Upload,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { v4 as uuidv4 } from 'uuid'
 import DesignLibrary from '@/components/DesignLibrary'
 import GalleryPicker from '@/components/GalleryPicker'
 import { useCanvasFonts } from '@/components/useCanvasFonts'
@@ -50,6 +49,20 @@ const LAYERS_MIME = 'application/x-batkle-layers'
 const CLIPBOARD_KEY = 'kand-clipboard'
 const SNAP_KEY = 'bk-editor-snap'
 const ZOOM_PRESETS = [0.5, 1, 2]
+
+/**
+ * A random v4 id for a new layer, group or slide. Not the `uuid` package: the server keeps that as an external ES
+ * module, which turns this whole module async and breaks the page's server render ("Element type is invalid").
+ * randomUUID only exists on HTTPS and localhost, so other addresses build one from random bytes.
+ */
+function uuidv4() {
+  if (crypto.randomUUID) return crypto.randomUUID()
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
 
 const SHORTCUTS = [
   ['Edit', [
@@ -894,6 +907,7 @@ export default function Editor() {
   }
 
   // Adaptive text height: measure all text nodes via a hidden mirror div, update height
+  const pushedRef = useRef(new Map())
   useLayoutEffect(() => {
     if (!canvas || !measureRef.current || !fontsReady) return
     const el = measureRef.current
@@ -925,12 +939,16 @@ export default function Editor() {
           if (!prev) continue
           nodes = applyPatchWithReflow(nodes, u.id, { height: u.height }, c.groups || [])
           // Composed designs (nodes carry a designRole): a copy block that measures taller in the real font pushes
-          // the copy below it down instead of overlapping it.
+          // the copy below it down instead of overlapping it. Measured shorter again (it was first measured in a
+          // fallback font), it takes back the space it pushed, and no more, so the design's own spacing stays.
           const grow = u.height - prev.height
-          if (grow > 0 && prev.designRole && !(c.groups || []).some((g) => g.nodeIds.includes(u.id))) {
+          const pushed = pushedRef.current.get(u.id) || 0
+          const shift = grow > 0 ? grow : -Math.min(-grow, pushed)
+          if (shift && prev.designRole && !(c.groups || []).some((g) => g.nodeIds.includes(u.id))) {
             const bottom = prev.y + prev.height
             nodes = nodes.map((n) => n.id !== u.id && STACKED_COPY.test(n.designRole || '') && n.y >= bottom - 2
-              && n.x < prev.x + prev.width && n.x + n.width > prev.x ? { ...n, y: n.y + grow } : n)
+              && n.x < prev.x + prev.width && n.x + n.width > prev.x ? { ...n, y: n.y + shift } : n)
+            pushedRef.current.set(u.id, pushed + shift)
           }
         }
         return { ...c, nodes }

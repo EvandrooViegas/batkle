@@ -115,23 +115,5 @@ export function brandLogo(brandContext) {
   return { src: variants?.originalTransparent || brandContext?.logo || null, onDark: (variants?.inkLightness ?? 0) > 0.72 }
 }
 
-/** Brand logo tile: the logo on white (or ink, for light logos), or the brand's initial on butter. */
-export function BrandTile({ name, logo, logoOnDark = false, size = 36, className = '' }) {
-  const initial = (name || '?').trim().charAt(0).toUpperCase() || '?'
-  return logo ? (
-    <span
-      className={cn('flex shrink-0 items-center justify-center overflow-hidden rounded-lg border p-1', logoOnDark ? 'border-transparent bg-bk-ink' : 'border-bk-line bg-white', className)}
-      style={{ width: size, height: size }}
-    >
-      <img src={logo} alt="" className="max-h-full max-w-full object-contain" />
-    </span>
-  ) : (
-    <span
-      aria-hidden="true"
-      className={cn('flex shrink-0 items-center justify-center rounded-lg bg-bk-butter font-bk-display font-bold text-bk-ink', className)}
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.45) }}
-    >
-      {initial}
-    </span>
-  )
-}
+// The logo tile needs the browser (it falls back to the initial when a logo can't load), so it lives in its own file.
+export { default as BrandTile } from './BrandTile'

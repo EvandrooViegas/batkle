@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
-import { corsify, getBaseUrl } from '@/lib/services/middleware'
+import { corsify } from '@/lib/services/middleware'
 import { generateLogoVariants } from '@/lib/services/logoVariants'
-import { importWebsiteImages } from '@/lib/services/importWebsiteImages'
 import { withMinimumBrandDesigns } from '@/lib/designs/minimumBrandDesigns'
 import { randomUUID } from 'node:crypto'
 import { persistInlineImages } from '@/lib/services/persistInlineImages'
@@ -44,7 +43,7 @@ export async function handleExtractBusinessInfo(body: any, db: any, request: Req
       try { businessInfo.logoVariants = await generateLogoVariants(businessInfo.logo) }
       catch (error: any) { businessInfo.logoVariantsError = error.message }
     }
-    const { websiteImages = [], ...profile } = businessInfo
+    const profile = businessInfo
     const flowId = existing?.id || randomUUID()
     const brandContext = await persistInlineImages(db, withMinimumBrandDesigns({
       ...existing?.brandContext, ...profile,
@@ -60,9 +59,8 @@ export async function handleExtractBusinessInfo(body: any, db: any, request: Req
       await db.collection('flows').insertOne({ id: flowId, ownerId, ...onboarding, name: profile.name || 'New brand', brandContext, brandAnswers: {}, brandQuestions: [], extractedContext: '', tone: 'informative', language: 'english', posts: [], createdAt: now, updatedAt: now })
       if (replaced) await db.collection('flows').deleteOne({ id: replaced.id, ownerId })
     }
-    const imageImport = await importWebsiteImages(db, `brand_${flowId}`, websiteImages, getBaseUrl(request))
     const flow = await db.collection('flows').findOne({ id: flowId })
-    return corsify(NextResponse.json({ ...profile, logo: brandContext.logo, logoVariants: brandContext.logoVariants, flow, imageImport }))
+    return corsify(NextResponse.json({ ...profile, logo: brandContext.logo, logoVariants: brandContext.logoVariants, flow }))
   } catch (error: any) {
     const limit = billingResponse(error)
     if (limit) return limit

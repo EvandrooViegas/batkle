@@ -24,11 +24,11 @@ test('yearly prices show the yearly total and what it is per month', () => {
   assert.equal(text.monthlyEquivalent(190), '$15.83')
   assert.equal(text.monthlyEquivalent(490), '$40.83')
   assert.equal(text.monthlyEquivalent(120), '$10')
-  assert.equal(text.priceText(PLANS.pro, 'year'), '$190 a year (≈ $15.83/month)')
-  assert.equal(text.priceText(PLANS.business, 'year'), '$490 a year (≈ $40.83/month)')
-  assert.equal(text.priceText(PLANS.pro, 'month'), '$19 a month')
+  assert.equal(text.priceText(PLANS.pro, 'year'), '$349.90 a year (≈ $29.16/month)')
+  assert.equal(text.priceText(PLANS.business, 'year'), '$799.90 a year (≈ $66.66/month)')
+  assert.equal(text.priceText(PLANS.pro, 'month'), '$34.99 a month')
   assert.equal(text.priceText(PLANS.free, 'year'), '$0')
-  assert.deepEqual(text.priceParts(PLANS.business, 'month'), { amount: '$49', unit: 'a month', detail: 'Billed monthly' })
+  assert.deepEqual(text.priceParts(PLANS.business, 'month'), { amount: '$79.99', unit: 'a month', detail: 'Billed monthly' })
 })
 
 test('the yearly switch says how many months are free', () => {
@@ -44,13 +44,15 @@ test('plan cards list the lines that differ between plans', () => {
   const free = text.planHighlights(PLANS.free)
   assert.deepEqual(free.map(line => line.text), [
     '1 brand', '30 credits a month (≈ 7 posts)', 'Standard AI images', 'Up to 20 of your own images', 'No schedule calendar or reminders',
+    'Batkle’s designs; browse the ones members make', 'Facebook and Instagram ads',
   ])
-  assert.deepEqual(free.map(line => line.included), [true, true, true, true, false])
+  assert.deepEqual(free.map(line => line.included), [true, true, true, true, false, true, false])
   // Text reminders are "Coming soon", so the cards promise no number of texts.
   assert.deepEqual(text.planHighlights(PLANS.pro).map(line => line.text), [
     '2 brands', '150 credits a month (≈ 37 posts)', 'High-quality AI images', '2 GB for your own images',
-    'Schedule calendar and email reminders',
+    'Schedule calendar and email reminders', 'Create and share your own designs', 'Facebook and Instagram ads',
   ])
+  assert.equal(text.planHighlights(PLANS.pro)[6].included, false, 'ads are part of Business')
   const business = text.planHighlights(PLANS.business)
   assert.equal(business[3].text, '10 GB for your own images')
   assert.equal(business[4].text, 'Schedule calendar and email reminders')
@@ -74,7 +76,7 @@ test('Free starts the app; paid plans open the plan settings with the plan and p
 
 test('the FAQ answers use the numbers in plans.ts', () => {
   assert.equal(text.pricingFaqAnswer(),
-    'Start on the free plan: 1 brand and 30 credits a month, no card needed. Pro is $19 a month and Business $49 a month, ' +
+    'Start on the free plan: 1 brand and 30 credits a month, no card needed. Pro is $34.99 a month and Business $79.99 a month, ' +
     'each with a 7-day free trial, and paying yearly gets you 2 months free. Credits are images: a single post costs 1 credit, ' +
     'a carousel 1 per slide. See the plans above for everything each one includes.')
   assert.match(text.creditFaqAnswer(), /^One credit makes one image\./)

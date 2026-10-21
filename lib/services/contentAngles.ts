@@ -9,8 +9,12 @@ export interface Facet { kind: FacetKind; label: string; detail: string }
 /** `text` is everything the idea talks about (topic, hook, core message, outline), used to spot recurring subjects. */
 export interface PastIdea { topic?: string; text?: string; pillar?: string; format?: string; slides?: number; angle?: { pillar?: string; facet?: string } }
 export interface CarouselLength { label: 'short' | 'medium' | 'long'; min: number; max: number; use: string }
-/** `avoid`: subjects the recent ideas already lean on, which this idea must not bring up again. */
-export interface Angle { pillar: string; facet: Facet; format: 'single' | 'carousel'; length?: CarouselLength; avoid?: string[] }
+/**
+ * `avoid`: subjects the recent ideas already lean on, which this idea must not bring up again.
+ * `aside`: cross-cutting terms (a technology or method such as BIM) the facet is not about: the idea may mention them
+ * as a detail, never in its topic or hook.
+ */
+export interface Angle { pillar: string; facet: Facet; format: 'single' | 'carousel'; length?: CarouselLength; avoid?: string[]; aside?: string[] }
 
 /** Carousel lengths, by slide count including the cover and the closing slide. */
 export const CAROUSEL_LENGTHS: Record<CarouselLength['label'], CarouselLength> = {
@@ -94,6 +98,7 @@ function mentions(topic: string, facet: Facet) {
   return [...significant(facet.label)].filter(w => words.has(w)).length >= 2
 }
 
+const ACRONYM = /^[A-Z][A-Z0-9]{1,5}$/
 // Everyday business acronyms that are not a brand's subject.
 const COMMON_ACRONYMS = new Set(['CEO', 'CTA', 'PME', 'SME', 'LDA', 'SA', 'NIF', 'IVA', 'VAT', 'EU', 'UE', 'USA', 'UK', 'FAQ', 'OK'])
 
@@ -113,18 +118,19 @@ export function brandSubjects(brand: any = {}): string[] {
 
 /** Whether text brings up a subject. Acronyms match as written (BIM, OpenBIM), names regardless of case and accents. */
 export function mentionsSubject(value: string, subject: string): boolean {
-  if (/^[A-Z][A-Z0-9]{1,5}$/.test(subject)) return new RegExp(`(?<![A-Z0-9])${subject}(?![A-Z0-9])`).test(String(value || ''))
+  if (ACRONYM.test(subject)) return new RegExp(`(?<![A-Z0-9])${subject}(?![A-Z0-9])`).test(String(value || ''))
   return fold(String(value || '')).includes(fold(subject))
 }
 
 /**
- * Subjects most of the brand's recent ideas already mention (at least half of the last few, and at least two),
- * so the next idea and post can be steered to other parts of the brand.
+ * Subjects the brand's recent ideas keep returning to (a third of the last few, and at least two), so the next idea
+ * and post can be steered to other parts of the brand. Half was too late: a profile that names one technology in
+ * most of its services kept it in two ideas out of three without ever reaching it.
  */
 export function recurringSubjects(brand: any, history: PastIdea[], window = 6): string[] {
   const recent = history.slice(0, window).map(i => i.text || i.topic || '').filter(Boolean)
   if (recent.length < 2) return []
-  const needed = Math.max(2, Math.ceil(recent.length / 2))
+  const needed = Math.max(2, Math.ceil(recent.length / 3))
   return brandSubjects(brand).filter(subject => recent.filter(t => mentionsSubject(t, subject)).length >= needed)
 }
 
@@ -157,9 +163,12 @@ export function chooseAngle(brand: any, history: PastIdea[], random = Math.rando
   const facet = pick(facets.filter(f => PILLAR_FACETS[pillar].includes(f.kind)), usage)
   // When every option leans on it, the chosen part of the brand may still name its own subject.
   const avoid = recurring.filter(subject => !mentionsSubject(about(facet), subject))
+  // A term the profile repeats across many parts (BIM) belongs to the parts about it. Elsewhere it may come up as a
+  // detail, never as what the idea is about, or ideas on construction, research or a project all become BIM ideas.
+  const aside = brandSubjects(brand).filter(subject => ACRONYM.test(subject) && !avoid.includes(subject) && !mentionsSubject(about(facet), subject))
   const formats = recent.slice(0, 6).map(i => i.format)
   const format = formats.filter(f => f === 'carousel').length > formats.filter(f => f === 'single').length + 1 ? 'single' : 'carousel'
-  return { pillar, facet, format, length: chooseCarouselLength(pillar, history), ...(avoid.length ? { avoid } : {}) }
+  return { pillar, facet, format, length: chooseCarouselLength(pillar, history), ...(avoid.length ? { avoid } : {}), ...(aside.length ? { aside } : {}) }
 }
 
 /** Merges idea history from the client and the saved flow, newest first, one entry per topic. */

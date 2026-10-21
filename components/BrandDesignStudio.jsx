@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, Check, Loader2, Search } from 'lucide-react'
-import GlobalDesignPreview from '@/components/GlobalDesignPreview'
+import GlobalDesignPreview, { designAuthor } from '@/components/GlobalDesignPreview'
 import { appField } from '@/components/app/field'
 import { Notice, panelClass } from '@/components/app/ui'
 import { cn } from '@/lib/utils'
@@ -69,7 +69,7 @@ export default function BrandDesignStudio({ flowId, brand, onChange, bare = fals
   useEffect(() => {
     let active = true
     fetch('/api/global-designs').then(read)
-      .then(items => { if (active) setPublished(items) })
+      .then(items => { if (active) setPublished(items.filter(f => f.library?.usable !== false)) })
       .catch(e => { if (active) { setLoadError(e.message); setPublished([]) } })
     return () => { active = false }
   }, [])
@@ -130,7 +130,7 @@ export default function BrandDesignStudio({ flowId, brand, onChange, bare = fals
                       <span className="min-w-0 truncate text-[14.5px] font-bold">{family.name}</span>
                       <span className={cn('shrink-0 text-[12.5px] font-semibold', on ? 'text-bk-fg' : 'text-bk-muted')}>{on ? 'Selected' : 'Select'}</span>
                     </span>
-                    {family.tags?.length > 0 && <span className="mt-0.5 block truncate px-1 text-[12.5px] text-bk-muted">{family.tags.join(' · ')}</span>}
+                    {(designAuthor(family) || family.tags?.length > 0) && <span className="mt-0.5 block truncate px-1 text-[12.5px] text-bk-muted">{[designAuthor(family), (family.tags || []).join(' · ')].filter(Boolean).join(' · ')}</span>}
                   </button>
                   <div role="group" aria-label={`${family.name}: sample slides`} className="mt-2.5 flex gap-1.5 px-1 pb-1">
                     {[0, 1, 2, 3].map(n => (

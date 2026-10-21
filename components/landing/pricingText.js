@@ -20,7 +20,7 @@ export function yearlySavingLabel() {
   return months > 0 ? `${plural(months, 'month')} free` : ''
 }
 
-/** A yearly price as a monthly one, to the cent: $190 a year is $15.83 a month. */
+/** A yearly price as a monthly one, to the cent: $349.90 a year is $29.16 a month. */
 export function monthlyEquivalent(yearly) {
   return formatPrice(Math.round((yearly / 12) * 100) / 100)
 }
@@ -32,7 +32,7 @@ export function priceParts(plan, interval) {
   return { amount: formatPrice(plan.price.month), unit: 'a month', detail: 'Billed monthly' }
 }
 
-/** The price in one line: "$19 a month", "$190 a year (≈ $15.83/month)" or "$0". */
+/** The price in one line: "$34.99 a month", "$349.90 a year (≈ $29.16/month)" or "$0". */
 export function priceText(plan, interval) {
   const { amount, unit, detail } = priceParts(plan, interval)
   if (!plan.price.month) return amount
@@ -62,6 +62,8 @@ export function planHighlights(plan) {
     { text: plan.imageQuality === 'high' ? 'High-quality AI images' : 'Standard AI images', included: true },
     { text: uploadsText(plan), included: true },
     scheduleText(plan),
+    plan.customDesigns ? { text: 'Create and share your own designs', included: true } : { text: 'Batkle’s designs; browse the ones members make', included: true },
+    { text: 'Facebook and Instagram ads', included: plan.adDesigns },
   ]
 }
 

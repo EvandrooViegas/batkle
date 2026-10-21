@@ -179,8 +179,7 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
       onFlowCreated?.(data.flow)
       setImportOpen(false)
       router.refresh()
-      toast.success(`Brand updated from ${data.pagesAnalyzed} pages. ${data.imageImport?.imported || 0} images added to the gallery.`)
-      if (data.imageImport?.skipped) toast.warning(`${data.imageImport.skipped} website images could not be imported or were too small.`)
+      toast.success(`Brand updated from ${data.pagesAnalyzed} ${data.pagesAnalyzed === 1 ? 'page' : 'pages'}.`)
     } catch (error) {
       if (isBillingCode(error.code)) { setLimit(error); setImportOpen(false) }
       else toast.error(error.message || 'The website could not be read')

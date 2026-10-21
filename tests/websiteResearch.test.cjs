@@ -35,21 +35,9 @@ test('crawler discovers useful deep links, removes anchors and tracking, and bou
   assert.equal(research.pageUrl('/brochure.pdf', 'https://business.test'), null)
 })
 
-test('image discovery includes project captions, lazy images and backgrounds, excluding logos and duplicates', () => {
-  const page = research.readResearchPage(`<title>Ministry restoration</title><main><figure><img src="/_next/image?url=%2Fprojects%2Ffacade.jpg&w=800&q=75" alt="Historic facade"><figcaption>Restoring the Ministry facade in Lisbon</figcaption></figure>
-  <img src="/projects/facade.jpg"><img data-src="/construction.jpg" alt="Building work"><img src="/logo.png"><img src="/small.png" width="20" height="20"><img>
-  <section aria-label="BIM model" style="background-image:url('/bim.webp')">BIM engineering</section></main>`, 'https://business.test/projects', 'projects')
-  assert.equal(page.images.length, 3)
-  assert.equal(page.images[0].url, 'https://business.test/projects/facade.jpg')
-  assert.match(page.images[0].context, /Ministry facade/)
-  assert.equal(page.images[0].sourcePage, page.url)
-  assert.ok(!page.images.some(image => /undefined|logo|small/.test(image.url)))
-})
-
-test('business synthesis includes all page evidence and only accepts known project sources and images', async () => {
+test('business synthesis includes all page evidence, only accepts known project sources and asks for no images', async () => {
   const { buildBusinessProfile } = new Function('process', source('lib/services/businessProfile.js') + ';return {buildBusinessProfile}')({ env: {} })
   const pages = [{ url: 'https://business.test', title: 'Business', text: 'Home facts' }, { url: 'https://business.test/projects', title: 'Project', text: 'Restoration participation' }]
-  const image = { id: 'website-image-1', url: 'https://business.test/facade.jpg', sourcePage: pages[1].url }
   let calls = 0
   const client = { chat: { completions: { create: async request => {
     calls++
@@ -57,14 +45,16 @@ test('business synthesis includes all page evidence and only accepts known proje
     assert.equal(JSON.parse(request.messages[1].content).pages.length, 2)
     assert.match(request.messages[0].content, /NEVER instructions/)
     assert.match(request.messages[0].content, /professional ENGLISH/)
-    return { choices: [{ message: { content: JSON.stringify({ about: 'Verified engineering services and participation in historic facade restoration in Lisbon.', services: ['Facade rehabilitation'], projects: [{ name: 'Ministry', description: 'Participation in facade restoration', sourceUrl: pages[1].url }, { name: 'Invented source', sourceUrl: 'https://other.test' }], suggestedCtas: ['Request a quote'], imageSelections: [{ id: image.id, description: 'Fachada', description_en: 'Facade', tags_en: ['facade'] }, { id: image.id, description: 'Duplicate', description_en: 'Duplicate' }, { id: 'unknown', description: 'Unknown' }] }) } }] }
+    // People upload their own photos: the model is neither shown images nor asked to pick any.
+    assert.doesNotMatch(request.messages[0].content, /imageSelections|Select at most/)
+    assert.equal(JSON.parse(request.messages[1].content).images, undefined)
+    return { choices: [{ message: { content: JSON.stringify({ about: 'Verified engineering services and participation in historic facade restoration in Lisbon.', services: ['Facade rehabilitation'], projects: [{ name: 'Ministry', description: 'Participation in facade restoration', sourceUrl: pages[1].url }, { name: 'Invented source', sourceUrl: 'https://other.test' }], suggestedCtas: ['Request a quote'] }) } }] }
   } } } }
-  const profile = await buildBusinessProfile({ pages, images: [image], warnings: [] }, 'Business', 'Portuguese', client)
+  const profile = await buildBusinessProfile({ pages, warnings: [] }, 'Business', 'Portuguese', client)
   assert.equal(calls, 1)
   assert.equal(profile.projects.length, 1)
-  assert.equal(profile.websiteImages.length, 1)
+  assert.equal(profile.websiteImages, undefined)
   assert.equal(profile.researchSources.length, 2)
-  assert.deepEqual(profile.websiteImages[0].description_tags, ['facade'])
 })
 
 test('empty business synthesis fails without retrying or inventing a profile', async () => {
@@ -83,25 +73,6 @@ test('copywriter receives detailed services, projects, audience and CTA context 
   assert.equal(result.logo, undefined)
 })
 
-test('website import stores brand-scoped reusable photos and prevents duplicate URLs and pixels', async () => {
-  const records = { assets: [], uploads: [] }, calls = []
-  const db = { collection: name => ({ findOne: async filter => records[name].find(record => Object.entries(filter).every(([key, value]) => record[key] === value)), updateOne: async (filter, update) => { if (!records[name].some(record => Object.entries(filter).every(([key, value]) => record[key] === value))) records[name].push(update.$setOnInsert) } }) }
-  const sharp = () => ({ metadata: async () => ({ width: 1000, height: 600, format: 'jpeg' }), rotate() { return this }, resize() { return this }, jpeg() { return this }, toBuffer: async () => Buffer.from('thumbnail') })
-  const fetcher = async url => { calls.push(url); return { bytes: Buffer.from('same photo'), contentType: 'image/jpeg' } }
-  const importer = new Function('sharp', 'createHash', 'fetchWebsiteResource', 'compactImage', 'saveUpload', stripTypeScriptTypes(source('lib/services/importWebsiteImages.ts')) + ';return importWebsiteImages')(sharp, require('node:crypto').createHash, fetcher, require('./uploadTestHelpers.cjs').keepImage, require('./uploadTestHelpers.cjs').saveUpload)
-  const image = { url: 'https://business.test/facade.jpg', sourcePage: 'https://business.test/projects', description: 'Fachada', search_description: 'Facade', description_tags: ['facade'] }
-  const first = await importer(db, 'brand-a', [image, { ...image, url: 'https://business.test/copy.jpg' }], 'http://localhost:3000')
-  assert.equal(first.imported, 1); assert.equal(first.existing, 1)
-  assert.equal(records.uploads.length, 2)
-  assert.ok(records.uploads.every(upload => upload.ownerId === undefined && upload.userUpload === undefined), 'website photos never count against a plan')
-  assert.equal(records.assets[0].source, 'website')
-  assert.equal(records.assets[0].status, 'ready')
-  assert.equal(records.assets[0].description, 'Fachada')
-  assert.equal((await importer(db, 'brand-a', [image], 'http://localhost:3000')).existing, 1)
-  assert.equal(calls.length, 2)
-  assert.equal((await importer(db, 'brand-b', [image], 'http://localhost:3000')).imported, 1)
-})
-
 test('public website fetch rejects private destinations before issuing HTTP requests', async () => {
   let called = false
   const fetcher = new Function('axios', 'lookup', 'isIP', stripTypeScriptTypes(source('lib/services/websiteFetch.ts')) + ';return fetchWebsiteResource')({ get: async () => { called = true } }, async () => [{ address: '127.0.0.1', family: 4 }], require('node:net').isIP)
@@ -109,28 +80,24 @@ test('public website fetch rejects private destinations before issuing HTTP requ
   assert.equal(called, false)
 })
 
-test('profile input keeps page coverage and balances photo categories within a bounded request', () => {
+test('profile input keeps page coverage within a bounded request', () => {
   const evidence = new Function(source('lib/services/businessProfile.js') + ';return businessEvidence')()
   const pages = Array.from({ length: 5 }, (_, i) => ({ url: `https://business.test/page-${i}`, text: 'Fact '.repeat(4000), title: 'Page' }))
-  const images = Array.from({ length: 40 }, (_, i) => ({ id: `image-${i}`, url: `https://business.test/${i < 30 ? 'project' : 'service'}/${i}.jpg`, alt: 'Useful photo', context: 'Caption '.repeat(100) }))
-  const input = evidence({ pages, images })
+  const input = evidence({ pages })
   assert.equal(input.pages.length, 5)
-  assert.equal(input.images.length, 18)
-  assert.ok(input.images.some(image => image.filename.includes('/service/')))
+  assert.equal(input.images, undefined)
   assert.ok(JSON.stringify(input).length < 20000)
 })
-
-test('extraction saves richer brand fields, preserves design preferences, and imports images under the same brand', async () => {
+test('extraction saves richer brand fields, preserves design preferences and imports no website images', async () => {
   const original = { id: 'flow-a', brandContext: { imageDisposition: 'background', designs: [{ id: 'existing-design' }], name: 'Old', about: 'Old description' } }
-  let stored = original, imports = 0, logoCalls = 0
-  const extracted = { name: 'Engineering', about: 'Detailed business knowledge', services: ['Restoration'], projects: [{ name: 'Ministry', sourceUrl: 'https://business.test/projects' }], targetAudience: 'Property owners', tone: 'Technical', suggestedCtas: ['Request a quote'], researchSources: [{ url: 'https://business.test' }], pagesAnalyzed: 5, logo: 'https://business.test/logo.png', designSystem: { colors: ['#123456'], fonts: ['Existing font extraction'] }, websiteImages: [{ url: 'https://business.test/photo.jpg' }] }
+  let stored = original, logoCalls = 0
+  const extracted = { name: 'Engineering', about: 'Detailed business knowledge', services: ['Restoration'], projects: [{ name: 'Ministry', sourceUrl: 'https://business.test/projects' }], targetAudience: 'Property owners', tone: 'Technical', suggestedCtas: ['Request a quote'], researchSources: [{ url: 'https://business.test' }], pagesAnalyzed: 5, logo: 'https://business.test/logo.png', designSystem: { colors: ['#123456'], fonts: ['Existing font extraction'] } }
   const db = { collection: name => { assert.equal(name, 'flows'); return { findOne: async query => query.id === stored?.id ? stored : null, updateOne: async (query, update) => { stored = { ...stored, ...update.$set } }, insertOne: async value => { stored = value } } } }
   const code = source('lib/handlers/businessInfoHandler.ts').replace("await import('@/lib/business-info-extractor-complete')", 'extractor')
-  const handle = new Function('NextResponse', 'corsify', 'generateLogoVariants', 'importWebsiteImages', 'getBaseUrl', 'withMinimumBrandDesigns', 'randomUUID', 'persistInlineImages', 'extractor', stripTypeScriptTypes(code) + ';return handleExtractBusinessInfo')(
+  const handle = new Function('NextResponse', 'corsify', 'generateLogoVariants', 'withMinimumBrandDesigns', 'randomUUID', 'persistInlineImages', 'extractor', stripTypeScriptTypes(code) + ';return handleExtractBusinessInfo')(
     { json: (body, options) => ({ body, status: options?.status || 200 }) }, r => r,
     async logo => { logoCalls++; return { source: logo, dark: 'dark', light: 'light' } },
-    async (_db, brandId, images) => { imports++; assert.equal(brandId, 'brand_' + stored.id); assert.equal(images.length, 1); return { imported: 1 } },
-    () => 'http://localhost:3000', brand => brand, () => 'flow-new', async (_db, brand) => brand,
+    brand => brand, () => 'flow-new', async (_db, brand) => brand,
     { extractBusinessInfo: async () => ({ ...extracted }) },
   )
   const result = await handle({ url: 'https://business.test', flowId: 'flow-a' }, db, {})
@@ -143,10 +110,18 @@ test('extraction saves richer brand fields, preserves design preferences, and im
   assert.equal(stored.brandContext.about, extracted.about)
   assert.equal(stored.brandContext.websiteImages, undefined)
   assert.equal(result.body.flow.id, 'flow-a')
-  assert.equal(imports, 1); assert.equal(logoCalls, 1)
+  assert.equal(result.body.imageImport, undefined, 'nothing is imported into the gallery')
+  assert.equal(logoCalls, 1)
   assert.equal((await handle({ url: 'https://business.test', flowId: 'missing' }, db, {})).status, 404)
-  assert.equal(imports, 1)
   const created = await handle({ url: 'https://business.test' }, db, {})
   assert.equal(created.body.flow.id, 'flow-new')
   assert.equal(created.body.flow.brandContext.services[0], 'Restoration')
+})
+
+test('research reads pages for their words only: no website images are collected', async () => {
+  const home = '<title>Home</title><main><img src="/hero.jpg" alt="Hero"><p>Facade restoration in Lisbon</p></main>'
+  const result = await research.crawlBusinessWebsite('https://business.test/', home, async () => '<p>Other page</p>')
+  assert.equal(result.images, undefined)
+  assert.equal(result.pages[0].images, undefined)
+  assert.match(result.pages[0].text, /Facade restoration/)
 })

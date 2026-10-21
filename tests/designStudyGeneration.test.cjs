@@ -12,7 +12,7 @@ const photoHelpers = load('lib/services/postImages.ts', ['loadPostImages', 'post
 class DesignLibraryError extends Error { constructor(message, status) { super(message); this.status = status } }
 function planner(writeCopy, planAssets, overrides = {}) {
   const nodeRes = { json: (body, init) => ({ body, status: init?.status || 200 }) }
-  return load('lib/handlers/postPlanHandler.ts', ['handlePlanPost', 'designPlanningPrompt', 'sanitizeDesignPlan'], {
+  return load('lib/handlers/postPlanHandler.ts', ['handlePlanPost', 'designPlanningPrompt', 'sanitizeDesignPlan', 'varyCover'], {
     NextResponse: nodeRes, corsify: r => r,
     loadGenerationBrandContext: async (_db, body) => ({ id: 'brand', name: 'Brand', ...body.brandContext }),
     chooseBrandFamily: async (_db, brand) => brand.family ? { family: brand.family, design: { id: 'global-' + brand.family.id } } : null,
@@ -234,6 +234,30 @@ test('ACCEPTANCE: one studied design composes a varied, on-brand, editable carou
   // 14: the same stored study composes both brands identically in structure.
   assert.deepEqual(posts[0].pages.map(p => p.globalComposition), posts[1].pages.map(p => p.globalComposition))
   assert.notEqual(posts[0].pages[0].background, posts[1].pages[0].background)
+})
+
+test('a post opens with a different composition than the last post in its design, when the design allows one', async () => {
+  const { varyCover } = planner(async () => ({}), async () => ({}))
+  const momentum = seeds[0], highlight = seeds[1], photo = seeds[2]
+  const single = { headline: 'Cover', body: 'One line.', design: { composition: 'statement', image: null } }
+  assert.equal(varyCover(momentum, single, 'statement').design.composition, 'backdrop-type', 'a text cover moves to another text arrangement')
+  assert.equal(varyCover(highlight, single, 'statement').design.composition, 'stacked')
+  const carousel = { format: 'carousel', slides: [single, { headline: 'Two', design: { composition: 'statement', image: null } }] }
+  const varied = varyCover(highlight, carousel, 'statement')
+  assert.equal(varied.slides[0].design.composition, 'stacked')
+  assert.equal(varied.slides[1].design.composition, 'statement', 'only the cover changes')
+  assert.equal(varied.format, 'carousel')
+  // Nothing to vary from, or already different: the copywriter's choice stands.
+  assert.equal(varyCover(momentum, single, undefined), single)
+  assert.equal(varyCover(momentum, single, 'list'), single)
+  // A list cover keeps its list, and a cover showing the person's photo keeps its arrangement.
+  const list = { headline: 'Steps', items: ['One', 'Two', 'Three'], design: { composition: 'statement', image: null } }
+  assert.equal(varyCover(momentum, list, 'statement'), list)
+  const upload = { headline: 'Ours', design: { composition: 'image-led', image: { upload: 'photo-1' } } }
+  assert.equal(varyCover(photo, upload, 'image-led'), upload)
+  // A design with no other cover arrangement keeps it.
+  const pictured = { headline: 'Scene', design: { composition: 'image-led', image: { subject: 'a bridge', queries: [] } } }
+  assert.equal(varyCover(photo, pictured, 'image-led'), pictured)
 })
 
 function lightnessOf(color) {

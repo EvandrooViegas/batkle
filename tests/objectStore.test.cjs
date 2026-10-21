@@ -70,7 +70,7 @@ test('a second failure, or a refusal, is a clear error with status 503; refusals
 test('each attempt has a time limit', async () => {
   const storage = loadStorage({ r2: true })
   let calls = 0
-  const hang = request => { calls++; return new Promise((_, reject) => request.signal.addEventListener('abort', () => reject(request.signal.reason))) }
+  const hang = (url, init) => { calls++; return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason))) }
   storage.objectStore.configureObjectStore({ fetch: hang, timeoutMs: 25 })
   await assert.rejects(storage.objectStore.getObject('uploads/slow'), /could not read uploads\/slow: timed out after 25 ms/)
   assert.equal(calls, 2)
@@ -85,4 +85,16 @@ test('without all four settings R2 is off, and using it says so without any requ
   const off = loadStorage()
   await assert.rejects(off.objectStore.putObject('uploads/f', Buffer.from('f'), 'image/png'), error => error.status === 503 && /R2 is not configured/.test(error.message))
   assert.equal(off.bucket.requests.length, 0)
+})
+
+test('an upload is sent as the URL and the bytes themselves, so R2 always sees its length', async () => {
+  // Next.js's fetch turns a Request's body into a stream without a length, and R2 refuses that (411).
+  const bucket = fakeR2()
+  const storage = loadStorage({ r2: true, bucket })
+  await storage.objectStore.putObject('uploads/size-check', Buffer.from('twelve bytes'), 'image/png')
+  const put = bucket.requests.find(r => r.method === 'PUT')
+  assert.equal(put.bodyType, 'bytes')
+  assert.equal(bucket.objects.get('uploads/size-check').bytes.toString(), 'twelve bytes')
+  assert.match(put.headers.authorization, /^AWS4-HMAC-SHA256 /, 'still signed')
+  assert.ok(put.headers['x-amz-content-sha256'], 'with the payload hash the signature covers')
 })

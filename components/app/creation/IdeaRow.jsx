@@ -7,6 +7,7 @@ import UpgradeNotice from '../billing/UpgradeNotice'
 import { ScheduleLine, approvalAction } from '../schedule/ScheduleStatus'
 import { StageBar } from './StageBar'
 import { PostThumb, ThumbSkeleton, editorHref } from './PostThumb'
+import { useSurfaceWords } from './surface'
 
 /**
  * One idea in the list, with its post thumbnail (click to preview), progress and next action. A ready post shows
@@ -14,6 +15,7 @@ import { PostThumb, ThumbSkeleton, editorHref } from './PostThumb'
  * limit (`limit`, from useCreation's limitOf) offers the upgrade instead of a retry.
  */
 export function IdeaRow({ idea, number, status, approval, onApproval, selecting, selected, onToggle, onPreview, onBuild, onRetry, limit = null, order = 0 }) {
+  const w = useSurfaceWords()
   const { phase, canvas, steps, error, slides } = status
   const building = phase === 'building'
   const href = editorHref(canvas)
@@ -54,7 +56,7 @@ export function IdeaRow({ idea, number, status, approval, onApproval, selecting,
               <button
                 type="button"
                 onClick={() => onPreview(0)}
-                aria-label={`Preview post: ${idea.topic}`}
+                aria-label={`Preview ${w.noun}: ${idea.topic}`}
                 className="block w-full rounded-md transition-transform duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg can-hover:-translate-y-0.5"
               >
                 <PostThumb canvas={canvas} className={cn('shadow-bk-card', building && 'opacity-60')} />
@@ -64,7 +66,7 @@ export function IdeaRow({ idea, number, status, approval, onApproval, selecting,
             )}
             {canvas && (
               <p className="mt-1.5 text-[11px] text-bk-muted">
-                {slides > 1 ? `Slide 1 of ${slides}` : 'Single post'}
+                {slides > 1 ? `Slide 1 of ${slides}` : w.single}
               </p>
             )}
           </div>
@@ -102,7 +104,7 @@ export function IdeaRow({ idea, number, status, approval, onApproval, selecting,
         )}
         {phase === 'ready' && (
           <>
-            {unapproved && <span className="text-[12.5px] font-bold text-[#1E8A5A] dark:text-[#4CC38A]">Post ready</span>}
+            {unapproved && <span className="text-[12.5px] font-bold text-[#1E8A5A] dark:text-[#4CC38A]">{w.Noun} ready</span>}
             {action && (
               <button type="button" onClick={onApproval} className={appButton(['unapproved', 'changed', 'approved'].includes(approval?.state ?? 'unapproved') ? 'primary' : 'outline', 'md')}>
                 {action.kind === 'approve' ? <Check className="size-3.5" strokeWidth={3} /> : <CalendarClock className="size-3.5" />}{action.label}
@@ -118,7 +120,7 @@ export function IdeaRow({ idea, number, status, approval, onApproval, selecting,
           </>
         )}
         {phase === 'idea' && (
-          <button type="button" onClick={onBuild} className={appButton('primary', 'md')}>Generate post</button>
+          <button type="button" onClick={onBuild} className={appButton('primary', 'md')}>Generate {w.noun}</button>
         )}
       </div>
     </li>

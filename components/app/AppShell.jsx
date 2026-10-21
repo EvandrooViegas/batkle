@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
 import { useClerk, useUser } from '@clerk/nextjs'
-import { CalendarClock, Check, Code2, CreditCard, Fingerprint, Images, LayoutTemplate, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings, Sun, Trash2, Wand2, X } from 'lucide-react'
+import { CalendarClock, Check, ChevronDown, ChevronsUpDown, Code2, CreditCard, Fingerprint, Gauge, Images, LayoutTemplate, LogOut, Megaphone, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Settings, Smartphone, Sun, Trash2, Users, Wand2, X } from 'lucide-react'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -66,17 +66,37 @@ const menuItemClass = 'gap-2.5 rounded-lg px-2 py-1.5 text-[13px] font-semibold 
 /** Lets a page update its sidebar count (for example, Creation's idea count) without a reload. */
 export const useAppShell = () => useContext(ShellContext)
 
-function navItems(brandId) {
+// The studio navigation: Create (posts, stories, ads) leads; then planning, the brand, and the workspace.
+function navGroups(brandId) {
   return [
-    { key: 'creation', label: 'Creation', href: `/app/${brandId}/creation`, count: 'creation', Icon: Wand2 },
-    { key: 'schedule', label: 'Schedule', href: `/app/${brandId}/schedule`, count: 'schedule', Icon: CalendarClock },
-    { key: 'gallery', label: 'Gallery', href: `/app/${brandId}/gallery`, count: 'gallery', Icon: Images },
-    { key: 'brand-information', label: 'Brand profile', href: `/app/${brandId}/brand-information`, Icon: Fingerprint },
-    { key: 'design-library', label: 'Design Library', href: `/app/${brandId}/design-library`, Icon: LayoutTemplate },
-    // The account-wide developer dashboard: API keys, credits, usage and renders.
-    { key: 'developers', label: 'API & usage', href: '/developers/dashboard', Icon: Code2 },
+    {
+      key: 'create', label: 'Create', Icon: Wand2, parent: true, items: [
+        { key: 'creation', label: 'Posts', href: `/app/${brandId}/creation`, count: 'creation', Icon: Wand2 },
+        { key: 'stories', label: 'Stories', href: `/app/${brandId}/stories`, count: 'stories', Icon: Smartphone },
+        { key: 'ads', label: 'Ads', href: `/app/${brandId}/ads`, Icon: Megaphone },
+      ],
+    },
+    {
+      key: 'plan', label: 'Plan', items: [
+        { key: 'schedule', label: 'Schedule', href: `/app/${brandId}/schedule`, count: 'schedule', Icon: CalendarClock },
+        { key: 'gallery', label: 'Gallery', href: `/app/${brandId}/gallery`, count: 'gallery', Icon: Images },
+      ],
+    },
+    {
+      key: 'brand', label: 'Brand', items: [
+        { key: 'brand-information', label: 'Brand profile', href: `/app/${brandId}/brand-information`, Icon: Fingerprint },
+        { key: 'design-library', label: 'Design Library', href: `/app/${brandId}/design-library`, Icon: LayoutTemplate },
+      ],
+    },
+    {
+      key: 'workspace', label: 'Workspace', items: [
+        { key: 'team', label: 'Team', href: `/app/${brandId}/team`, Icon: Users },
+      ],
+    },
   ]
 }
+// Pages a brand switch keeps you on.
+const BRAND_PAGES = ['creation', 'stories', 'ads', 'schedule', 'gallery', 'brand-information', 'design-library', 'team']
 
 const tooltipClass = cn(appLayer, 'rounded-md border-0 bg-bk-ink px-2.5 py-1.5 text-[12px] font-semibold text-bk-cream shadow-bk-pop')
 
@@ -91,24 +111,9 @@ function RailTip({ show, label, children }) {
   )
 }
 
-function ThemeButton({ compact }) {
-  const { resolvedTheme, setTheme } = useTheme()
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
-  const dark = mounted && resolvedTheme === 'dark'
-  const label = dark ? 'Switch to light mode' : 'Switch to dark mode'
-  return (
-    <RailTip show={compact} label={label}>
-      <button type="button" onClick={() => setTheme(dark ? 'light' : 'dark')} className={appButton('outline', 'xs', compact && 'size-8 px-0')} aria-label={label}>
-        {compact ? (dark ? <Sun className="size-4" /> : <Moon className="size-4" />) : dark ? 'Light' : 'Dark'}
-      </button>
-    </RailTip>
-  )
-}
-
 function BrandSwitcher({ flows, brand, activeSlug, onDelete, compact }) {
   const router = useRouter()
-  const slug = ['creation', 'schedule', 'gallery', 'brand-information', 'design-library'].includes(activeSlug) ? activeSlug : 'creation'
+  const slug = BRAND_PAGES.includes(activeSlug) ? activeSlug : 'creation'
 
   return (
     // Non-modal so opening the delete dialog from a menu item never leaves the page unclickable.
@@ -149,6 +154,136 @@ function BrandSwitcher({ flows, brand, activeSlug, onDelete, compact }) {
         <DropdownMenuItem onSelect={onDelete} className="gap-2.5 rounded-lg px-2 py-1.5 text-[13px] font-semibold text-[#C2412F] focus:bg-[#C2412F]/10 focus:text-[#C2412F] dark:text-[#F0826F] dark:focus:text-[#F0826F]">
           <Trash2 /> Delete {brand.name}
         </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** One page in the navigation: a label (with its count) in the sidebar, an icon on the collapsed rail. */
+function NavLink({ item, active, count, collapsed, nested, onNavigate }) {
+  const { label, href, Icon } = item
+  return (
+    <RailTip show={collapsed} label={typeof count === 'number' ? `${label} · ${count}` : label}>
+      <Link
+        href={href}
+        onClick={onNavigate}
+        aria-current={active ? 'page' : undefined}
+        aria-label={collapsed ? label : undefined}
+        className={cn(
+          'relative flex h-9 items-center rounded-lg text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg',
+          collapsed ? 'w-10 justify-center' : cn('gap-2.5', nested ? 'pl-3 pr-3' : 'px-3'),
+          active ? 'bg-bk-butter font-bold text-bk-ink' : 'text-bk-fg/75 hover:bg-bk-alt hover:text-bk-fg',
+        )}
+      >
+        {collapsed ? <Icon className="size-[17px] shrink-0" aria-hidden="true" /> : <span className="min-w-0 flex-1 truncate">{label}</span>}
+        {typeof count === 'number' && (collapsed ? (
+          count > 0 && <span className={cn('absolute -right-1 -top-1 min-w-[16px] rounded-full px-1 text-center text-[9.5px] font-bold leading-4 tabular-nums', active ? 'bg-bk-ink text-white' : 'bg-bk-fg/80 text-bk-bg')}>{count > 99 ? '99+' : count}</span>
+        ) : (
+          <span className={cn('tabular-nums', active ? 'rounded-full bg-bk-ink px-1.5 py-px text-[11px] font-bold text-white' : 'text-[12px] text-bk-muted')}>{count}</span>
+        ))}
+      </Link>
+    </RailTip>
+  )
+}
+
+/**
+ * The studio navigation. Create is a parent with its three kinds of content under it (folded open by default, and
+ * always open on the page you are on); the other groups are headed lists. The collapsed rail shows every page as an icon.
+ */
+function StudioNav({ brandId, counts, activeSlug, collapsed, onNavigate }) {
+  const groups = navGroups(brandId)
+  const [createOpen, setCreateOpen] = useState(true)
+  return (
+    <nav aria-label="Studio" className={cn('w-full', collapsed ? 'mt-3' : 'mt-5')}>
+      {groups.map((group, index) => {
+        const inGroup = group.items.some(i => i.key === activeSlug)
+        const links = (nested = false) => (
+          <ul className={cn('space-y-0.5', nested && !collapsed && 'ml-[19px] border-l border-bk-line pl-2')}>
+            {group.items.map(item => (
+              <li key={item.key}>
+                <NavLink item={item} active={item.key === activeSlug} count={item.count ? counts[item.count] : null} collapsed={collapsed} nested={nested} onNavigate={onNavigate} />
+              </li>
+            ))}
+          </ul>
+        )
+        if (collapsed) return (
+          <div key={group.key} className={cn('flex flex-col items-center', index && 'mt-2 border-t border-bk-line pt-2')}>{links()}</div>
+        )
+        if (group.parent) {
+          const open = createOpen || inGroup
+          return (
+            <div key={group.key}>
+              <button type="button" onClick={() => setCreateOpen(!open)} aria-expanded={open} aria-controls={`nav-${group.key}`}
+                className="flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[14px] font-bold text-bk-fg transition-colors hover:bg-bk-alt focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg">
+                <group.Icon className="size-4 shrink-0" aria-hidden="true" />
+                <span className="flex-1 text-left">{group.label}</span>
+                <ChevronDown className={cn('size-4 text-bk-muted transition-transform', open && 'rotate-180')} aria-hidden="true" />
+              </button>
+              {open && <div id={`nav-${group.key}`} className="mt-0.5">{links(true)}</div>}
+            </div>
+          )
+        }
+        return (
+          <div key={group.key} className="mt-5">
+            <Eyebrow className="mb-1.5 px-3">{group.label}</Eyebrow>
+            {links()}
+          </div>
+        )
+      })}
+    </nav>
+  )
+}
+
+/**
+ * The account menu: account settings, plan and billing, the team, API & usage, the admin dashboard for admins, the
+ * colour theme and signing out. Opens from the account button at the foot of the sidebar (and of the rail).
+ */
+function AccountMenu({ account, credits, collapsed, brandId, onNavigate }) {
+  const { resolvedTheme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const dark = mounted && resolvedTheme === 'dark'
+  const plan = credits.summary ? `${planLabel(credits.summary)} plan` : ''
+  const go = () => onNavigate?.()
+  const trigger = collapsed ? (
+    <RailTip show label={`${account.name}${plan ? ` · ${plan}` : ''} · Account`}>
+      <DropdownMenuTrigger aria-label={`Account${plan ? ` · ${plan}` : ''}`} className="relative rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-bk-fg">
+        <Avatar account={account} size={36} ringOffset="ring-offset-bk-bg" />
+        <PlanMark summary={credits.summary} />
+      </DropdownMenuTrigger>
+    </RailTip>
+  ) : (
+    <DropdownMenuTrigger aria-label="Account menu" className="flex w-full items-center gap-2.5 rounded-xl border border-bk-line bg-bk-surface p-2.5 text-left transition-colors hover:border-bk-field data-[state=open]:border-bk-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg">
+      <Avatar account={account} size={32} ringOffset="ring-offset-bk-surface" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-bold leading-tight">{account.name}</span>
+        <span className="mt-1 flex min-w-0 items-center gap-1.5"><PlanBadge summary={credits.summary} /></span>
+      </span>
+      <ChevronsUpDown className="size-4 shrink-0 text-bk-muted" aria-hidden="true" />
+    </DropdownMenuTrigger>
+  )
+  return (
+    <DropdownMenu modal={false}>
+      {trigger}
+      <DropdownMenuContent align={collapsed ? 'end' : 'start'} side={collapsed ? 'right' : 'top'} sideOffset={8} className={cn(menuClass, !collapsed && 'w-[var(--radix-dropdown-menu-trigger-width)] min-w-[224px]')}>
+        <DropdownMenuLabel className="px-2 pb-1.5 pt-1">
+          <span className="flex items-center gap-2">
+            <span className="min-w-0 truncate text-[13px] font-bold">{account.name}</span>
+            <PlanBadge summary={credits.summary} />
+          </span>
+          <span className="block truncate text-[11.5px] font-normal text-bk-muted">{account.email}</span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator className="bg-bk-line" />
+        <DropdownMenuItem onSelect={() => { go(); account.openSettings() }} className={menuItemClass}><Settings /> Account settings</DropdownMenuItem>
+        <DropdownMenuItem asChild className={menuItemClass}><Link href="/app/settings" onClick={go}><CreditCard /> Plan &amp; billing</Link></DropdownMenuItem>
+        <DropdownMenuItem asChild className={menuItemClass}><Link href={`/app/${brandId}/team`} onClick={go}><Users /> Team</Link></DropdownMenuItem>
+        <DropdownMenuItem asChild className={menuItemClass}><Link href="/developers/dashboard" onClick={go}><Code2 /> API &amp; usage</Link></DropdownMenuItem>
+        {credits.summary?.admin && <DropdownMenuItem asChild className={menuItemClass}><Link href="/admin" onClick={go}><Gauge /> Admin dashboard</Link></DropdownMenuItem>}
+        <DropdownMenuSeparator className="bg-bk-line" />
+        <DropdownMenuItem onSelect={e => { e.preventDefault(); setTheme(dark ? 'light' : 'dark') }} className={menuItemClass}>
+          {dark ? <Sun /> : <Moon />}<span className="flex-1">{dark ? 'Light mode' : 'Dark mode'}</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={account.signOut} className={menuItemClass}><LogOut /> Sign out</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -196,102 +331,21 @@ function SidebarContent({ flows, brand, counts, account, credits, activeSlug, co
         </div>
       )}
 
-      {collapsed ? <div className="mx-auto mt-5 h-px w-8 bg-bk-line" /> : <Eyebrow className="mb-1.5 mt-6 px-2.5">Studio</Eyebrow>}
-      <nav aria-label="Studio" className={cn(collapsed && 'mt-3')}>
-        <ul className="space-y-0.5">
-          {navItems(brand.id).map(({ key, label, href, count: countKey, Icon }) => {
-            const active = key === activeSlug
-            const count = countKey ? counts[countKey] : null
-            return (
-              <li key={key}>
-                <RailTip show={collapsed} label={typeof count === 'number' ? `${label} · ${count}` : label}>
-                  <Link
-                    href={href}
-                    onClick={onNavigate}
-                    aria-current={active ? 'page' : undefined}
-                    aria-label={collapsed ? label : undefined}
-                    className={cn(
-                      'relative flex h-9 items-center rounded-lg text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg',
-                      collapsed ? 'w-10 justify-center' : 'gap-2.5 px-3',
-                      active ? 'bg-bk-butter font-bold text-bk-ink' : 'text-bk-fg/75 hover:bg-bk-alt hover:text-bk-fg',
-                    )}
-                  >
-                    {collapsed ? <Icon className="size-[17px] shrink-0" aria-hidden="true" /> : <span className="min-w-0 flex-1 truncate">{label}</span>}
-                    {typeof count === 'number' && (collapsed ? (
-                      count > 0 && <span className={cn('absolute -right-1 -top-1 min-w-[16px] rounded-full px-1 text-center text-[9.5px] font-bold leading-4 tabular-nums', active ? 'bg-bk-ink text-white' : 'bg-bk-fg/80 text-bk-bg')}>{count > 99 ? '99+' : count}</span>
-                    ) : (
-                      <span className={cn('tabular-nums', active ? 'rounded-full bg-bk-ink px-1.5 py-px text-[11px] font-bold text-white' : 'text-[12px] text-bk-muted')}>{count}</span>
-                    ))}
-                  </Link>
-                </RailTip>
-              </li>
-            )
-          })}
-        </ul>
-      </nav>
+      {collapsed && <div className="mx-auto mt-4 h-px w-8 bg-bk-line" />}
+      <StudioNav brandId={brand.id} counts={counts} activeSlug={activeSlug} collapsed={collapsed} onNavigate={onNavigate} />
 
-      <div className={cn('mt-auto w-full border-t border-bk-line pt-3', collapsed && 'flex flex-col items-center gap-2')}>
+      <div className={cn('mt-auto w-full pt-5', collapsed && 'flex flex-col items-center gap-2')}>
         {collapsed ? (
-          <>
-            {credits.summary && (
-              <RailTip show label={creditsLabel(credits.summary)}>
-                {/* The tooltip needs an element it can hold; the link inside takes the focus and the click. */}
-                <span className="inline-flex"><CreditsMeter summary={credits.summary} compact onNavigate={onNavigate} /></span>
-              </RailTip>
-            )}
-            <DropdownMenu modal={false}>
-              <RailTip show label={`${account.name}${credits.summary ? ` · ${planLabel(credits.summary)} plan` : ''} · Account`}>
-                <DropdownMenuTrigger aria-label={credits.summary ? `Account · ${planLabel(credits.summary)} plan` : 'Account'} className="relative rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-bk-fg">
-                  <Avatar account={account} size={36} ringOffset="ring-offset-bk-bg" />
-                  <PlanMark summary={credits.summary} />
-                </DropdownMenuTrigger>
-              </RailTip>
-              <DropdownMenuContent align="start" side="right" className={menuClass}>
-                <DropdownMenuLabel className="px-2 pb-1.5 pt-1">
-                  <span className="flex items-center gap-2">
-                    <span className="min-w-0 truncate text-[13px] font-bold">{account.name}</span>
-                    <PlanBadge summary={credits.summary} />
-                  </span>
-                  <span className="block truncate text-[11.5px] font-normal text-bk-muted">{account.email}</span>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-bk-line" />
-                <DropdownMenuItem onSelect={account.openSettings} className={menuItemClass}><Settings /> Account settings</DropdownMenuItem>
-                <DropdownMenuItem asChild className={menuItemClass}><Link href="/app/settings"><CreditCard /> Plan &amp; billing</Link></DropdownMenuItem>
-                <DropdownMenuItem onSelect={account.signOut} className={menuItemClass}><LogOut /> Sign out</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <ThemeButton compact />
-          </>
+          credits.summary && (
+            <RailTip show label={creditsLabel(credits.summary)}>
+              {/* The tooltip needs an element it can hold; the link inside takes the focus and the click. */}
+              <span className="inline-flex"><CreditsMeter summary={credits.summary} compact onNavigate={onNavigate} /></span>
+            </RailTip>
+          )
         ) : (
-          <>
-            <CreditsMeter summary={credits.summary} loading={credits.loading} onNavigate={onNavigate} className="mb-2.5" />
-            <div className="flex items-center gap-2.5 rounded-xl border border-bk-line bg-bk-surface p-2.5">
-              <Avatar account={account} size={32} ringOffset="ring-offset-bk-surface" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-bold leading-tight">{account.name}</p>
-                {/* The plan first, so a long email never pushes it out of sight. */}
-                <p className="mt-0.5 flex min-w-0 items-center gap-1.5">
-                  <PlanBadge summary={credits.summary} />
-                  <span className="truncate text-[11px] text-bk-muted">{account.email}</span>
-                </p>
-              </div>
-              <button type="button" onClick={() => { onNavigate?.(); account.openSettings() }} aria-label="Account settings" title="Account settings" className={appButton('outline', 'xs', 'size-8 px-0')}>
-                <Settings className="size-4" />
-              </button>
-            </div>
-            <div className="mt-2.5 flex items-center justify-between gap-2 px-1">
-              <div className="flex min-w-0 items-center gap-3">
-                <Link href="/app/settings" onClick={onNavigate} className="truncate text-[12.5px] text-bk-muted underline underline-offset-4 hover:text-bk-fg">
-                  Plan &amp; billing
-                </Link>
-                <button type="button" onClick={account.signOut} className="inline-flex shrink-0 items-center gap-1.5 text-[12.5px] text-bk-muted underline underline-offset-4 hover:text-bk-fg">
-                  Sign out
-                </button>
-              </div>
-              <ThemeButton />
-            </div>
-          </>
+          <CreditsMeter summary={credits.summary} loading={credits.loading} onNavigate={onNavigate} className="mb-2.5" />
         )}
+        <AccountMenu account={account} credits={credits} collapsed={collapsed} brandId={brand.id} onNavigate={onNavigate} />
       </div>
     </div>
   )

@@ -261,6 +261,9 @@ function styleIssues(parsed: any, language: ContentLanguage, idea?: any): string
   const written = [...copyTexts(parsed), ...(Array.isArray(parsed.hashtags) ? parsed.hashtags.map(String) : [])]
   const repeated = avoidedSubjects(idea).filter(subject => written.some(t => mentionsSubject(t, subject)))
   if (repeated.length) issues.push(`Repetition: the copy mentions ${repeated.join(', ')}, which the brand's recent posts already centred on; remove it and use other details from the brand profile`)
+  const headlines = Array.isArray(parsed.slides) ? parsed.slides.map((s: any) => String(s?.headline || '')) : [String(parsed.headline || '')]
+  const offTopic = asideSubjects(idea).filter(subject => headlines.some((h: string) => mentionsSubject(h, subject)))
+  if (offTopic.length) issues.push(`Focus: a headline names ${offTopic.join(', ')}, but this post is about "${String(idea.topic).slice(0, 120)}"; keep ${offTopic.join(', ')} out of the headlines (a detail in the text is fine)`)
   return issues
 }
 
@@ -268,6 +271,12 @@ function styleIssues(parsed: any, language: ContentLanguage, idea?: any): string
 function avoidedSubjects(idea: any): string[] {
   const own = [idea?.topic, idea?.coreMessage, idea?.userRequest].filter(v => typeof v === 'string').join(' \n ')
   return (Array.isArray(idea?.avoid) ? idea.avoid : []).filter((s: any) => typeof s === 'string' && s.trim() && !mentionsSubject(own, s))
+}
+
+/** Terms the brief is not about (BIM on a post about façades): they may come up in the text, never in a headline. */
+function asideSubjects(idea: any): string[] {
+  const own = [idea?.topic, idea?.userRequest].filter(v => typeof v === 'string').join(' \n ')
+  return (Array.isArray(idea?.aside) ? idea.aside : []).filter((s: any) => typeof s === 'string' && s.trim() && !mentionsSubject(own, s))
 }
 
 /**
@@ -286,8 +295,10 @@ export async function writeCopy(brandContext: any, idea: any, design?: PlanningD
   // never the AI-written brief.
   const factSource = JSON.stringify(compactBrand(brandContext)) + ' ' + (typeof idea?.userRequest === 'string' ? idea.userRequest : '')
   const avoid = avoidedSubjects(idea)
+  const aside = asideSubjects(idea).filter(subject => !avoid.includes(subject))
   const userPrompt = buildUserPrompt(JSON.stringify(compactBrand(brandContext)), JSON.stringify(idea, null, 2)) + (design ? '\n\n' + design.prompt : '')
     + (avoid.length ? `\n\nAVOID REPEATING: the brand's recent posts already centred on ${avoid.map(s => `"${s}"`).join(', ')}. Do not mention ${avoid.length > 1 ? 'them' : 'it'} anywhere in this post (slides, caption or hashtags); use other concrete details from the brand profile.` : '')
+    + (aside.length ? `\n\nSTAY ON THE SUBJECT: this post is not about ${aside.map(s => `"${s}"`).join(', ')}. ${aside.length > 1 ? 'They' : 'It'} may come up as a detail in the text, never in a headline.` : '')
     + `\n\nOUTPUT LANGUAGE: ${language.label}. Every reader-facing field (headline, body, cta, caption, hashtags) in it; the design study above is internal and in English, never copy its words.`
   let parsed: any
   let draft: any

@@ -7,7 +7,10 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import { resolveVariant, referencePreviewBrand, SAMPLE_COPY } from '@/lib/designs/global/resolve'
 import { previewSlide, SAMPLE_DECK, SAMPLE_IMAGES } from '@/lib/designs/global/compose'
 const DEMO_BRAND = { name: 'Your brand', website: 'https://yourbrand.com', colors: ['#ed5125', '#101327', '#ffe05b'] }
-export const COMPOSITION_LABELS = { statement: 'Statement', stacked: 'Stacked', split: 'Split', 'image-led': 'Image-led', 'backdrop-type': 'Backdrop type', list: 'List', closing: 'Closing' }
+/** "By …" for a design a member published (its `library` from the API); empty for Batkle's own. */
+export const designAuthor = family => (family?.library && !family.library.official ? `By ${family.library.mine ? 'you' : family.library.author}` : '')
+
+export const COMPOSITION_LABELS ={ statement: 'Statement', stacked: 'Stacked', split: 'Split', 'image-led': 'Image-led', 'backdrop-type': 'Backdrop type', list: 'List', closing: 'Closing' }
 
 // Reference colors belong only to unbranded library previews. Brand previews use brand tokens.
 const previewBrandFor = (family, brand) => Object.keys(brand).length ? { ...DEMO_BRAND, ...brand } : { ...DEMO_BRAND, ...referencePreviewBrand(family) }

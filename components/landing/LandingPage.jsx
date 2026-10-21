@@ -117,7 +117,7 @@ const FAQS = [
   },
   {
     q: 'Can I use my own photos?',
-    a: "Yes. Useful photos from your website go into your brand's gallery automatically, and you can upload your own or attach them to a single post idea. Batkle uses them alongside stock photos and AI-generated images and cutouts.",
+    a: "Yes. Upload your photos to your brand's gallery, or attach them to a single post idea, and Batkle places them in your posts alongside stock photos and AI-generated images and cutouts.",
   },
   {
     q: 'Can Batkle post to Instagram and TikTok for me?',
@@ -249,16 +249,17 @@ const HERO_CARDS = [
 ]
 
 /**
- * The hero is exactly one screen: the panel fills the viewport below the sticky header (65 px, 73 px from sm) and
- * its type, spacing and cards scale with the screen height, so nothing falls below the fold. The illustration takes
- * whatever height is left, with the cards resting on its lower edge. Very short screens let the panel grow instead.
+ * The hero is exactly one screen: the panel spans the full width and fills the viewport below the sticky header
+ * (65 px, 73 px from sm). Its type, spacing and cards scale with the screen height, so nothing falls below the fold.
+ * The illustration takes whatever height is left, with the cards resting on its lower edge. Very short screens let
+ * the panel grow instead.
  */
 function Hero() {
   return (
-    <section className="bg-bk-bg px-3 py-3 sm:px-5 sm:py-5">
+    <section className="bg-bk-bg">
       <div
         className={cn(
-          'mx-auto flex min-h-[calc(100svh-89px)] max-w-[1600px] flex-col overflow-hidden rounded-[24px] border border-bk-line sm:min-h-[min(calc(100svh-113px),1100px)]',
+          'flex min-h-[calc(100svh-65px)] flex-col overflow-hidden border-b border-bk-line sm:min-h-[min(calc(100svh-73px),1100px)]',
           heroPanel,
         )}
       >

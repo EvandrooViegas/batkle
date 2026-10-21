@@ -52,15 +52,60 @@ test('idea history keeps what each idea said, even when the client only sends it
   assert.match(merged.find(i => i.topic === bimIdeas[1].topic).text, /modelação BIM/)
 })
 
-function ideasHandler(outputs, saved) {
+function ideasHandler(outputs, saved, overrides = {}) {
   const requests = []
   const completion = async (_client, request) => { requests.push(request); return { choices: [{ message: { content: JSON.stringify(outputs.shift()) }, finish_reason: 'stop' }] } }
   const db = { collection: () => ({ findOne: async () => ({ brandContext: brand, creationState: { ideas: saved } }) }) }
-  const run = new Function('Groq', 'process', 'loadGenerationBrandContext', 'EXTRACTED_CONTEXT_RULES', 'compactBrand', 'budgetedModels', 'budgetedCompletion', 'NextResponse', 'corsify', 'randomUUID', 'cleanCopy', 'retrySeconds', 'availableGroqCompletion', ...Object.keys(strategy), load('lib/handlers/contentIdeasHandler.ts') + ';return handleGenerateContentIdeas')(
+  const deps = { ...strategy, ...overrides }
+  const run = new Function('Groq', 'process', 'loadGenerationBrandContext', 'EXTRACTED_CONTEXT_RULES', 'compactBrand', 'budgetedModels', 'budgetedCompletion', 'NextResponse', 'corsify', 'randomUUID', 'cleanCopy', 'retrySeconds', 'availableGroqCompletion', ...Object.keys(deps), load('lib/handlers/contentIdeasHandler.ts') + ';return handleGenerateContentIdeas')(
     class {}, { env: { GROQ_API_KEY: 'test' } }, async () => ({ ...brand }), EXTRACTED_CONTEXT_RULES, x => x,
-    async () => ({ data: [{ id: 'llama-3.3-70b-versatile' }] }), completion, { json: (body, options) => ({ body, status: options?.status || 200 }) }, r => r, () => 'unique', r => r, () => 60, completion, ...Object.values(strategy))
+    async () => ({ data: [{ id: 'llama-3.3-70b-versatile' }] }), completion, { json: (body, options) => ({ body, status: options?.status || 200 }) }, r => r, () => 'unique', r => r, () => 60, completion, ...Object.values(deps))
   return { requests, run: body => run(body, db) }
 }
+
+// PRUMO's real run: BIM in two of the last six ideas, which the old half-of-the-window rule never caught.
+const sixIdeas = [
+  { topic: 'Reabilitação das fachadas do Ministério da Justiça – transparência, BIM e controlo de qualidade' },
+  { topic: 'Projeto Sumol + Compal – intervenção nas fachadas' },
+  { topic: 'Novo traçado das condutas de lamas', coreMessage: 'Modelação BIM das condutas.' },
+  { topic: 'Reforço sísmico de moradias em Comporta' },
+  { topic: 'Experiência em património histórico' },
+  { topic: 'Programa de formação técnica' },
+]
+
+test('a subject in a third of the recent ideas is already recurring, one mention is not', () => {
+  assert.deepEqual(strategy.recurringSubjects(brand, strategy.ideaHistory(sixIdeas)), ['BIM'])
+  const once = sixIdeas.map((idea, i) => i === 2 ? { topic: 'Novo traçado das condutas de lamas' } : idea)
+  assert.deepEqual(strategy.recurringSubjects(brand, strategy.ideaHistory(once)), [])
+})
+
+test('an angle on a part of the brand that is not about BIM keeps BIM out of the idea’s subject', () => {
+  for (let i = 0; i < 30; i++) {
+    const angle = strategy.chooseAngle(brand, [], Math.random)
+    const about = `${angle.facet.label} ${angle.facet.detail}`
+    if (strategy.mentionsSubject(about, 'BIM')) assert.ok(!angle.aside?.includes('BIM'), `"${angle.facet.label}" is about BIM, so it may be named`)
+    else assert.ok(angle.aside.includes('BIM'), `"${angle.facet.label}" is not about BIM`)
+    assert.ok(!(angle.aside || []).some(s => !/^[A-Z][A-Z0-9]{1,5}$/.test(s)), 'project names are not kept aside')
+  }
+  // A recurring subject is avoided outright, so it is not also listed aside.
+  const recurring = strategy.chooseAngle(brand, strategy.ideaHistory(bimIdeas), () => 0)
+  if (recurring.avoid?.includes('BIM')) assert.ok(!recurring.aside?.includes('BIM'))
+})
+
+test('an idea whose topic drifts to BIM on another angle is retried, and the copywriter gets the rule', async () => {
+  const construction = { pillar: 'Educational', facet: { kind: 'service', label: 'Construção (Construction)', detail: 'New works and building rehabilitation' }, format: 'carousel', length: { label: 'short', min: 3, max: 4, use: 'one insight' }, aside: ['BIM'] }
+  const drifted = { ideas: [{ topic: 'Como o BIM melhora a reabilitação de edifícios', hook: 'Reabilitar sem surpresas', coreMessage: 'Planear antes evita custos.', format: 'carousel', outline: ['Capa', 'Diagnóstico', 'Fecho'] }] }
+  const onAngle = { ideas: [{ topic: 'Reabilitação de edifícios: o diagnóstico antes da obra', hook: 'Reabilitar sem surpresas', coreMessage: 'Com modelação BIM, o diagnóstico fica completo.', format: 'carousel', outline: ['Capa', 'Diagnóstico', 'Fecho'] }] }
+  const { run, requests } = ideasHandler([drifted, onAngle], [], { chooseAngle: () => construction })
+  const result = await run({ brandContext: { id: 'prumo' } })
+  assert.equal(result.status, 200)
+  assert.match(requests[0].messages[1].content, /STAY ON THE ANGLE[\s\S]*not about "BIM"/)
+  assert.equal(requests.length, 2)
+  assert.match(requests[1].messages[1].content, /topic or hook is about BIM/)
+  // BIM as a detail in the core message is fine.
+  assert.equal(result.body.ideas[0].topic, onAngle.ideas[0].topic)
+  assert.deepEqual(result.body.ideas[0].aside, ['BIM'])
+})
 
 test('a suggested idea is told to leave the recurring subject out, is retried when it brings it up, and carries it to the copywriter', async () => {
   const withBim = { ideas: [{ topic: 'O BIM na reabilitação sísmica', hook: 'Mais segurança', coreMessage: 'O BIM ajuda a reforçar estruturas.', format: 'single' }] }
@@ -112,4 +157,19 @@ test('the copywriter leaves out a subject recent posts already covered, unless t
   await about.run({ ...facades, topic: 'Como o BIM planeia a reabilitação de fachadas' })
   assert.equal(about.requests.length, 1)
   assert.doesNotMatch(about.requests[0].messages[1].content, /AVOID REPEATING/)
+})
+
+test('a post not about BIM keeps BIM out of its headlines but may name it in the text', async () => {
+  const facades = { format: 'single', topic: 'Reabilitação de fachadas históricas', coreMessage: 'Respeitar o original.', aside: ['BIM'] }
+  const inHeadline = { format: 'single', headline: 'Fachadas planeadas em BIM', supportingText: 'Cada intervenção respeita o original.', caption: 'Reabilitação cuidada.', hashtags: ['#reabilitacao'] }
+  const inText = { format: 'single', headline: 'Fachadas com história', supportingText: 'Planeamos cada intervenção com modelação BIM.', caption: 'Reabilitação cuidada.', hashtags: ['#reabilitacao'] }
+  const drifted = copywriter([inHeadline, inText])
+  const result = await drifted.run(facades)
+  assert.equal(result.status, 200)
+  assert.match(drifted.requests[0].messages[1].content, /STAY ON THE SUBJECT[\s\S]*not about "BIM"/)
+  assert.match(drifted.requests[1].messages[1].content, /Focus: a headline names BIM/)
+  assert.equal(result.body.headline, inText.headline)
+  const fine = copywriter([inText])
+  await fine.run(facades)
+  assert.equal(fine.requests.length, 1, 'BIM in the body text needs no retry')
 })

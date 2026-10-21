@@ -124,6 +124,25 @@ export function sanitizeDesignPlan(family: GlobalDesignFamily, copy: any, galler
   return place([clean(copy)])[0]
 }
 
+/**
+ * Covers in one design look alike when they share a composition, and the copywriter opens most posts with a
+ * statement. When the brand's last post in this design opened with the same composition, this one opens with another
+ * the design allows: a text arrangement first, a photo one when the cover has an image subject and images are on.
+ * A list cover and a cover showing the person's own photo keep theirs.
+ */
+export function varyCover(family: GlobalDesignFamily, copy: any, lastCover: string | undefined, choice: ImageChoice = 'auto') {
+  const carousel = Array.isArray(copy?.slides) && copy.slides.length > 0
+  const cover = carousel ? copy.slides[0] : copy
+  const current = cover?.design?.composition
+  if (!lastCover || current !== lastCover || listItems(cover).length >= 3 || cover.design.image?.upload) return copy
+  const allowed = familyGrammar(family).compositions as string[]
+  const pictured = !!cover.design.image && choice !== 'off' && familyImagery(family).mode !== 'none'
+  const next = ['backdrop-type', 'statement', 'stacked', ...(pictured ? ['image-led', 'split'] : [])].find(c => c !== current && allowed.includes(c))
+  if (!next) return copy
+  const varied = { ...cover, design: { ...cover.design, composition: next } }
+  return carousel ? { ...copy, slides: [varied, ...copy.slides.slice(1)] } : varied
+}
+
 /** Uploaded photos that no slot of the asset plan shows. */
 export function unplacedUploads(plan: any, uploads: PostImage[]) {
   const shown = new Set((plan?.slots || []).filter((s: any) => s.user_upload && s.selected?.asset_id).map((s: any) => s.selected.asset_id))
@@ -187,12 +206,12 @@ export async function handlePlanPost(db: any, body: any, userId?: string) {
     const imagery = uploads.length > 0 || choice === 'on'
     let selection
     try {
-      selection = await chooseBrandFamily(db, brandContext, body.copy || idea, designId, { imagery })
+      selection = await chooseBrandFamily(db, brandContext, body.copy || idea, designId, { imagery, userId })
     } catch (error) {
       // The picked design was removed from the brand since: the post falls back to Auto.
       if (!(error instanceof DesignLibraryError) || body.designId || !designId) throw error
       designId = undefined
-      selection = await chooseBrandFamily(db, brandContext, body.copy || idea, undefined, { imagery })
+      selection = await chooseBrandFamily(db, brandContext, body.copy || idea, undefined, { imagery, userId })
     }
     if (uploads.length && selection && familyImagery(selection.family).mode === 'none') {
       return corsify(NextResponse.json({ error: designId
@@ -213,6 +232,7 @@ export async function handlePlanPost(db: any, body: any, userId?: string) {
         copy = sanitizeDesignPlan(selection.family, (await writeCopy(brandContext, brief, design)).copy, gallery, uploads, choice)
       } else copy = (await writeCopy(brandContext, brief)).copy
     } else if (selection) copy = sanitizeDesignPlan(selection.family, copy, gallery, uploads, choice)
+    if (selection) copy = varyCover(selection.family, copy, selection.lastCover, choice)
     // The choice travels with the copy, so planning, image search and the final build all follow it.
     const { imageChoice: _previous, ...rest } = copy
     copy = choice === 'auto' ? rest : { ...rest, imageChoice: choice }
