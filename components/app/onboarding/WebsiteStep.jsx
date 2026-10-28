@@ -23,7 +23,7 @@ export function WebsiteStep({ firstBrand, website, onWebsiteChange, error, onSub
       </p>
 
       {replacing && (
-        <p className="mt-5 max-w-[560px] rounded-xl border border-bk-line bg-bk-surface px-4 py-3 text-[14px] leading-relaxed text-bk-fg/85">
+        <p className="mt-5 max-w-[560px] rounded-xl bg-bk-surface shadow-bk-card px-4 py-3 text-[14px] leading-relaxed text-bk-fg/85">
           <strong className="font-bold">{replacing}</strong> is saved. Researching its own site again refreshes it; a different website replaces it.
         </p>
       )}
@@ -58,7 +58,7 @@ export function WebsiteStep({ firstBrand, website, onWebsiteChange, error, onSub
         </div>
         {error
           ? <p id="onboarding-website-error" role="alert" className="mt-2 text-[14px] font-semibold text-[#C2412F] dark:text-[#F0826F]">{error}</p>
-          : <p id="onboarding-website-hint" className={fieldHint}>Takes about a minute. Add your own photos in the Gallery afterwards.</p>}
+          : <p id="onboarding-website-hint" className={fieldHint}>Takes about a minute. Add your own photos to posts when you write each idea.</p>}
       </form>
 
       <div className="mt-10 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-bk-line pt-6 text-[14px] text-bk-muted">

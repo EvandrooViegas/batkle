@@ -1,5 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),{stripTypeScriptTypes}=require('node:module')
-const source=stripTypeScriptTypes(fs.readFileSync('lib/services/ai/requestBudget.ts','utf8').replace(/^import .*$/gm,'').replace(/export /g,''))
+// compactBrand adds the voice learned from the brand's own posts (lib/services/brandPosts.ts).
+const source=['lib/services/brandPosts.ts','lib/services/ai/requestBudget.ts'].map(file=>stripTypeScriptTypes(fs.readFileSync(file,'utf8').replace(/^import .*$/gm,'').replace(/export /g,''))).join(';\n')
 const create=()=>new Function('globalThis','process',source+';return {retrySeconds,budgetedCompletion,compactBrand}')({},{env:{}})
 test('daily quota message uses the provider wait, not a fixed 15 seconds',()=>{
  const e=create();assert.equal(e.retrySeconds({message:'Please try again in 5m24.864s.'}),325)
@@ -31,10 +32,30 @@ test('both keys exhausted return earliest retry without exposing credentials or 
  await assert.rejects(e.budgetedCompletion(a,{},[b]))
  assert.equal(calls,2)
 })
+test('a cooldown of a few seconds is waited out once, so a post is not lost to the per-minute limit',async()=>{
+ const e=create();let calls=0
+ const groq={apiKey:'only',chat:{completions:{create:async()=>{calls++;if(calls===1)throw {status:429,headers:{'retry-after':'1'}};return {ok:true}}}}}
+ const started=Date.now()
+ assert.deepEqual(await e.budgetedCompletion(groq,{},[]),{ok:true})
+ assert.equal(calls,2)
+ assert.ok(Date.now()-started>=1000,'it waited for the cooldown')
+})
 test('malformed requests do not rotate credentials',async()=>{
  const e=create();let backupCalls=0
  const a={chat:{completions:{create:async()=>{throw {status:400}}}}}
  const b={chat:{completions:{create:async()=>{backupCalls++}}}}
  await assert.rejects(e.budgetedCompletion(a,{},[b]),err=>err.status===400)
  assert.equal(backupCalls,0)
+})
+test('a brand profile with a budget drops the research pages and shortens every field but the name to fit',()=>{
+ const e=create()
+ const brand={name:'Swonkie',about:'a'.repeat(2400),services:'s'.repeat(1100),projects:'p'.repeat(1000),researchSources:[{url:'https://swonkie.com',title:'Home'}]}
+ const full=e.compactBrand(brand)
+ assert.equal(full.researchSources.length,1)
+ const fitted=e.compactBrand(brand,1500)
+ assert.equal(fitted.researchSources,undefined)
+ assert.equal(fitted.name,'Swonkie')
+ assert.ok(JSON.stringify(fitted).length<=1500,`fits in 1,500 characters (${JSON.stringify(fitted).length})`)
+ assert.ok(fitted.about.length>fitted.projects.length,'each field keeps its share')
+ assert.deepEqual(e.compactBrand({name:'Small',about:'short'},1500),{name:'Small',about:'short'},'a profile already within the budget is unchanged')
 })

@@ -1,6 +1,7 @@
 /**
- * Photos the user attaches to an idea (up to four). Each is read by a vision model when it is uploaded, then placed
- * on exactly one slide of the post: never repeated, never reused by another post.
+ * Photos the user attaches to an idea (as many as their plan adds to a post: lib/billing/plans.ts). Each is read by a
+ * vision model when it is uploaded, then placed on exactly one slide of the post: never repeated, never reused by
+ * another post.
  * The pure helpers here are tested without the database or a model call.
  */
 import Groq from 'groq-sdk'
@@ -9,7 +10,12 @@ import { budgetedCompletion, retrySeconds } from '@/lib/services/ai/requestBudge
 import { hydrateBrandFamilies } from '@/lib/designs/global/store'
 import { familyImagery } from '@/lib/designs/global/study'
 
-export const MAX_POST_IMAGES = 4
+/**
+ * The most photos any post may have: one on each slide of the longest carousel, which is also the largest plan's
+ * photosPerPost (MAX_PHOTOS_PER_POST in lib/billing/plans.ts; tests/plans.test.cjs keeps them equal). Each plan's own
+ * number is checked when the idea is written (requirePhotoRoom).
+ */
+export const MAX_POST_IMAGES = 10
 export const POST_IMAGE_SOURCE = 'post_upload'
 const IMAGE_COMPOSITIONS = ['image-led', 'split', 'stacked']
 
@@ -17,7 +23,7 @@ export interface PostImage { id: string; ref: string; url: string; thumbnail_url
 
 const fail = (message: string, status = 400) => Object.assign(new Error(message), { status })
 
-/** Uploaded photo ids from a request: unique, at most four. */
+/** Uploaded photo ids from a request: unique, at most MAX_POST_IMAGES. */
 export function postImageIds(value: any): string[] {
   if (value == null) return []
   if (!Array.isArray(value)) throw fail('images must be a list of uploaded photo ids')

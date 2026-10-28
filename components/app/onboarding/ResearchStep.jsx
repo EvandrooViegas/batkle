@@ -55,7 +55,7 @@ export default function ResearchStep({ domain, phase, error, onRetry, onChangeWe
           : 'This usually takes about a minute. Batkle reads your site the way a new copywriter would, then saves what it learns.'}
       </p>
 
-      <div className="mt-8 rounded-2xl border border-bk-line bg-bk-surface p-5 sm:p-6">
+      <div className="mt-8 rounded-2xl bg-bk-surface shadow-bk-card p-5 sm:p-6">
         <div className="flex items-center justify-between gap-4 text-[13px] text-bk-muted">
           <span className="font-semibold text-bk-fg">{error ? 'Stopped' : finished ? 'Done' : 'Working…'}</span>
           <span className="tabular-nums" aria-hidden="true">{clock(elapsed)}</span>

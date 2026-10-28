@@ -19,7 +19,7 @@ MAIN SCREENS
 - Brand Information: the researched brand profile, logo versions (original, white, black, transparent), colours and fonts.
 - Brand Personalization: pick the designs this brand uses; previews show each design in the brand's own colours, fonts and logo.
 - Creation: an idea list, then for each idea a step-by-step generation card (Content → Visuals → Build) with the finished post preview.
-- Gallery: the brand's uploaded photos plus AI-generated transparent PNG "cutouts", saved for reuse in later posts.
+- Gallery: the AI-generated transparent PNG "cutouts" made for the brand's posts (clean ones only), saved so later posts reuse them instead of generating again. People's own photos are added to each post idea instead (4 a post on Free, 8 on Pro, 10 on Business).
 - Editor: canvas with layers, text styling (fonts, gradients, highlights), shapes, images (crop, masks, filters), carousel pages, an image picker from the gallery, undo/redo and export.
 - Design Library (admin): upload 1–3 reference posts. The app "studies" them (layout, type scale, colour roles, imagery, decorations, branding placement), shows sample compositions, and lets you fine-tune and publish the design.
 - Renders / API: designs can also be rendered with dynamic data through a single API call.

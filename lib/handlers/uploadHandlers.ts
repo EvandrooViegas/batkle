@@ -10,13 +10,12 @@ import { compactImage } from '@/lib/services/imageStorage'
 import { loadUpload } from '@/lib/services/uploadCache'
 import { DIRECT_UPLOAD_MAX_BYTES, DIRECT_UPLOAD_TYPES, UPLOAD_PURPOSES, createPendingUpload, saveUpload, withDirectUpload } from '@/lib/services/uploadStore'
 import { r2Configured } from '@/lib/services/objectStore'
-import { requireUploadRoom } from '@/lib/billing/account'
 
 const failure = (message: string, status: number) => corsify(NextResponse.json({ error: message }, { status }))
 
 /**
  * Starts an upload that goes from the browser straight to R2, so images are not limited by the host's 4.5 MB cap on
- * requests: checks the type, the size (up to 25 MB) and the plan's room, and answers `{ id, url, headers }`, a PUT
+ * requests: checks the type and the size (up to 25 MB), and answers `{ id, url, headers }`, a PUT
  * valid for 10 minutes. The browser then sends `{ upload: id }` to the usual endpoint. Without R2 it answers 404
  * `{ direct: false }`, and the browser sends the image inside the request as before.
  */
@@ -31,15 +30,13 @@ export async function handleSignUpload(db: any, body: any, userId?: string | nul
   if (!Number.isInteger(size) || size < 1) return failure('size must be the file size in bytes', 400)
   if (size > DIRECT_UPLOAD_MAX_BYTES) return failure('Image too large (max 25 MB).', 413)
   if (purpose !== 'editor' && (typeof brand_id !== 'string' || !brand_id)) return failure('brand_id is required', 400)
-  // A full allowance refuses here, before anything is sent; the route answers 402 with the billing code.
-  await requireUploadRoom(db, userId, size)
   return corsify(NextResponse.json(await createPendingUpload(db, { ownerId: userId, purpose, brand_id: purpose === 'editor' ? null : brand_id, contentType, size })))
 }
 
 /**
  * An image added in the editor, sent inside the request as a data URL or uploaded to R2 first (`upload`, from
- * handleSignUpload). With a signed-in person it is one of their own images and counts against their plan (a full
- * allowance answers 402 limit_reached); without one (internal callers) it belongs to nobody.
+ * handleSignUpload). With a signed-in person it is recorded as one of their own images; without one (internal
+ * callers) it belongs to nobody.
  */
 export async function handleUploadImage(db: any, body: any, request: Request, userId?: string | null) {
   if (body?.upload !== undefined) {
@@ -60,8 +57,6 @@ async function storeEditorImage(db: any, request: Request, userId: string | null
   if (!/^image\/[\w.+-]+$/i.test(contentType)) return failure('Choose an image file.', 415)
   if (buf.length > maxBytes) return failure(`Image too large (max ${Math.round(maxBytes / 1024 / 1024)}MB)`, 413)
 
-  // Billing errors pass through to the route, which answers them with their status and code.
-  if (userId) await requireUploadRoom(db, userId, buf.length)
   const uploadId = uuidv4()
   const stored = await compactImage(buf, contentType)
   await saveUpload(db, { id: uploadId, bytes: stored.bytes, contentType: stored.contentType, ...(userId ? { ownerId: userId, userUpload: true } : {}) })

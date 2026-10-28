@@ -1,6 +1,6 @@
 # Background photo search
 
-Background slots first try relevant unused photos from the brand gallery. If none match, the resolver searches the configured stock providers concurrently and ranks their candidates together by slide keyword relevance, then original resolution. It reserves only the winning image across carousel slots. Photographs are never AI-generated; when no photo fits a global-design slot, it uses a transparent AI cutout instead (see `docs/design-study-generation.md`).
+Background slots show a photo the user attached to the idea when the plan put one there; otherwise the resolver searches the configured stock providers concurrently and ranks their candidates together by slide keyword relevance, then original resolution. It reserves only the winning image across carousel slots. Photographs are never AI-generated; when no photo fits a global-design slot, it uses a transparent AI cutout instead (see `docs/design-study-generation.md`).
 
 Configure server-side environment variables in `.env.local` (or the deployment environment):
 

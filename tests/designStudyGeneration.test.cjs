@@ -15,6 +15,7 @@ function planner(writeCopy, planAssets, overrides = {}) {
   return load('lib/handlers/postPlanHandler.ts', ['handlePlanPost', 'designPlanningPrompt', 'sanitizeDesignPlan', 'varyCover'], {
     NextResponse: nodeRes, corsify: r => r,
     loadGenerationBrandContext: async (_db, body) => ({ id: 'brand', name: 'Brand', ...body.brandContext }),
+    loadPostFeedback: async () => [], withoutDislikedDesigns: brand => brand,
     chooseBrandFamily: async (_db, brand) => brand.family ? { family: brand.family, design: { id: 'global-' + brand.family.id } } : null,
     studyForPlanning: study.studyForPlanning, familyGrammar: study.familyGrammar, familyImagery: study.familyImagery, familyCutouts: study.familyCutouts, familyPhotoLed: study.familyPhotoLed,
     writeCopy, copyErrorResponse: (error) => ({ body: { error: error.message }, status: error.status || 500 }), planAssets,

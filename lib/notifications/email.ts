@@ -44,6 +44,48 @@ export async function sendEmail(message: EmailMessage): Promise<{ id: string }> 
   return { id: String(data?.id || '') }
 }
 
+/**
+ * Where Resend got with an email (https://resend.com/docs/api-reference/emails/retrieve-email): 'delivered' once the
+ * receiving server took it, 'bounced' when the address does not exist or refused it, 'sent' while it is on its way.
+ * Null when Resend could not be asked (no key, a sending-only key, a network error).
+ */
+export async function emailDelivery(id: string): Promise<'sent' | 'delivered' | 'bounced' | null> {
+  const key = process.env.RESEND_API_KEY?.trim()
+  if (!key || !id) return null
+  try {
+    const res = await fetch(`https://api.resend.com/emails/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8_000) })
+    if (!res.ok) return null
+    const event = String((await res.json().catch(() => ({})))?.last_event || '')
+    if (['bounced', 'failed', 'suppressed', 'canceled'].includes(event)) return 'bounced'
+    if (['delivered', 'opened', 'clicked', 'complained'].includes(event)) return 'delivered'
+    return 'sent'
+  } catch {
+    return null
+  }
+}
+
+/**
+ * False only when DNS says nothing can receive mail at the address's domain: no MX record (or a "null MX") and no
+ * A/AAAA record to fall back to. A lookup that fails for any other reason (a timeout, a resolver error) gives true,
+ * so a slow DNS never blocks an invitation.
+ */
+export async function mailDomainExists(address: string): Promise<boolean> {
+  const domain = String(address).split('@').pop()?.trim().toLowerCase() || ''
+  if (!domain) return false
+  const { promises: dns } = await import('node:dns')
+  const missing = (error: any) => ['ENOTFOUND', 'ENODATA', 'NXDOMAIN'].includes(error?.code)
+  try {
+    const mx = await dns.resolveMx(domain)
+    if (mx.length) return !(mx.length === 1 && (!mx[0].exchange || mx[0].exchange === '.'))
+  } catch (error) {
+    if (!missing(error)) return true
+  }
+  for (const lookup of [() => dns.resolve4(domain), () => dns.resolve6(domain)]) {
+    try { if ((await lookup()).length) return true } catch (error) { if (!missing(error)) return true }
+  }
+  return false
+}
+
 export function escapeHtml(value: unknown): string {
   return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
 }

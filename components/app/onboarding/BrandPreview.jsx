@@ -44,7 +44,7 @@ export default function BrandPreview({ domain, brand, languageLabel, loading = f
   const headline = fonts[0] || 'inherit'
 
   return (
-    <div className={cn('overflow-hidden rounded-2xl border border-bk-line bg-bk-surface shadow-bk-card', compact ? '' : 'lg:sticky lg:top-8')}>
+    <div className={cn('overflow-hidden rounded-2xl bg-bk-surface shadow-bk-card', compact ? '' : 'lg:sticky lg:top-8')}>
       {!compact && (
         <div className="relative flex aspect-[4/5] flex-col justify-between p-6 transition-colors duration-500" style={{ backgroundColor: brand ? primary : undefined, color: brand ? onColor(primary) : undefined }}>
           {!brand && <div aria-hidden="true" className={cn('absolute inset-0 bg-bk-alt', loading && 'animate-pulse')} />}

@@ -60,14 +60,14 @@ export default function ReviewStep({ result, choices, onContinue, onOpenProfile,
         </div>
 
         {brand.about && (
-          <section className="rounded-2xl border border-bk-line bg-bk-surface p-5">
+          <section className="rounded-2xl bg-bk-surface shadow-bk-card p-5">
             <h2 className="text-[14px] font-bold">About the business</h2>
             <p className="mt-2 line-clamp-5 whitespace-pre-line text-[14px] leading-relaxed text-bk-fg/80">{brand.about}</p>
           </section>
         )}
 
         {services.length > 0 && (
-          <section className="rounded-2xl border border-bk-line bg-bk-surface p-5">
+          <section className="rounded-2xl bg-bk-surface shadow-bk-card p-5">
             <h2 className="text-[14px] font-bold">Services Batkle will write about</h2>
             <ul className="mt-3 flex flex-wrap gap-2">
               {services.slice(0, 8).map((service, i) => (

@@ -19,6 +19,7 @@ import ReadyStep from './ReadyStep'
 import ResearchStep from './ResearchStep'
 import ResumePanel from './ResumePanel'
 import ReviewStep from './ReviewStep'
+import SignOutButton from './SignOutButton'
 import { ManualStep, WebsiteStep } from './WebsiteStep'
 
 const STEPS = [['website', 'Website'], ['research', 'Research'], ['review', 'Review'], ['design', 'Design']]
@@ -269,12 +270,16 @@ export default function BrandOnboarding({ initialWebsite = '', firstBrand = fals
           <BatkleLogo size={30} />
         </Link>
         {index < 4 && !manualFlow && <Stepper index={index} />}
-        {/* Choosing a design is required, so the design step has no way out but finishing it or going back. */}
-        {step === 'design' ? <span aria-hidden="true" className="w-8" /> : (
-          <Link href={exit.href} className={appButton('quiet', 'sm')} aria-label={exit.label}>
-            <X className="size-4" /><span className="hidden sm:inline">{exit.label}</span>
-          </Link>
-        )}
+        <div className="flex items-center gap-1">
+          {/* Choosing a design is required, so the design step has no way out but finishing it or going back. */}
+          {step === 'design' ? !firstBrand && <span aria-hidden="true" className="w-8" /> : (
+            <Link href={exit.href} className={appButton('quiet', 'sm')} aria-label={exit.label}>
+              <X className="size-4" /><span className="hidden sm:inline">{exit.label}</span>
+            </Link>
+          )}
+          {/* Before the first brand there is no studio, and so no account menu: signing out happens here. */}
+          {firstBrand && <SignOutButton />}
+        </div>
       </header>
 
       <main

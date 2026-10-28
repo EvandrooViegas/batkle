@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { runPostGeneration } from '@/lib/client/postGeneration'
-import { billingAction, isBillingCode } from '@/lib/client/billing'
+import { apiError, billingAction, isBillingCode } from '@/lib/client/billing'
 import { ideaStatus, retryCopy } from '@/lib/client/ideaStatus'
+import { surfaceOf, surfaceWords } from './surface'
 
 // Same shape as the saved flow.creationState, so existing ideas and posts load unchanged.
 const EMPTY = { ideas: [], copyResults: {}, planResults: {}, resolveResults: {}, designResults: {} }
@@ -18,15 +19,13 @@ function failureToast(error, fallback) {
   toast.error(error.message, { duration: 12000, action: { label, onClick: () => window.location.assign(href) } })
 }
 
-// Which page an idea belongs to: posts (Creation) or stories (Stories, built at 9:16). Ideas saved before stories have none.
-export const surfaceOf = idea => (idea?.surface === 'story' ? 'story' : 'post')
+export { surfaceOf }
 
 /**
- * State and actions for the Creation and Stories pages: ideas, their post builds, and saving to the brand. Both pages
- * share the brand's saved ideas; each sees and changes only its own (`surface`).
- * Saves are serialized and always send the latest state, so a slow save never overwrites a newer one.
+ * State and actions for the Posts & stories page: ideas (posts and stories alike), their builds, and saving to the
+ * brand. Saves are serialized and always send the latest state, so a slow save never overwrites a newer one.
  */
-export function useCreation({ flowId, brandContext: suppliedBrand, surface = 'post' }) {
+export function useCreation({ flowId, brandContext: suppliedBrand }) {
   const [savedBrand, setSavedBrand] = useState(null)
   const brandContext = useMemo(() => ({ ...(savedBrand || suppliedBrand), id: flowId || suppliedBrand?.id }), [savedBrand, suppliedBrand, flowId])
   const brandId = flowId ? `brand_${flowId}` : null
@@ -38,9 +37,12 @@ export function useCreation({ flowId, brandContext: suppliedBrand, surface = 'po
   const [failures, setFailures] = useState({}) // ideaId → { stage, message, code?, billing? } from this session
   const [focusId, setFocusId] = useState(null) // the idea the user acted on last; shown in the featured card
   const [busy, setBusy] = useState(null)       // 'create' | 'suggest' while an idea is being written
+  const [ratings, setRatings] = useState([])   // the owner's likes and dislikes, newest first (lib/services/postFeedback.ts)
 
   const dataRef = useRef(data)
   dataRef.current = data
+  const ratingsRef = useRef(ratings)
+  ratingsRef.current = ratings
   // Operator notices (such as an empty AI image account) are shown only to the signed-in Design Library admin.
   const operator = useRef(false)
   useEffect(() => {
@@ -59,6 +61,7 @@ export function useCreation({ flowId, brandContext: suppliedBrand, surface = 'po
       .then(flow => {
         if (cancelled) return
         if (flow?.brandContext) setSavedBrand(flow.brandContext)
+        if (Array.isArray(flow?.postFeedback)) setRatings(flow.postFeedback)
         const saved = flow?.creationState
         if (saved?.ideas?.length) {
           const next = { ideas: saved.ideas, ...Object.fromEntries(RESULT_KINDS.map(k => [k, saved[k] || {}])) }
@@ -160,13 +163,13 @@ export function useCreation({ flowId, brandContext: suppliedBrand, surface = 'po
   /**
    * Writes a new idea from the user's text (or a suggestion when it is empty) and attached photos (asset ids);
    * with andBuild, also creates the post. The post settings (slides, language, images, design) are kept on the
-   * idea, so rebuilds follow them; 'auto' leaves each one to Batkle.
+   * idea, so rebuilds follow them; 'auto' leaves each one to Batkle. `surface: 'story'` makes it a story (9:16).
    */
-  const createIdea = useCallback(async ({ request = '', format = 'auto', images = [], imageChoice = 'auto', slides = 'auto', designId = 'auto', language = null, andBuild = false }) => {
+  const createIdea = useCallback(async ({ request = '', surface = 'post', format = 'auto', images = [], imageChoice = 'auto', slides = 'auto', designId = 'auto', language = null, andBuild = false }) => {
     if (busy) return null
     setBusy(andBuild ? 'create' : 'suggest')
     try {
-      const recent = dataRef.current.ideas.filter(i => surfaceOf(i) === surface).slice(0, 30)
+      const recent = dataRef.current.ideas.slice(0, 30)
       const res = await fetch('/api/generate-content-ideas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -176,11 +179,11 @@ export function useCreation({ flowId, brandContext: suppliedBrand, surface = 'po
           ...(language ? { language } : {}),
           existingTopics: recent.map(i => i.topic),
           // Slide counts let the next carousel run a different length: the plan, else the built post.
-          existingIdeas: recent.map(i => ({ topic: i.topic, pillar: i.pillar, format: i.format, angle: i.angle, slides: i.outline?.length || (i.format === 'carousel' ? statusOf(i.id).slides : 0) || undefined })),
+          existingIdeas: recent.map(i => ({ topic: i.topic, pillar: i.pillar, format: i.format, angle: i.angle, hookShape: i.hookShape, hook: i.hook, targetAudience: i.targetAudience, slides: i.outline?.length || (i.format === 'carousel' ? statusOf(i.id).slides : 0) || undefined })),
         }),
       })
       const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Failed to create the idea')
+      if (!res.ok) throw apiError(json, res.status, 'Failed to create the idea')
       const written = json.ideas?.[0]
       if (!written) throw new Error('No idea returned')
       const idea = {
@@ -195,19 +198,20 @@ export function useCreation({ flowId, brandContext: suppliedBrand, surface = 'po
       else toast.success('New idea added')
       return idea
     } catch (error) {
-      toast.error(error.message || 'Something went wrong')
+      failureToast(error, 'Something went wrong')
       return null
     } finally {
       setBusy(null)
     }
-  }, [busy, brandContext, flowId, startBuild, statusOf, surface])
+  }, [busy, brandContext, flowId, startBuild, statusOf])
 
   /** Builds several posts one after another, so a batch never multiplies concurrent AI requests. */
   const buildMany = useCallback(async ids => {
     const ideas = dataRef.current.ideas.filter(i => ids.has(i.id))
     if (!ideas.length) return
-    const noun = surface === 'story' ? 'stor' : 'post'
-    const plural = n => `${noun}${noun === 'stor' ? (n > 1 ? 'ies' : 'y') : n > 1 ? 's' : ''}`
+    // Posts, stories, or both when the batch mixes them.
+    const kinds = new Set(ideas.map(surfaceOf))
+    const plural = n => (kinds.size > 1 ? 'posts and stories' : n > 1 ? surfaceWords([...kinds][0]).plural : surfaceWords([...kinds][0]).noun)
     toast.info(`Creating ${ideas.length} ${plural(ideas.length)}…`)
     let failed = 0, made = 0
     for (const idea of ideas) {
@@ -223,7 +227,7 @@ export function useCreation({ flowId, brandContext: suppliedBrand, surface = 'po
     }
     if (failed) toast.error(`${failed} of ${ideas.length} ${plural(2)} could not be created`)
     else toast.success(`${ideas.length} ${plural(ideas.length)} ready to edit`)
-  }, [build, surface])
+  }, [build])
 
   const deleteIdeas = useCallback(ids => {
     const keep = ([id]) => !ids.has(id)
@@ -235,28 +239,63 @@ export function useCreation({ flowId, brandContext: suppliedBrand, surface = 'po
     toast.success(`${ids.size} idea${ids.size > 1 ? 's' : ''} deleted`)
   }, [])
 
-  // Clears this page's ideas only: the other page's (posts or stories) stay.
   const deleteAll = useCallback(() => {
-    const ids = new Set(dataRef.current.ideas.filter(i => surfaceOf(i) === surface).map(i => i.id))
-    const keep = ([id]) => !ids.has(id)
-    setData(d => ({
-      ideas: d.ideas.filter(i => !ids.has(i.id)),
-      ...Object.fromEntries(RESULT_KINDS.map(k => [k, Object.fromEntries(Object.entries(d[k]).filter(keep))])),
-    }))
-    setFailures(f => Object.fromEntries(Object.entries(f).filter(keep)))
+    setData({ ...EMPTY })
+    setFailures({})
     setFocusId(null)
     toast.success('Ideas cleared')
-  }, [surface])
+  }, [])
 
   // The featured card follows what the user did last, then any running build, then the newest finished post,
   // then the newest idea.
-  const ideas = useMemo(() => data.ideas.filter(i => surfaceOf(i) === surface), [data.ideas, surface])
+  const ideas = data.ideas
   const featuredId = useMemo(() => {
     if (focusId && ideas.some(i => i.id === focusId)) return focusId
     const runningId = Object.keys(running).find(id => ideas.some(i => i.id === id))
     if (runningId) return runningId
     return ideas.find(i => data.designResults[i.id]?.canvas)?.id ?? ideas[0]?.id ?? null
   }, [focusId, running, ideas, data.designResults])
+
+  /** The rating of the version of this idea shown now: rebuilding makes a new version, rated afresh. */
+  const ratingOf = useCallback(idea => {
+    const key = data.designResults[idea.id]?.canvas?.id || idea.id
+    return ratings.find(r => r.key === key) || null
+  }, [ratings, data.designResults])
+
+  /**
+   * Likes or dislikes the post an idea made now (`value`: { rating, reasons, note }, or null to take it away). The
+   * rating keeps a snapshot of the post, so Batkle still learns from it after the idea is deleted. Shown at once;
+   * saves run one after another, and a failed one puts the last saved ratings back.
+   */
+  const rateQueue = useRef(Promise.resolve())
+  const rate = useCallback((idea, value) => {
+    const d = dataRef.current
+    const copy = d.copyResults[idea.id]?.copy, canvas = d.designResults[idea.id]?.canvas
+    const key = canvas?.id || idea.id
+    const post = {
+      ideaId: idea.id, canvasId: canvas?.id, surface: surfaceOf(idea), format: copy?.format || idea.format,
+      topic: idea.topic, hook: idea.hook, hookShape: idea.hookShape, pillar: idea.pillar || idea.angle?.pillar,
+      headline: copy?.headline || copy?.slides?.[0]?.headline, caption: copy?.caption, designId: d.planResults[idea.id]?.plan?.designId,
+    }
+    const before = ratingsRef.current.find(r => r.key === key) || null
+    setRatings(list => {
+      const rest = list.filter(r => r.key !== key)
+      return value ? [{ ...value, key, ideaId: idea.id }, ...rest] : rest
+    })
+    rateQueue.current = rateQueue.current.then(async () => {
+      try {
+        const res = await fetch('/api/post-feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ flowId, rating: value?.rating ?? null, reasons: value?.reasons || [], note: value?.note || '', post }) })
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok || !Array.isArray(json.feedback)) throw new Error(json.error || 'Your rating could not be saved')
+        setRatings(json.feedback)
+        const noun = surfaceWords(surfaceOf(idea)).plural
+        if (value && value.rating !== before?.rating) toast.success(value.rating === 'like' ? `Batkle will make more ${noun} like this` : `Batkle will steer away from this in the next ${noun}`)
+      } catch (error) {
+        setRatings(list => [...(before ? [before] : []), ...list.filter(r => r.key !== key)])
+        toast.error(error.message || 'Your rating could not be saved')
+      }
+    })
+  }, [flowId])
 
   /** The plan limit that stopped this idea's last build in this session (an Error-like { message, code, billing }), or null. */
   const limitOf = useCallback(id => (isBillingCode(failures[id]?.code) ? failures[id] : null), [failures])
@@ -266,5 +305,6 @@ export function useCreation({ flowId, brandContext: suppliedBrand, surface = 'po
     ideas, copyResults: data.copyResults,
     statusOf, featuredId, isRunning: id => !!running[id], anyRunning: Object.keys(running).some(id => ideas.some(i => i.id === id)),
     createIdea, startBuild, retry, rebuildDesign, newVersion, buildMany, deleteIdeas, deleteAll,
+    ratingOf, rate,
   }
 }

@@ -378,6 +378,13 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
   const logoOn = (ground: string) => {
     const ink = typeof variants?.inkLightness === 'number' ? variants.inkLightness : null
     const g = lightness(ground)
+    // Versions measured per ground: when part of the mark would vanish (a dark wordmark on a dark slide), the version
+    // with those shapes recoloured, else the silhouette. Mid-tone grounds keep the contrast rule below.
+    if (variants && typeof variants.lostOnDark === 'number' && typeof variants.lostOnLight === 'number' && (g < .18 || g > .6)) {
+      const lost = g < .18 ? variants.lostOnDark : variants.lostOnLight
+      if (lost < .08) return variants.originalTransparent || logoUrl
+      return (g < .18 ? variants.reversedTransparent || variants.whiteTransparent : variants.darkenedTransparent || variants.blackTransparent) || logoUrl
+    }
     if (ink !== null && (Math.max(ink, g) + .05) / (Math.min(ink, g) + .05) >= 2.5) return variants.originalTransparent || logoUrl
     return (ink === null && g >= .4 ? variants?.originalTransparent : g < .4 ? variants?.whiteTransparent : variants?.blackTransparent) || logoUrl
   }
@@ -465,7 +472,26 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
   const textNode = (spec: any, area: Box, align: Align) => {
     if (spec.role === 'headline' && boxed) {
       const solid = g.headline.frame === 'solid', padY = spec.padY || 0, padX = Math.round((spec.pad || 0) / 2)
-      push('headline-frame', { type: 'shape', shape: 'rect', ...area, borderRadius: 0, fill: solid ? accent : '#00000000', ...(solid ? {} : { stroke: accent, strokeWidth: Math.max(3, Math.round(spec.size * .035)) }) })
+      // Over a photograph a panel covers no more of it than its lines need: the narrowest width that keeps the same
+      // lines even if the real font runs 8% wider than estimated.
+      if (solid && textOnImage) {
+        const lines = (w: number, scale = 1) => countLines(spec.text, spec.size, (w - 8 - (spec.pad || 0)) / scale, spec.font, spec.letterSpacing || 0)
+        const target = lines(area.width)
+        let lo = Math.round(area.width * .3), hi = area.width
+        while (hi - lo > 4) { const mid = Math.round((lo + hi) / 2); if (lines(mid, 1.08) <= target) hi = mid; else lo = mid }
+        const width = lines(hi, 1.08) <= target ? hi : area.width
+        area = { ...area, x: align === 'right' ? area.x + area.width - width : align === 'center' ? Math.round(area.x + (area.width - width) / 2) : area.x, width }
+      }
+      // A studied panel can carry a thin dark outline and a second block offset behind it, down and to the right,
+      // running off the canvas edge when the panel is wide. The block sits behind the panel and behind any card.
+      const look = solid ? g.panel : undefined
+      const keyline = look?.outline ? { stroke: on(accent), strokeWidth: Math.max(3, Math.round(W * .003)) } : {}
+      if (look && look.offset !== 'none') {
+        const ox = area.x + Math.round(area.width * .35), oy = area.y + Math.round(area.height * .55)
+        pushBehind('panel-offset', { type: 'shape', shape: 'rect', x: ox, y: oy, width: Math.min(W - ox, Math.round(area.width * .8)), height: Math.round(area.height * .75), borderRadius: 0,
+          ...(look.offset === 'block' ? { fill: accent, ...keyline } : { fill: '#00000000', stroke: accent, strokeWidth: Math.max(3, Math.round(W * .004)) }) })
+      }
+      push('headline-frame', { type: 'shape', shape: 'rect', ...area, borderRadius: 0, fill: solid ? accent : '#00000000', ...(solid ? keyline : { stroke: accent, strokeWidth: Math.max(3, Math.round(spec.size * .035)) }) })
       area = { x: area.x + padX, y: area.y + padY, width: area.width - 2 * padX, height: area.height - 2 * padY }
       if (solid) spec = { ...spec, color: on(accent), solidFrame: true }
     }
@@ -478,11 +504,20 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
     // Gradient-filled headlines stay editable text: the editor's text-fill gradient, not a picture of text.
     ...(spec.role === 'headline' && headlineGradient && !spec.solidFrame ? { fillType: 'gradient', textGradient: headlineGradient } : {}),
   })
+  // Filled cards share an outlined panel's thin dark line, so the copy's blocks read as one set.
   const card = (area: Box, role = 'card', maxRadius = Infinity) => push(role, {
     type: 'shape', shape: 'rect', ...area, borderRadius: Math.min(radiusFor(area.height), maxRadius),
     fill: box.style === 'outline' ? '#00000000' : box.style === 'glass' ? glass : cardFill,
-    ...(box.style === 'outline' || box.style === 'glass' ? { stroke: alpha(fg, box.style === 'glass' ? 18 : 30), strokeWidth: 2 } : {}),
+    ...(box.style === 'outline' || box.style === 'glass' ? { stroke: alpha(fg, box.style === 'glass' ? 18 : 30), strokeWidth: 2 }
+      : g.headline.frame === 'solid' && g.panel?.outline ? { stroke: on(cardFill), strokeWidth: Math.max(3, Math.round(W * .003)) } : {}),
   })
+  // A shape behind the copy's surfaces already placed (cards, panels, the band), or on top when there are none.
+  const pushBehind = (role: string, node: any) => {
+    const at = nodes.findIndex(n => /^(callout-card|panel-card|item-card|band)$/.test(n.designRole || ''))
+    if (at < 0) return push(role, node)
+    nodes.splice(at, 0, { id: id(role), designRole: role, ...node })
+    return nodes[at]
+  }
   // List markers follow the study (numbers, checks, arrows or dots in circles or rounded squares). Families
   // without a studied list style keep their decorative cue: rings read as outlined circles.
   const studiedList = !!(family.study as any)?.grammar?.list
@@ -504,18 +539,21 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
     else push('marker-dot', { type: 'shape', shape: 'ellipse', x: x + size * .35, y: y + size * .35, width: size * .3, height: size * .3, fill: solid ? on(color) : color })
   }
 
-  // Decorations sit behind everything and keep to the side the copy does not use.
-  const freeCorners = (() => {
+  // Decorations sit behind everything and keep to the side the copy does not use, and off the corners the logo, slide
+  // number and handle sit in. A solid corner block with no such corner left is dropped rather than drawn over the logo.
+  const copyFree = (() => {
     const vertical = plan.anchor === 'top' ? ['bottom'] : plan.anchor === 'bottom' ? ['top'] : ['top', 'bottom']
     const horizontal = plan.align === 'left' ? ['right'] : plan.align === 'right' ? ['left'] : ['left', 'right']
     return vertical.flatMap(v => horizontal.map(h => `${v}-${h}`))
   })()
-  const decorations = g.decorations.filter(d => d.frequency === 'every' || index % 2 === 0)
+  const freeCorners = copyFree.filter(c => !branding.some(b => b.pos === c))
+  const decorations = g.decorations.filter(d => (d.frequency === 'every' || index % 2 === 0) && (d.kind !== 'cornerBlock' || freeCorners.length))
   const decoColor = (d: any) => alpha(d.color === 'accent' ? accent : d.color === 'foreground' ? fg : (textOnImage ? '#ffffff' : p.tone), d.color === 'surfaceTone' ? Math.max(d.opacity, 60) : d.opacity)
   const sizeOf = (scale: string) => W * ({ small: .16, medium: .3, large: .5, oversized: .78 } as any)[scale]
   const behind: any[] = []
   decorations.forEach((d, i) => {
-    const corner = freeCorners[(i + index) % freeCorners.length]
+    const corners = freeCorners.length ? freeCorners : copyFree
+    const corner = corners[(i + index) % corners.length]
     const [v, h] = corner.split('-')
     const size = sizeOf(d.scale)
     const cx = h === 'left' ? (d.placement === 'edge' ? 0 : M + size / 2) : (d.placement === 'edge' ? W : W - M - size / 2)
@@ -575,7 +613,12 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
     else if (options.preview && cutout) push('image-placeholder', { type: 'shape', shape: 'ellipse', x: frame.x + Math.round(frame.width * .2), y: frame.y + Math.round(frame.height * .08), width: Math.round(frame.width * .6), height: Math.round(frame.height * .92), fill: p.tone })
     else if (options.preview) push('image-placeholder', { type: 'shape', shape: mask === 'circle' ? 'ellipse' : 'rect', ...frame, fill: textOnImage ? mix(p.dark, '#808080', .25) : p.tone, borderRadius: radius })
     else throw Object.assign(new Error('This design needs a photograph. Resolve the image before generating the canvas.'), { status: 409 })
-    if (textOnImage && g.imagery.overlay !== 'none') {
+    // Copy set on solid panels needs no darkened photograph: it stays as studied, with a light shade toward the copy
+    // only when some of it (an eyebrow, a CTA) sits on the photo itself.
+    const onPanels = textOnImage && boxed && g.headline.frame === 'solid' && (!bodyText || (!!plan.callout && cardsFor('callout')))
+    if (onPanels) {
+      if (eyebrowText || ctaText) push('overlay', { type: 'gradient', gradientType: 'linear', ...frame, angle: plan.anchor === 'top' ? 0 : 180, stops: [{ color: p.dark, position: 0, alpha: 0 }, { color: p.dark, position: 100, alpha: 55 }] })
+    } else if (textOnImage && g.imagery.overlay !== 'none') {
       const solid = g.imagery.overlay === 'solid' || plan.anchor === 'center'
       push('overlay', { type: 'gradient', gradientType: 'linear', ...frame, angle: plan.anchor === 'top' ? 0 : 180, stops: solid ? [{ color: p.dark, position: 0, alpha: 52 }, { color: p.dark, position: 100, alpha: 52 }] : [{ color: p.dark, position: 0, alpha: 8 }, { color: p.dark, position: 55, alpha: 38 }, { color: p.dark, position: 100, alpha: 88 }] })
     } else if (textOnImage) push('overlay', { type: 'gradient', gradientType: 'linear', ...frame, angle: plan.anchor === 'top' ? 0 : 180, stops: [{ color: p.dark, position: 0, alpha: 0 }, { color: p.dark, position: 100, alpha: 70 }] })
@@ -696,7 +739,8 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
     // Panel: the same card without the icon, in the study's tint.
     const panel = variant === 'panel' && !textOnImage && !plan.callout
     let ctaPlaced = false
-    if (((plan.callout && cardsFor('callout')) || panel) && specs.some(s => s.role === 'body')) {
+    const carded = ((plan.callout && cardsFor('callout')) || panel) && specs.some(s => s.role === 'body')
+    if (carded) {
       const body = specs.find(s => s.role === 'body')!
       const pad = Math.round(gap * .7), icon = panel ? 0 : Math.round(bSize * 1.9), iconGap = icon ? Math.round(gap * .7) : 0
       const ink = panel ? (contrast(fg, cardFill) >= 4.5 ? fg : on(cardFill)) : cardText
@@ -716,8 +760,9 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
     }
     // Band: the supporting copy and CTA on a full-width accent band along the bottom edge.
     const body = specs.find(s => s.role === 'body')
-    // Over a full-bleed photograph the band sits on the photo's lower edge, a classic lower third.
-    if (variant === 'band' && !bottomBand && (textOnImage || !(frame && frame.y + frame.height > H * .55)) && (body || ctaText)) {
+    // Over a full-bleed photograph the band sits on the photo's lower edge, a classic lower third. A slide whose body
+    // already sits in a card at the foot of the copy keeps no band: it would cover the card.
+    if (variant === 'band' && !carded && !bottomBand && (textOnImage || !(frame && frame.y + frame.height > H * .55)) && (body || ctaText)) {
       const pad = Math.round(M * .75), inner = W - 2 * M
       const bodyFit = body ? fitGroup([{ ...body, color: p.onAccent }], inner, Math.round(H * .28), 0) : null
       const bandH = (bodyFit ? bodyFit.total : 0) + (ctaText ? ctaHeight + (bodyFit ? Math.round(gap * .5) : 0) : 0) + 2 * pad
@@ -793,7 +838,7 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
 
   // The largest empty band the copy leaves inside the content area (above or below it). A fill cutout stands in it:
   // on the bottom edge below the copy, or just above the headline, on the side away from the copy's alignment.
-  const COPY = /^(eyebrow|eyebrow-pill|headline|headline-frame|body|cta|cta-rule|item|item-card|marker|marker-glyph|marker-dot|badge|badge-logo|badge-mark|callout-card|accent-line|panel-card|band|lead|rule|sidebar|timeline)$/
+  const COPY = /^(eyebrow|eyebrow-pill|headline|headline-frame|panel-offset|body|cta|cta-rule|item|item-card|marker|marker-glyph|marker-dot|badge|badge-logo|badge-mark|callout-card|accent-line|panel-card|band|lead|rule|sidebar|timeline)$/
   const copyNodes = nodes.filter(n => COPY.test(n.designRole || ''))
   let free: { side: 'top' | 'bottom'; box: Box } | null = null
   if (copyNodes.length) {
@@ -887,6 +932,19 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
         const width = Math.min(Math.round(W * .5), half)
         push('handle', { type: 'text', x: place(width), ...line(y, band, size, 1.1), width, text: site, fontFamily: bodyFont, fontSize: size, fontWeight: 400, lineHeight: 1.1, color: muted, textAlign: h === 'center' ? 'center' : h })
       }
+    }
+  }
+
+  // A panel's offset block never runs under loose copy (a CTA or rule, often in the same accent colour): it ends above
+  // it, or is left out when too little would show.
+  const offset = nodes.find(n => n.designRole === 'panel-offset')
+  if (offset) {
+    const under = nodes.filter(n => /^(cta|cta-rule|rule|lead|eyebrow|accent-line)$/.test(n.designRole || '')
+      && n.x < offset.x + offset.width && n.x + n.width > offset.x && n.y + n.height > offset.y && n.y < offset.y + offset.height)
+    if (under.length) {
+      const room = Math.min(...under.map(n => n.y)) - 8 - offset.y
+      if (room >= 24) offset.height = room
+      else nodes.splice(nodes.indexOf(offset), 1)
     }
   }
 

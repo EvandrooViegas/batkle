@@ -6,7 +6,7 @@ const { stripTypeScriptTypes } = require('node:module')
 const source = fs.readFileSync(require('node:path').join(__dirname, '../lib/handlers/assetResolverHandler.ts'), 'utf8')
   .replace(/^import .*$/gm, '').replace(/export /g, '')
 function engine(fetch, generation, env = {}) {
-  const library=new Function('createHash',stripTypeScriptTypes(fs.readFileSync('lib/services/generatedAssetLibrary.ts','utf8').replace(/^import .*$/gm,'').replace(/export /g,''))+';return {findGeneratedAsset,saveGeneratedAsset}')(require('node:crypto').createHash)
+  const library=new Function('createHash',stripTypeScriptTypes(fs.readFileSync('lib/services/generatedAssetLibrary.ts','utf8').replace(/^import .*$/gm,'').replace(/export /g,''))+';return {findGeneratedAsset,saveGeneratedAsset,isGalleryCutout}')(require('node:crypto').createHash)
   return vm.runInNewContext(stripTypeScriptTypes(source) + (generation ? '\ngenerateImage = generation;\n' : '') + '\n({ searchUnsplash, searchStock, resolveSlot, buildGenerationBrief, generateImageOpenAI })', {
     hasWatermarkMetadata: new Function(stripTypeScriptTypes(fs.readFileSync('lib/handlers/assetPlannerHandler.ts','utf8').replace(/^import .*$/gm,'').replace(/export /g,''))+';return hasWatermarkMetadata')(),
     ...library,fetch, generation, console, URL, Buffer, Uint8Array, AbortSignal, sharp: require('sharp'), process: {env}, Math: Object.assign(Object.create(Math), { random: () => 0 }),
@@ -14,13 +14,13 @@ function engine(fetch, generation, env = {}) {
 }
 const photo = id => ({ id, urls: { regular: `https://images.example/${id}` } })
 const slot = { search_queries: ['hands testing soil', 'gardener holding soil'], search_keywords: ['garden'], visual_purpose: 'Check soil' }
-test('described background upload resolves before automatic tagging without stock or generation calls', async () => {
+test('the photo the user attached resolves as itself, without stock or generation calls', async () => {
  const e=engine(async()=>{throw Error('No network expected')},async()=>{throw Error('No generation expected')})
  const db={collection:()=>({findOne:async query=>{
   assert.equal(query.brand_id,'brand-a');assert.equal(query.id,'upload')
-  return {id:'upload',status:'processing',description:'Campo de trigo',description_tags:['wheat','field'],url:'saved-photo',width:1200,height:800}
+  return {id:'upload',status:'ready',source:'post_upload',description:'Campo de trigo',url:'saved-photo',width:1200,height:800}
  }})}
- const result=await e.resolveSlot(db,{slot_id:'bg',needs_visual:true,preferred_source:'uploaded_asset',treatment:'environmental',selected:{asset_id:'upload'}},'brand-a',null,null,new Set())
+ const result=await e.resolveSlot(db,{slot_id:'bg',needs_visual:true,preferred_source:'uploaded_asset',treatment:'environmental',user_upload:true,selected:{asset_id:'upload'}},'brand-a','key',null,new Set())
  assert.equal(result.resolvedAsset.url,'saved-photo')
  assert.equal(result.resolvedAsset.alt,'Campo de trigo')
  assert.equal(result.warning,null)
@@ -150,7 +150,7 @@ test('crop output never triggers a second generation or stock fallback',async()=
 
 test('brand library match bypasses generation, while a different activity generates once',async()=>{
  const request={...slot,needs_visual:true,slot_id:'a',preferred_source:'ai_generated',treatment:'isolated_subject',image_style:'photograph',subject_description:'warehouse operator scanning parcel barcode with handheld scanner'}
- const saved={id:'saved',brand_id:'brand-a',status:'ready',source:'ai_generated',url:'/api/uploads/saved',width:100,height:100,subject_description:request.subject_description,treatment:request.treatment,image_style:'photograph'}
+ const saved={id:'saved',brand_id:'brand-a',status:'ready',source:'ai_generated',url:'/api/uploads/saved',width:100,height:100,subject:{url:'/api/uploads/saved-cut',width:80,height:90},subject_description:request.subject_description,treatment:request.treatment,image_style:'photograph'}
  let calls=0
  const db={collection:()=>({find:query=>({toArray:async()=>query.brand_id==='brand-a'?[saved]:[]}),updateOne:async()=>{}})}
  const e=engine(async()=>{throw Error('No stock')},async()=>{calls++;return {url:'new-image'}})
@@ -168,21 +168,13 @@ test('object-only scene overrides brand requests for people without generating i
  assert.ok(!brief.includes('Use a compact freestanding desk'))
 })
 
-test('stock-first background plans consult the brand gallery before network', async () => {
- const e=engine(async()=>{throw Error('Stock should not run')})
- const db={collection:()=>({find:()=>({limit:()=>({toArray:async()=>[
-  {id:'wrong',url:'wrong',tags:['garden'],description:'office',description_tags:['office']},
-  {id:'right',url:'right',description:'Jardim',description_tags:['garden'],status:'processing'}
- ]})})})}
- const result=await e.resolveSlot(db,{...slot,needs_visual:true,treatment:'environmental',preferred_source:'unsplash'},'brand','key',null,new Set())
- assert.equal(result.source,'uploaded_asset');assert.equal(result.resolvedAsset.asset_id,'right')
-})
-
-test('missing planned background falls back to stock and rejects unrelated gallery tags', async () => {
+test('background photos come from stock: the brand\'s images are never searched, even for old plans that asked for one', async () => {
  const e=engine(async()=>({ok:true,json:async()=>({results:[photo('fallback')]})}))
- const db={collection:()=>({findOne:async()=>null,find:()=>({limit:()=>({toArray:async()=>[{id:'wrong',url:'wrong',tags:['office']}]})})})}
- const result=await e.resolveSlot(db,{...slot,needs_visual:true,treatment:'environmental',preferred_source:'uploaded_asset',selected:{asset_id:'deleted'}},'brand','key',null,new Set())
- assert.equal(result.source,'unsplash');assert.equal(result.resolvedAsset.unsplash_id,'fallback')
+ const db={collection:()=>{throw Error('The asset library should not be read')}}
+ for(const preferred_source of ['unsplash','uploaded_asset']){
+  const result=await e.resolveSlot(db,{...slot,needs_visual:true,treatment:'environmental',preferred_source,selected:{asset_id:'old-gallery-photo'}},'brand','key',null,new Set())
+  assert.equal(result.source,'unsplash',preferred_source);assert.equal(result.resolvedAsset.unsplash_id,'fallback')
+ }
 })
 
 test('stock rejects low resolution and unrelated results, preserving raw URL tracking',async()=>{
@@ -203,12 +195,14 @@ test('watermarked stock photos are skipped',async()=>{
  assert.equal((await e.searchUnsplash(slot,'key',new Set())).unsplash_id,'clean')
 })
 
-test('watermarked planned gallery photos are rejected before stock fallback',async()=>{
- const e=engine(async()=>({ok:true,json:async()=>({results:[photo('clean')]})}))
+test('a missing or watermarked attached photo is reported, and nothing else is put in its place',async()=>{
+ const e=engine(async()=>{throw Error('No stock expected')},async()=>{throw Error('No generation expected')})
  const marked={id:'marked',url:'marked',status:'ready',tags:['garden'],watermarked:true}
- const db={collection:()=>({findOne:async()=>marked,find:()=>({limit:()=>({toArray:async()=>[marked]})})})}
- const result=await e.resolveSlot(db,{...slot,needs_visual:true,treatment:'environmental',preferred_source:'uploaded_asset',selected:{asset_id:'marked'}},'brand','key',null,new Set())
- assert.equal(result.resolvedAsset.unsplash_id,'clean')
+ for(const doc of [marked,null]){
+  const db={collection:()=>({findOne:async()=>doc})}
+  const result=await e.resolveSlot(db,{...slot,needs_visual:true,treatment:'environmental',preferred_source:'uploaded_asset',user_upload:true,selected:{asset_id:'marked'}},'brand','key',null,new Set())
+  assert.equal(result.resolvedAsset,null);assert.match(result.warning,/Your photo could not be used/)
+ }
 })
 
 const pexelsPhoto=(id,alt='garden soil')=>({id,alt,width:3000,height:2000,url:'https://www.pexels.com/photo/'+id,photographer:'Example Photographer',src:{original:'https://images.pexels.com/photos/'+id+'/image.jpeg',medium:'https://images.pexels.com/photos/'+id+'/thumb.jpeg'}})

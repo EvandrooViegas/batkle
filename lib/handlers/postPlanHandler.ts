@@ -11,6 +11,8 @@ import { listItems, type ImageChoice } from '@/lib/designs/global/compose'
 import { loadPostImages, postImageIds, uploadPlanningBlock, assignUploads, ideaForCopy, type PostImage } from '@/lib/services/postImages'
 import { writeCopy, copyErrorResponse } from './copywritingHandler'
 import { planAssets } from './assetPlannerHandler'
+import { loadPostFeedback, withoutDislikedDesigns } from '@/lib/services/postFeedback'
+import { isGalleryCutout } from '@/lib/services/generatedAssetLibrary'
 
 const COMPOSITION_GUIDE: Record<string, string> = {
   statement: 'one dominant headline with brief supporting copy, typography-led',
@@ -69,16 +71,16 @@ export function cutoutLabel(description: any): string {
   return text.replace(/^object-only:\s*/i, '').split(/,\s*(?:no|without)\s/i)[0].replace(/"/g, "'").slice(0, 110).trim()
 }
 
-/** The brand's reusable transparent cutouts, most recently used first, one per subject. Never fails planning. */
+/** The brand's reusable transparent cutouts (good ones only), most recently used first, one per subject. Never fails planning. */
 export async function galleryCutouts(db: any, flowId: string | undefined): Promise<GalleryCutout[]> {
   if (!flowId || !db) return []
   try {
-    const assets = await db.collection('assets').find({ brand_id: `brand_${flowId}`, source: 'ai_generated', status: 'ready', treatment: 'isolated_subject' }, { projection: { _id: 0, id: 1, description: 1, subject_description: 1 } })
+    const assets = await db.collection('assets').find({ brand_id: `brand_${flowId}`, source: 'ai_generated', status: 'ready', treatment: 'isolated_subject' }, { projection: { _id: 0, id: 1, source: 1, subject: 1, description: 1, subject_description: 1 } })
       .sort({ last_used_at: -1, created_at: -1 }).limit(40).toArray()
     const seen = new Set<string>(), listed: { id: string; description: string }[] = []
     for (const asset of assets) {
       const description = cutoutLabel(asset.subject_description || asset.description)
-      if (!asset.id || !description || seen.has(description.toLowerCase())) continue
+      if (!asset.id || !isGalleryCutout(asset) || !description || seen.has(description.toLowerCase())) continue
       seen.add(description.toLowerCase()); listed.push({ id: asset.id, description })
     }
     return listed.slice(0, 24).map((a, i) => ({ ref: `g${i + 1}`, ...a }))
@@ -195,6 +197,10 @@ export async function handlePlanPost(db: any, body: any, userId?: string) {
     if (!idea) return corsify(NextResponse.json({ error: 'idea (content brief) is required' }, { status: 400 }))
     const brandContext = await loadGenerationBrandContext(db, body)
     if (!brandContext) return corsify(NextResponse.json({ error: 'Brand not found' }, { status: 400 }))
+    // The owner's ratings of recent posts: liked text guides the copy, and a design whose look they disliked sits
+    // out Batkle's own pick while the brand has others (a design picked in the settings is still used).
+    const ratings = await loadPostFeedback(db, brandContext.id)
+    const pickable = withoutDislikedDesigns(brandContext, ratings)
     if (userId) await requireCredits(db, userId, minimumSlides(idea, body.copy))
     // Photos attached to the idea, re-read from the brand's records (never trusted from the request).
     const uploads = await loadPostImages(db, brandContext.id, postImageIds((idea.images || []).map((i: any) => i?.id)), idea.id)
@@ -206,12 +212,12 @@ export async function handlePlanPost(db: any, body: any, userId?: string) {
     const imagery = uploads.length > 0 || choice === 'on'
     let selection
     try {
-      selection = await chooseBrandFamily(db, brandContext, body.copy || idea, designId, { imagery, userId })
+      selection = await chooseBrandFamily(db, designId ? brandContext : pickable, body.copy || idea, designId, { imagery, userId })
     } catch (error) {
       // The picked design was removed from the brand since: the post falls back to Auto.
       if (!(error instanceof DesignLibraryError) || body.designId || !designId) throw error
       designId = undefined
-      selection = await chooseBrandFamily(db, brandContext, body.copy || idea, undefined, { imagery, userId })
+      selection = await chooseBrandFamily(db, pickable, body.copy || idea, undefined, { imagery, userId })
     }
     if (uploads.length && selection && familyImagery(selection.family).mode === 'none') {
       return corsify(NextResponse.json({ error: designId
@@ -229,8 +235,8 @@ export async function handlePlanPost(db: any, body: any, userId?: string) {
           const slides = parsed.format === 'carousel' ? parsed.slides : [parsed]
           if (!slides.some((s: any) => allowed.has(s?.design?.composition))) throw Error('Missing "design" plan with a valid composition')
         } }
-        copy = sanitizeDesignPlan(selection.family, (await writeCopy(brandContext, brief, design)).copy, gallery, uploads, choice)
-      } else copy = (await writeCopy(brandContext, brief)).copy
+        copy = sanitizeDesignPlan(selection.family, (await writeCopy(brandContext, brief, design, ratings)).copy, gallery, uploads, choice)
+      } else copy = (await writeCopy(brandContext, brief, undefined, ratings)).copy
     } else if (selection) copy = sanitizeDesignPlan(selection.family, copy, gallery, uploads, choice)
     if (selection) copy = varyCover(selection.family, copy, selection.lastCover, choice)
     // The choice travels with the copy, so planning, image search and the final build all follow it.

@@ -3,15 +3,13 @@ import { localAssetBrief } from '@/lib/designs/localAssetBrief'
 /**
  * Asset Planner handler
  *
- * Receives a finalized copywriter output + brand context + the brand's uploaded
- * asset library. For every visual slot in the post it:
+ * Receives a finalized copywriter output + brand context + the photos the user
+ * attached to the idea. For every visual slot in the post it:
  *   1. Decides whether a visual asset is needed for that slot.
  *   2. Describes what the image should communicate.
- *   3. Picks the preferred source: uploaded_asset | unsplash | ai_generated | none
- *   4. When source is uploaded_asset, scores existing assets by tag overlap with
- *      the required visual — returns ranked candidates. This scoring layer is
- *      intentionally simple (tag intersection) so it can be swapped for
- *      vector/embedding search later without changing the output shape.
+ *   3. Picks the source: uploaded_asset (a photo the user attached, which fills
+ *      exactly one slot) | unsplash (background photos) | ai_generated
+ *      (transparent cutouts, reused from the brand gallery when one fits) | none
  *
  * Output shape is consumed downstream by the Canvas Designer module.
  * Nothing here generates canvas JSON or layout.
@@ -31,7 +29,7 @@ export interface AssetCandidate {
   thumbnail_url: string
   filename:   string
   tags:       string[]
-  score:      number          // 0–1 tag-overlap score; replace with cosine similarity when embeddings land
+  score:      number          // 1: the user chose this photo
 }
 
 export interface VisualSlot {
@@ -49,13 +47,13 @@ export interface VisualSlot {
   search_keywords:  string[] // keywords used to find assets / for Unsplash search
   preferred_source: 'uploaded_asset' | 'unsplash' | 'ai_generated' | 'none'
   source_reason:    string   // why this source was chosen
-  candidates:       AssetCandidate[]  // uploaded assets ranked by relevance (may be empty)
-  selected:         AssetCandidate | null  // top candidate, or null
+  candidates:       AssetCandidate[]  // the user's attached photo for this slot, or empty
+  selected:         AssetCandidate | null  // that photo, or null
   /** Gallery cutout the copy plan chose to reuse for this slide. */
   reuse_asset_id?:  string
   /** Width / height of the area the image will fill. */
   frame_aspect?:    number
-  /** A photo slot that may use a generated transparent cutout when no gallery or stock photo fits. */
+  /** A photo slot that may use a generated transparent cutout when no stock photo fits. */
   cutout_fallback?: boolean
   /** The slot shows a photo the user attached to the idea (`selected`); nothing else may fill it. */
   user_upload?: boolean
@@ -202,10 +200,7 @@ async function refinePhotoBriefs(slots: any[], layouts: any[], copy: any, idea: 
   } catch (error) { console.warn('[planner] Contextual photo search unavailable; using local brief:', (error as Error).message) }
 }
 
-// ─── Asset matching (tag overlap) ────────────────────────────────────────────
-// Straightforward tag intersection score.
-// When embedding vectors are stored on assets, replace this with cosine
-// similarity between slot.search_keywords vector and asset.embedding.
+// ─── Photo checks ─────────────────────────────────────────────────────────────
 
 /** Metadata guard, not a guarantee that unlabelled pixels contain no watermark. */
 export function hasWatermarkMetadata(asset: any): boolean {
@@ -215,34 +210,6 @@ export function hasWatermarkMetadata(asset: any): boolean {
     .replace(/\b(?:no|without|sem)\s+(?:visible\s+)?(?:watermarks?|marca[s]? d[’']?[aá]gua)\b/g,'')
     .replace(/\bwatermark[- ]free\b/g,'')
   return /\bwatermark(?:ed|s)?\b|marca[s]? d[’']?[aá]gua/.test(text)
-}
-
-function scoreAsset(asset: any, keywords: string[]): number {
-  const words=(value:string)=>value.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().match(/[\p{L}\p{N}]+/gu)||[]
-  const kw=[...new Set(keywords.flatMap(words))]
-  // User-supplied descriptions take precedence over coarse automatic image tags.
-  const tags=asset.description?.trim()?asset.description_tags||[]:asset.tags||[]
-  const description = asset.description?.trim() ? [asset.search_description || asset.description] : [asset.search_description || '']
-  const terms=new Set<string>([...tags,...description].flatMap((tag:string)=>words(tag)))
-  if(!kw.length)return 0
-  return kw.filter(k=>terms.has(k)).length/kw.length
-}
-
-function findCandidates(assets: any[], keywords: string[], topK = 3, preferWebsite = false): AssetCandidate[] {
-  return assets
-    .filter(a => !hasWatermarkMetadata(a) && (a.status === 'ready' || a.description_tags?.length > 0))
-    .map(a => ({ asset: a, score: scoreAsset(a, keywords) }))
-    .filter(({ score }) => preferWebsite ? score >= .85 : score > 0)
-    .sort((a, b) => (preferWebsite ? Number(b.asset.source === 'website') - Number(a.asset.source === 'website') : 0) || b.score - a.score)
-    .slice(0, topK)
-    .map(({ asset, score }) => ({
-      asset_id:      asset.id,
-      url:           asset.url,
-      thumbnail_url: asset.thumbnail_url,
-      filename:      asset.filename,
-      tags:          asset.tags ?? [],
-      score:         parseFloat(score.toFixed(3)),
-    }))
 }
 
 // ─── handler ─────────────────────────────────────────────────────────────────
@@ -293,14 +260,6 @@ export async function planAssets(db: any, body: any) {
     if (!globalSelection) await refinePhotoBriefs(aiSlots,layoutPlan.slots,copy,idea)
     if (!globalSelection) layoutPlan.slots=layoutPlan.slots.map((layout:any,index:number)=>aiSlots[index].needs_visual===false?{...layout,needs_visual:false,background:false,frame:null,spec:{...layout.spec,background:{...layout.spec.background,type:'solid'},elements:layout.spec.elements.filter((e:any)=>e.type!=='image')}}:layout)
 
-    // Load uploaded assets for this brand (for matching). Photos attached to a post idea belong to that post only.
-    let uploadedAssets: any[] = []
-    if (brand_id) {
-      uploadedAssets = await db.collection('assets')
-        .find({ brand_id, source: { $ne: 'post_upload' }, $or: [{ status: 'ready' }, { 'description_tags.0': { $exists: true } }] })
-        .limit(500)
-        .toArray()
-    }
     // The user's photos: global designs place them where the composition plan put them; older layouts take them in
     // order, one per image slot. Either way each photo fills exactly one slot.
     const uploads: any[] = Array.isArray(body.uploads) ? body.uploads : []
@@ -308,9 +267,6 @@ export async function planAssets(db: any, body: any) {
     const uploadFor = (layout: any) => !layout.needs_visual ? undefined
       : globalSelection ? uploads.find(u => u.id === layout.planned?.upload) : queue.shift()
 
-    // Enrich each slot with ranked candidates from the asset library
-    const usedAssets = new Set<string>()
-    const assetKeys = (asset:any) => [asset.id, asset.url, asset.content_hash].filter(Boolean)
     const slots: VisualSlot[] = layoutPlan.slots.map((layout:any,index:number) => {
       const s=aiSlots.find((s:any)=>s.slot_id===layout.slot_id)||aiSlots[index]||{}
       const position = /^slide_\d+$/.test(s.slot_id) ? Number(s.slot_id.split('_')[1])-1 : index
@@ -320,13 +276,7 @@ export async function planAssets(db: any, body: any) {
       const cleanTerms = (value: any): string[] => Array.isArray(value)
         ? Array.from(new Set<string>(value.filter((v: any) => typeof v === 'string').map((v: string) => v.trim().toLowerCase()).filter(Boolean))) : []
       const keywords = needsVisual ? cleanTerms(s.search_keywords).slice(0, 8) : []
-      const preferWebsite = layout.treatment === 'environmental'
       const upload = uploadFor(layout)
-      const candidates = !upload && needsVisual && s.needs_visual && (preferWebsite || s.preferred_source === 'uploaded_asset')
-        ? findCandidates(uploadedAssets.filter(a=>a.source!=='ai_generated' && !assetKeys(a).some(key => usedAssets.has(key))), keywords, 3, preferWebsite).filter(a=>a.score>=.85)
-        : []
-      const selectedAsset = candidates.length ? uploadedAssets.find(a => a.id === candidates[0].asset_id) : null
-      if (selectedAsset) assetKeys(selectedAsset).forEach(key => usedAssets.add(key))
       const uploaded: AssetCandidate | null = upload ? { asset_id: upload.id, url: upload.url, thumbnail_url: upload.thumbnail_url || upload.url, filename: 'photo', tags: [], score: 1 } : null
 
       const slot: VisualSlot = {
@@ -345,10 +295,10 @@ export async function planAssets(db: any, body: any) {
         visual_purpose:   s.visual_purpose ?? '',
         search_keywords:  keywords,
         search_queries:   needsVisual ? cleanTerms(s.search_queries).slice(0, 3) : [],
-        preferred_source: needsVisual ? (candidates.length?'uploaded_asset':layout.treatment==='environmental'?'unsplash':s.preferred_source==='uploaded_asset'?'uploaded_asset':'ai_generated') : 'none',
-        source_reason:    selectedAsset ? selectedAsset.source === 'website' ? 'Relevant photo extracted from the business website (at least 85% match).' : 'Relevant unused photo from the brand gallery (at least 85% match).' : s.source_reason ?? '',
-        candidates,
-        selected:         candidates[0] ?? null,
+        preferred_source: needsVisual ? (layout.treatment==='environmental'?'unsplash':'ai_generated') : 'none',
+        source_reason:    s.source_reason ?? '',
+        candidates:       [],
+        selected:         null,
       }
       // The user's photo fills this slot as a photograph: no search, no generation, no cutout.
       return uploaded ? { ...slot, needs_visual: true, treatment: 'environmental', preferred_source: 'uploaded_asset', candidates: [uploaded], selected: uploaded,

@@ -6,7 +6,8 @@ import Groq from 'groq-sdk'
 import { loadGenerationBrandContext, EXTRACTED_CONTEXT_RULES } from '@/lib/services/generationBrandContext'
 import { postLanguage, languageIssues, copyTexts, withModernSpelling, type ContentLanguage } from '@/lib/services/contentLanguage'
 import { inventedFigures } from '@/lib/services/copyFacts'
-import { mentionsSubject } from '@/lib/services/contentAngles'
+import { mentionsSubject, hookIssues, aiTells, resultClaims, unbackedPromises, cutMachinePhrases } from '@/lib/services/contentAngles'
+import { feedbackBlock, loadPostFeedback } from '@/lib/services/postFeedback'
 
 const SYSTEM_PROMPT = `You are an expert Instagram copywriter who writes the words on social media graphics for businesses.
 
@@ -30,14 +31,22 @@ Do NOT include design instructions inside the copy.
 IMPORTANT RULES:
 
 * Use ONLY information provided in the Brand Profile and Content Brief.
-* Never invent facts, statistics, clients, awards, certifications, results, services, products or company history.
+* Never invent facts, statistics, clients, awards, certifications, results, services, products or company history, and never an offer: nothing is free or guaranteed unless the Brand Profile says so.
 * Never make claims that cannot be supported by the provided information.
-* If the brief asks for results, figures, percentages, testimonials or a before/after that the Brand Profile does not contain, do not invent them: describe the real scope, approach and benefits without numbers. Present each project only as the kind of work the Brand Profile describes.
+* If the brief asks for results, figures, percentages, testimonials or a before/after that the Brand Profile does not contain, do not invent them: describe the real scope, approach and benefits without numbers. Present each project only as the kind of work the Brand Profile describes, and never say what it achieved ("bookings grew significantly") unless the profile says so.
 * Write in the OUTPUT LANGUAGE given at the end of these instructions, exactly. Never mix languages or regional variants.
 * Ground the post in the brief: build it on the specific service, project, audience problem or differentiator the brief names, using concrete details from the Brand Profile (scope, process, who it serves, named projects when relevant). Avoid generic advice that could fit any company.
 * Match the company's positioning and tone.
 * Never use emojis or emoji number/keycap symbols. Use ordinary numbers and punctuation.
 * Avoid exclamation marks: one at most in the whole post.
+
+WRITE LIKE A PERSON, NOT A MODEL (the caption and every word on the graphic):
+* Write the way someone who does this work would tell a customer: what the business does, what the reader gets, with the details from the brief and the profile. No advert voice, no slogans.
+* Open the caption with the point or a concrete detail. Never open with who the post is for, and never with a question you then answer.
+* Mix short and longer sentences, one idea in each. No lists of three adjectives, no "not just X, but Y".
+* Never write: "turns X into Y", "The result:", "Want to see it in action?", "in minutes", "Say goodbye to", "Imagine…", "It's not just…", "seamless", "effortless", "game-changer", "next level", "unlock". In Portuguese never: "transforma X em Y", "O resultado?", "Quer ver como?", "em minutos", "diga adeus", "não é apenas", "imagine", "sem esforço", "próximo nível".
+* End the caption with one plain next step that names the brand and the action (for a product "Try Batkle with your website", for a service "Ask PRUMO for a site visit", in the output language): never a slogan, and never a generic "Try the demo", "See how it works" or "Learn more".
+* Speak to one kind of reader. Never list several industries or kinds of customer ("construction firms, fintech teams and agencies").
 * Avoid clickbait: everything the graphic promises, the post delivers.
 * The caption can contain more context than the visual.
 * The visual and caption should communicate the same central idea without simply duplicating each other.
@@ -45,7 +54,7 @@ IMPORTANT RULES:
 HOW THE GRAPHIC READS:
 
 People decide in about a second whether a post is for them. The words on the graphic are few, direct and specific, so the right reader recognises themselves at once and everyone else scrolls on.
-* Speak to the reader, not about the company: name who the post is for, or a moment they live, a mistake they make or a belief they hold. The brief's targetAudience says who that reader is.
+* Speak to the reader, not about the company: a moment they live, a mistake they make or a belief they hold. The brief's targetAudience says who that reader is, so the words fit them; they need not be named, and the copy never opens by addressing them ("Business owners, …", "For landlords: …") unless the brief's hookShape is "callout".
 * Be concrete: a real moment, action, object, place or month the reader knows ("the last post is from August", "pressing Boost and waiting") instead of abstractions ("online presence", "visibility", "quality", "solutions", "results").
 * One thing per line, in plain spoken words, the way the brand would say it to a customer face to face. Short words, short sentences.
 * No marketing filler in any language: never "discover", "unlock", "elevate", "transform", "take it to the next level", "innovative solutions", "we are passionate about", "in today's digital world" (in Portuguese, never "descubra", "saiba como", "transforme", "eleve", "potencie", "alavanque", "soluções inovadoras").
@@ -54,20 +63,24 @@ People decide in about a second whether a post is for them. The words on the gra
 
 THE HEADLINE (a single post's headline, and a carousel's cover headline) is the hook, and often the whole message:
 * 5–14 words, one complete thought. Shorter is better once it says who or what it is about.
-* It works on its own: someone who reads only the headline knows what the post is about and whether it is for them.
-* Shapes that work. The examples come from different businesses and are in English to show the shape only: never reuse their words; write yours in the output language, about this brand and this brief, and pick the shape that fits the brief instead of always the same one.
-  - Call out the reader and their situation: "Landlords who heard about the leak from the tenant downstairs"
-  - A scene they know: "POV: the kitchen renovation was meant to take three weeks. It's month four."
-  - Correct a belief: "A bigger website is not a better website."
-  - Name the struggle, then side with the reader: "No time to cook on weeknights? Makes sense."
-  - The costly mistake: "The most expensive renovation mistake: choosing the tiles before the plan."
-  - A specific promise the slides deliver (carousels): "4 signs your website is losing clients"
+* It works on its own: someone who reads only the headline knows what the post is about and whether it is for them. Test it: cover the caption and read only the headline. If you cannot tell what the business offers or what the post explains, put the subject in it (the service, the product, the problem it solves). "Your feed repeats the same post style three days straight." fails this test.
+* It gives a reason to keep reading: a benefit, a problem they recognise, a mistake to avoid, a surprising fact, or a promise the slides keep.
+* Its shape is the brief's hookShape; keep it. The examples come from different businesses and are in English to show the shape only: never reuse their words; write yours in the output language, about this brand and this brief.
+  - scene: a moment they know: "POV: the kitchen renovation was meant to take three weeks. It's month four."
+  - belief: correct a belief: "A bigger website is not a better website."
+  - mistake: the costly mistake: "The most expensive renovation mistake: choosing the tiles before the plan."
+  - question: the question in their head: "Why does the damp come back every winter?"
+  - result: a specific promise the slides deliver: "4 signs your website is losing clients"
+  - story: a real situation, starting mid-way: "The call came on a Friday: half the ceiling was on the floor."
+  - contrast: two ways side by side: "Tiles first, plan later. Or plan first and pay once."
+  - callout (only when the hookShape is callout): call out the reader and their situation: "Landlords who heard about the leak from the tenant downstairs"
 * Never a label or topic name ("Our methodology", "Our services", "About us"), never the company name or slogan on its own, never a vague line that could open any brand's post.
-* Start from the brief's "hook" and "targetAudience", and sharpen them.
+* Start from the brief's "hook" and sharpen it, in the same shape.
 
 THE CALL TO ACTION (a single post's cta, and the closing carousel slide's cta) is short and direct:
 * 1–3 words, never more than 4: an action the reader can take right now on Instagram, such as "Send a DM", "Talk to us", "Ask for a quote", "Book a visit", "Comment YES" or "Save this post" (written in the output language).
 * Service, offer, project and trust posts invite contact; educational and insight posts may ask to save or share the post instead. When the Brand Profile says how the brand is contacted (its suggestedCtas, messages, the link in the bio), use that.
+* Name the brand or its offer when that makes the step clearer (a product: "Try Batkle"; a service: "Ask for a quote"), never "Try the demo" or "See how it works".
 * The graphic is an image, not a web page: nothing on it can be clicked. Never button wording such as "Click here", "Learn more", "Explore more", "Saiba mais" or "Clique aqui", and never "visit our website" without the address.
 
 CONTENT STRUCTURE:
@@ -238,7 +251,7 @@ export const COPY_LIMITS = { headline: 14, coverBody: 12, label: 4, cta: 4 }
 const wordCount = (text: any) => String(text || '').trim().split(/\s+/u).filter(Boolean).length
 
 /** Style problems are worth one corrective retry but never worth failing a post that is otherwise complete. */
-function styleIssues(parsed: any, language: ContentLanguage, idea?: any): string[] {
+function styleIssues(parsed: any, language: ContentLanguage, idea?: any, facts = ''): string[] {
   const issues: string[] = []
   const ctaIssue = (cta: any, where: string) => { const n = wordCount(cta); if (n > COPY_LIMITS.cta) issues.push(`${where} call to action has ${n} words; use 1–3`) }
   if (parsed.format === 'carousel') {
@@ -262,9 +275,33 @@ function styleIssues(parsed: any, language: ContentLanguage, idea?: any): string
   const repeated = avoidedSubjects(idea).filter(subject => written.some(t => mentionsSubject(t, subject)))
   if (repeated.length) issues.push(`Repetition: the copy mentions ${repeated.join(', ')}, which the brand's recent posts already centred on; remove it and use other details from the brand profile`)
   const headlines = Array.isArray(parsed.slides) ? parsed.slides.map((s: any) => String(s?.headline || '')) : [String(parsed.headline || '')]
+  // How the post opens: in the idea's hook shape, not an audience call-out (unless that is the shape).
+  issues.push(...hookIssues(headlines[0] || '', idea?.hookShape, String(idea?.targetAudience || '')).map(issue => `Hook: ${issue}`))
+  const tells = aiTells(copyTexts(parsed))
+  if (tells.length) issues.push(`Voice: the copy sounds machine-written (${tells.join(', ')}); say it plainly, the way someone who does this work would tell a customer`)
+  const claims = resultClaims(copyTexts(parsed), facts)
+  if (claims.length) issues.push(`Facts: the copy claims results the brand profile does not state (${claims.join(', ')}); say what was done for the client, not what it achieved`)
+  const promises = unbackedPromises(copyTexts(parsed), facts)
+  if (promises.length) issues.push(`Facts: the copy offers what the brand profile never offers (${promises.join(', ')}); remove it and invite the next step without it`)
   const offTopic = asideSubjects(idea).filter(subject => headlines.some((h: string) => mentionsSubject(h, subject)))
   if (offTopic.length) issues.push(`Focus: a headline names ${offTopic.join(', ')}, but this post is about "${String(idea.topic).slice(0, 120)}"; keep ${offTopic.join(', ')} out of the headlines (a detail in the text is fine)`)
   return issues
+}
+
+// The words a post shows: on the graphic (single post or each slide) and in its caption.
+const COPY_FIELDS = ['headline', 'subheadline', 'body', 'cta']
+
+/**
+ * The copy with the machine phrases that can be cut cleanly taken out (cutMachinePhrases): "The result is …" openers
+ * and "Want to see it…?" set-ups. Cut in code, they never cost a retry; the rest still go back to the model once.
+ */
+export function withoutMachinePhrases(parsed: any) {
+  const clean = (item: any) => Object.fromEntries(Object.entries(item).map(([key, value]) => [key, COPY_FIELDS.includes(key) && typeof value === 'string' ? cutMachinePhrases(value) : value]))
+  return {
+    ...clean(parsed),
+    ...(typeof parsed.caption === 'string' ? { caption: cutMachinePhrases(parsed.caption) } : {}),
+    ...(Array.isArray(parsed.slides) ? { slides: parsed.slides.map((slide: any) => (slide && typeof slide === 'object' ? clean(slide) : slide)) } : {}),
+  }
 }
 
 /** Subjects the brief says recent posts already covered, unless this post is itself about them. */
@@ -283,8 +320,10 @@ function asideSubjects(idea: any): string[] {
  * The single text-model call for a post. With `design`, the same call also returns the composition plan,
  * so the copy context is sent once. A second attempt is made only when the output fails validation;
  * if that retry cannot run (per-minute quota) or comes back worse, a complete first draft is used instead.
+ * `ratings` are the owner's ratings of recent posts (lib/services/postFeedback.ts): liked text guides this one.
+ * A request larger than the AI plan takes at once (413) is sent again shorter, up to twice (see `fit`).
  */
-export async function writeCopy(brandContext: any, idea: any, design?: PlanningDesign) {
+export async function writeCopy(brandContext: any, idea: any, design?: PlanningDesign, ratings: any[] = []) {
   const apiKey = (process.env.GROQ_API_KEY || process.env.GROQ_API_KEY_2)
   if (!apiKey) throw Object.assign(new Error('GROQ_API_KEY is not configured'), { status: 500 })
   const groq = new Groq({ apiKey,maxRetries:0 })
@@ -296,13 +335,20 @@ export async function writeCopy(brandContext: any, idea: any, design?: PlanningD
   const factSource = JSON.stringify(compactBrand(brandContext)) + ' ' + (typeof idea?.userRequest === 'string' ? idea.userRequest : '')
   const avoid = avoidedSubjects(idea)
   const aside = asideSubjects(idea).filter(subject => !avoid.includes(subject))
-  const userPrompt = buildUserPrompt(JSON.stringify(compactBrand(brandContext)), JSON.stringify(idea, null, 2)) + (design ? '\n\n' + design.prompt : '')
+  const rated = feedbackBlock(ratings, 'copy')
+  // Shortened to fit the AI plan once it refused the full request: the brief without indentation, no ratings, and the
+  // brand profile cut to `fit.brand` characters. The figure check (factSource) still reads the whole profile.
+  let fit: { brand: number } | null = null
+  const brandJson = () => JSON.stringify(compactBrand(brandContext, fit?.brand))
+  const userPrompt = () => buildUserPrompt(brandJson(), fit ? JSON.stringify(idea) : JSON.stringify(idea, null, 2)) + (design ? '\n\n' + design.prompt : '')
     + (avoid.length ? `\n\nAVOID REPEATING: the brand's recent posts already centred on ${avoid.map(s => `"${s}"`).join(', ')}. Do not mention ${avoid.length > 1 ? 'them' : 'it'} anywhere in this post (slides, caption or hashtags); use other concrete details from the brand profile.` : '')
     + (aside.length ? `\n\nSTAY ON THE SUBJECT: this post is not about ${aside.map(s => `"${s}"`).join(', ')}. ${aside.length > 1 ? 'They' : 'It'} may come up as a detail in the text, never in a headline.` : '')
+    + (rated && !fit ? `\n\n${rated}` : '')
     + `\n\nOUTPUT LANGUAGE: ${language.label}. Every reader-facing field (headline, body, cta, caption, hashtags) in it; the design study above is internal and in English, never copy its words.`
   let parsed: any
   let draft: any
   let validationFeedback = ''
+  let refits = 0
   for (let attempt = 0; attempt < 2; attempt++) {
     let response: any
     try {
@@ -311,13 +357,27 @@ export async function writeCopy(brandContext: any, idea: any, design?: PlanningD
         model,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT + '\n\n' + EXTRACTED_CONTEXT_RULES + '\n\n' + language.rules },
-          { role: 'user', content: userPrompt + (attempt ? `\nThe previous attempt failed output validation: ${validationFeedback}. Correct that issue and generate a complete JSON object with the requested fields and no commentary.` : '') },
+          { role: 'user', content: userPrompt() + (attempt ? `\nThe previous attempt failed output validation: ${validationFeedback}. Correct that issue and generate a complete JSON object with the requested fields and no commentary.` : '') },
         ],
         response_format: { type: 'json_object' },
         max_tokens: (attempt ? 4800 : 2400) + (design ? 1600 : 0),
         temperature: attempt ? 0.2 : 0.7,
       })
     } catch (error: any) {
+      // Larger than the AI plan takes in one request (Groq's per-minute token limit; that refusal costs nothing): what
+      // is over, at about 3.4 characters a token and with 5% to spare, comes off the brand profile, never below its
+      // first 1,500 characters. A second refusal cuts it to that minimum.
+      if (error?.status === 413 && refits < 2) {
+        const before = userPrompt().length, current = brandJson().length
+        fit = { brand: current }
+        const saved = before - userPrompt().length
+        const over = error.requestedTokens && error.limitTokens ? Math.ceil((error.requestedTokens - error.limitTokens * 0.95) * 3.4) - saved : current / 2
+        fit = { brand: Math.min(current, refits ? 1500 : Math.max(1500, Math.round(current - over))) }
+        refits++
+        console.warn(`[copywriting] request too large (${error.requestedTokens || '?'} of ${error.limitTokens || '?'} tokens); sending the brand profile in ${fit.brand} characters instead of ${current}`)
+        attempt--
+        continue
+      }
       const code = error?.error?.error?.code || error?.error?.code || error?.code
       if (attempt === 0 && code === 'json_validate_failed') { validationFeedback = 'the response was not valid JSON'; continue }
       if (draft) { console.warn(`[copywriting] retry unavailable (${error?.status || code || error?.message}); using the first draft`); parsed = draft; break }
@@ -329,6 +389,7 @@ export async function writeCopy(brandContext: any, idea: any, design?: PlanningD
       if (choice?.finish_reason === 'length') throw new Error('Truncated copywriting response')
       parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim())
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Expected a copywriting object')
+      parsed = withoutMachinePhrases(parsed)
       if (!['single', 'carousel'].includes(parsed.format) || (idea.format && parsed.format !== idea.format)) throw new Error('Incorrect post format')
       if (typeof parsed.caption !== 'string') throw new Error('Missing caption')
       if (parsed.format === 'single' && (typeof parsed.headline !== 'string' || !parsed.headline.trim())) throw new Error('Missing headline')
@@ -349,7 +410,7 @@ export async function writeCopy(brandContext: any, idea: any, design?: PlanningD
       if (invented.length) throw new Error(`Facts: the copy states figures that are not in the brand profile (${invented.slice(0, 6).join(', ')}). Remove them and describe results without numbers`)
       // Cover length and one language per post are checked in code. The first complete draft is kept,
       // so a retry that cannot run or does no better never turns a usable post into a failure.
-      const issues = styleIssues(parsed, language, idea)
+      const issues = styleIssues(parsed, language, idea, factSource)
       if (issues.length && attempt === 0) { draft = parsed; throw new Error(issues.join('; ')) }
       if (issues.length) console.warn('[copywriting] style issues after retry:', issues.join('; '))
       break
@@ -376,7 +437,7 @@ export async function handleGenerateCopywriting(body: any, db: any) {
     const brandContext = await loadGenerationBrandContext(db, body)
     if (!brandContext) return corsify(NextResponse.json({ error: 'brandContext is required' }, { status: 400 }))
     if (!idea) return corsify(NextResponse.json({ error: 'idea (content brief) is required' }, { status: 400 }))
-    return corsify(NextResponse.json((await writeCopy(brandContext, idea)).copy))
+    return corsify(NextResponse.json((await writeCopy(brandContext, idea, undefined, await loadPostFeedback(db, brandContext.id))).copy))
   } catch (error: any) {
     return copyErrorResponse(error, 'Failed to generate copywriting')
   }

@@ -2,8 +2,14 @@ import sharp from 'sharp'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { loadUpload } from './uploadCache'
+import { connectToMongo } from './db/mongo'
 
 const MAX_BYTES = 2 * 1024 * 1024
+
+/** The upload id of a Batkle image address (/api/uploads/<id>, relative or on any host), or null. */
+function uploadIdOf(src: string): string | null {
+  try { return new URL(src, 'http://local.invalid').pathname.match(/^\/api\/uploads\/([A-Za-z0-9._-]+)$/)?.[1] || null } catch { return null }
+}
 
 /** Only public image URLs; redirects are checked before following them. */
 async function publicUrl(value: string): Promise<URL> {
@@ -22,6 +28,16 @@ async function publicUrl(value: string): Promise<URL> {
 }
 
 export async function downloadLogo(src: string, maxBytes = MAX_BYTES, timeoutMs = 4000): Promise<Buffer> {
+  // A logo uploaded to Batkle is read from storage: a relative address can't be fetched, and a local one is refused.
+  const uploadId = uploadIdOf(src)
+  if (uploadId) {
+    const upload = await loadUpload(await connectToMongo(), uploadId)
+    if (upload) {
+      if (upload.bytes.length > maxBytes) throw new Error('Image too large')
+      return Buffer.from(upload.bytes)
+    }
+    if (src.startsWith('/')) throw new Error('Logo upload is missing')
+  }
   let target = src
   const signal = AbortSignal.timeout(timeoutMs)
   for (let hop = 0; hop < 4; hop++) {

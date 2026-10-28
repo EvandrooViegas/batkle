@@ -8,17 +8,23 @@ import { cn } from '@/lib/utils'
 import { appButton, appLayer, Eyebrow } from '../ui'
 import { PostThumb, editorHref } from './PostThumb'
 import { ScheduleLine, approvalAction } from '../schedule/ScheduleStatus'
+import { PostRating } from './PostRating'
+import { wordsFor } from './surface'
+import { useBrandAccess } from '../AppShell'
 
 const tag = t => (String(t).startsWith('#') ? t : `#${t}`)
 
 /**
  * Full preview of a generated post: every slide, the caption and hashtags, and the post actions.
- * Shows the latest saved canvas, so edits made in the editor appear here too.
+ * Shows the latest saved canvas, so edits made in the editor appear here too. A built post is liked or disliked here
+ * (`rating`, `onRate`), which shapes the next ones. Someone who can only view the brand sees the slides and caption,
+ * without the actions.
  */
-export function PostPreview({ open, onOpenChange, idea, status, approval, onApproval, initialPage = 0, onRebuild, onNewVersion }) {
+export function PostPreview({ open, onOpenChange, idea, status, approval, onApproval, initialPage = 0, onRebuild, onNewVersion, rating = null, onRate }) {
   const stored = status?.canvas || null
   const [latest, setLatest] = useState(null)
   const [page, setPage] = useState(initialPage)
+  const { canEdit } = useBrandAccess()
 
   useEffect(() => { if (open) setPage(initialPage) }, [open, initialPage])
 
@@ -38,9 +44,9 @@ export function PostPreview({ open, onOpenChange, idea, status, approval, onAppr
   const current = Math.min(page, total - 1)
   const copy = status.copy
   const hashtags = Array.isArray(copy?.hashtags) ? copy.hashtags.map(tag) : []
-  const href = editorHref(canvas, current)
+  const href = canEdit ? editorHref(canvas, current) : null
   const building = status.phase === 'building'
-  const action = status.phase === 'ready' && approval ? approvalAction(approval.state) : null
+  const action = canEdit && status.phase === 'ready' && approval ? approvalAction(approval.state) : null
   const go = delta => setPage(p => Math.max(0, Math.min(total - 1, p + delta)))
 
   const copyCaption = async () => {
@@ -142,6 +148,15 @@ export function PostPreview({ open, onOpenChange, idea, status, approval, onAppr
             </section>
           )}
 
+          {status.phase === 'ready' && canvas && onRate && canEdit && (
+            <section className="mt-6 flex items-center justify-between gap-3 border-t border-bk-line pt-5" aria-label={`Rate this ${wordsFor(idea).noun}`}>
+              <p className="text-[13px] leading-snug text-bk-muted">
+                {rating ? (rating.rating === 'like' ? 'You liked it. Batkle makes more like it.' : 'You disliked it. Batkle steers away from it.') : 'Like or dislike it: Batkle learns what to make next.'}
+              </p>
+              <PostRating value={rating} onRate={onRate} noun={wordsFor(idea).noun} className="shrink-0" />
+            </section>
+          )}
+
           <div className="mt-auto flex flex-col gap-2.5 pt-7">
             {building && (
               <p className="flex items-center gap-2 text-[14px] font-bold"><Loader2 className="size-4 animate-spin" />Building a new version…</p>
@@ -153,14 +168,16 @@ export function PostPreview({ open, onOpenChange, idea, status, approval, onAppr
               </button>
             )}
             {href && <a href={href} target="_blank" rel="noopener noreferrer" className={appButton(action ? 'outline' : 'primary', 'md', 'w-full')}>Open in editor</a>}
-            {copy && (
+            {copy && canEdit && (
               <button type="button" onClick={onRebuild} disabled={building} title="Rebuild the design with the same copy. No new AI writing." className={appButton('outline', 'md', 'w-full')}>
                 Rebuild design · keep copy
               </button>
             )}
-            <button type="button" onClick={onNewVersion} disabled={building} className={appButton('quiet', 'md', 'w-full')}>
-              New version
-            </button>
+            {canEdit && (
+              <button type="button" onClick={onNewVersion} disabled={building} className={appButton('quiet', 'md', 'w-full')}>
+                New version
+              </button>
+            )}
           </div>
         </div>
       </DialogContent>

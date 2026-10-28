@@ -16,16 +16,26 @@ const FORMATS = [
   { value: 'carousel', label: 'Carousel' },
   { value: 'single', label: 'Single post' },
 ]
+// What a new idea becomes: a post for the feed (4:5, single or carousel) or a story (9:16, one frame or several).
+const KINDS = [
+  { value: 'post', label: 'Posts', title: 'Single posts and carousels (4:5) for the feed' },
+  { value: 'story', label: 'Stories', title: 'Stories (9:16) for Instagram and Facebook' },
+]
+const STORY_FORMATS = [
+  { value: 'auto', label: 'Auto', title: 'Batkle picks one frame or several for the idea' },
+  { value: 'carousel', label: 'Several frames' },
+  { value: 'single', label: 'One frame' },
+]
 // Whether the generated post uses images: as the design decides, on every slide that can hold one, or none.
 const IMAGE_CHOICES = [
   { value: 'auto', label: 'Auto', title: 'The design decides where images go' },
-  { value: 'on', label: 'With images', title: 'Add an image to every slide that can hold one (AI cutouts, stock or your gallery)' },
+  { value: 'on', label: 'With images', title: 'Add an image to every slide that can hold one (AI cutouts or stock photos)' },
   { value: 'off', label: 'No images', title: 'Typography only: no image search or AI generation. Photos you attach still show.' },
 ]
 const SLIDE_COUNTS = ['auto', 3, 4, 5, 6, 7, 8, 9, 10]
 
-/** Every setting on Auto: Batkle decides the format, length, images, design and (the brand's) language. */
-export const AUTO_SETTINGS = { format: 'auto', slides: 'auto', imageChoice: 'auto', designId: 'auto', language: 'auto' }
+/** Posts, with every other setting on Auto: Batkle decides the format, length, images, design and (the brand's) language. */
+export const AUTO_SETTINGS = { kind: 'post', format: 'auto', slides: 'auto', imageChoice: 'auto', designId: 'auto', language: 'auto' }
 
 /** The language sent for a post, or null when the post follows the brand's language. */
 export function languageOption(code) {
@@ -169,10 +179,12 @@ export function PostSettings({ value, onChange, brandContext, photoCount = 0, di
 
   const design = designs.items.find(item => item.design.id === value.designId)
   const language = value.language !== 'auto' && POST_LANGUAGES.find(o => o.code === value.language)
+  const story = value.kind === 'story'
   const summary = [
-    value.format === 'carousel' && value.slides === 'auto' && 'Carousel',
-    value.format === 'single' && 'Single post',
-    value.slides !== 'auto' && `${value.slides} slides`,
+    story && 'Stories',
+    value.format === 'carousel' && value.slides === 'auto' && (story ? 'Several frames' : 'Carousel'),
+    value.format === 'single' && (story ? 'One frame' : 'Single post'),
+    value.slides !== 'auto' && `${value.slides} ${story ? 'frames' : 'slides'}`,
     value.imageChoice === 'on' && 'With images',
     value.imageChoice === 'off' && 'No images',
     value.designId !== 'auto' && (design?.design.name || 'Chosen design'),
@@ -200,7 +212,7 @@ export function PostSettings({ value, onChange, brandContext, photoCount = 0, di
           <button
             type="button"
             disabled={disabled}
-            aria-label={`Post settings: ${custom ? summary.join(', ') : 'all on Auto'}`}
+            aria-label={`Settings: ${custom ? summary.join(', ') : 'posts, all on Auto'}`}
             className={appButton('outline', 'sm', cn('max-w-full gap-1.5 px-2.5 font-semibold sm:max-w-[340px]', custom && 'border-bk-fg'))}
           >
             <SlidersHorizontal className="size-4 shrink-0" />
@@ -219,7 +231,7 @@ export function PostSettings({ value, onChange, brandContext, photoCount = 0, di
         >
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="font-bk-display text-[16px] font-bold tracking-[-0.02em]">Post settings</p>
+              <p className="font-bk-display text-[16px] font-bold tracking-[-0.02em]">Settings</p>
               <p className="mt-0.5 text-[12px] leading-snug text-bk-muted">For the ideas you create next. Auto lets Batkle decide.</p>
             </div>
             <button
@@ -232,23 +244,31 @@ export function PostSettings({ value, onChange, brandContext, photoCount = 0, di
             </button>
           </div>
 
+          <Row label="Make" hint={story ? 'Stories (9:16) for Instagram and Facebook. Words and logo stay clear of the bars Meta draws over the top and bottom.' : 'Posts (4:5) for the feed: a single post or a carousel.'}>
+            <Choice label="Make" options={KINDS} value={value.kind || 'post'} onChange={kind => set({ kind })} />
+          </Row>
+
           <Row label="Format">
             <Choice
-              label="Post format"
-              options={FORMATS}
+              label={story ? 'Story format' : 'Post format'}
+              options={story ? STORY_FORMATS : FORMATS}
               value={value.format}
               onChange={format => set(format === 'single' ? { format, slides: 'auto' } : { format })}
-              unavailable={v => v === 'single' && photoCount > 1 && 'A single post shows one photo'}
+              unavailable={v => v === 'single' && photoCount > 1 && (story ? 'One frame shows one photo' : 'A single post shows one photo')}
             />
           </Row>
 
           {/* Each slide gets its own image, so each slide is one credit. */}
-          <Row label="Slides" hint={value.format === 'single' ? 'A single post has one slide, so it uses 1 credit.' : value.slides === 'auto' ? 'Auto fits the length to the idea: 3–4 slides for one insight, up to 10 for a process or story. Each slide uses 1 credit.' : `Counts the cover and the closing slide. This post will use ${value.slides} credits.`}>
+          <Row label={story ? 'Frames' : 'Slides'} hint={story
+            ? (value.format === 'single' ? 'One frame uses 1 credit.' : value.slides === 'auto' ? 'Auto fits the number of frames to the idea. Each frame uses 1 credit.' : `This story will use ${value.slides} credits, one per frame.`)
+            : (value.format === 'single' ? 'A single post has one slide, so it uses 1 credit.' : value.slides === 'auto' ? 'Auto fits the length to the idea: 3–4 slides for one insight, up to 10 for a process or story. Each slide uses 1 credit.' : `Counts the cover and the closing slide. This post will use ${value.slides} credits.`)}>
             <Choice
-              label="Number of slides"
-              options={SLIDE_COUNTS.map(n => ({ value: n, label: n === 'auto' ? 'Auto' : String(n), title: n === 'auto' ? undefined : `${n} slides` }))}
+              label={story ? 'Number of frames' : 'Number of slides'}
+              options={SLIDE_COUNTS.map(n => ({ value: n, label: n === 'auto' ? 'Auto' : String(n), title: n === 'auto' ? undefined : `${n} ${story ? 'frames' : 'slides'}` }))}
               value={value.slides}
               disabled={value.format === 'single'}
+              // Each photo gets a slide of its own, so a post can't be shorter than its photos.
+              unavailable={n => n !== 'auto' && n < photoCount && `Your ${photoCount} photos need at least ${photoCount} ${story ? 'frames' : 'slides'}`}
               // A slide count means a carousel.
               onChange={slides => set(slides === 'auto' ? { slides } : { slides, format: 'carousel' })}
             />

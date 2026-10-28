@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { PLANS, TRIAL, approxPosts, cheapestPlanForBrands, cheapestPlanWith, formatBytes, planById, uploadsLabel } from './plans'
+import { PLANS, TRIAL, approxPosts, cheapestPlanForBrands, cheapestPlanForPhotos, cheapestPlanWith, planById } from './plans'
 import type { Feature, ImageQuality, Interval, Plan, PlanId } from './plans'
 
 /**
@@ -194,7 +194,8 @@ export interface BillingSummary {
   credits: { allowance: number; used: number; extra: number; left: number; approxPosts: number; renewsAt: Date }
   texts: { allowance: number; used: number; left: number }
   brands: { used: number; max: number }
-  uploads: { images: number; bytes: number; maxImages: number | null; maxBytes: number | null; label: string }
+  /** The person's own photos one post or story can use. */
+  photosPerPost: number
   features: Record<Feature, boolean>
   imageQuality: ImageQuality
   /** An admin account: every feature, no subscription needed. */
@@ -204,11 +205,11 @@ export interface BillingSummary {
 /** What the plan settings, the credits meter and upgrade prompts show. */
 export async function getBillingSummary(db: any, userId: string, now = new Date()): Promise<BillingSummary> {
   const account = await loadBilling(db, userId, now)
-  const [usage, brands] = await Promise.all([uploadUsage(db, userId), db.collection('flows').countDocuments({ ownerId: userId })])
-  return summarize(account, usage, brands, now)
+  const brands = await db.collection('flows').countDocuments({ ownerId: userId })
+  return summarize(account, brands, now)
 }
 
-export function summarize(account: BillingAccount, usage: { images: number; bytes: number }, brands: number, now = new Date()): BillingSummary {
+export function summarize(account: BillingAccount, brands: number, now = new Date()): BillingSummary {
   const plan = effectivePlan(account)
   const allowance = allowances(account)
   const left = creditsLeft(account)
@@ -225,8 +226,8 @@ export function summarize(account: BillingAccount, usage: { images: number; byte
     credits: { allowance: allowance.credits, used: Math.min(account.creditsUsed || 0, allowance.credits), extra: left.extra, left: left.total, approxPosts: approxPosts(left.total), renewsAt: creditPeriod(new Date(account.creditAnchor), now).end },
     texts: { allowance: allowance.textReminders, used: Math.min(textsUsed, allowance.textReminders), left: Math.max(0, allowance.textReminders - textsUsed) },
     brands: { used: brands, max: plan.brands },
-    uploads: { images: usage.images, bytes: usage.bytes, maxImages: plan.uploads.maxImages ?? null, maxBytes: plan.uploads.maxBytes ?? null, label: uploadsLabel(plan) },
-    features: { scheduling: plan.scheduling, emailReminders: plan.emailReminders, textReminders: plan.textReminders > 0, customDesigns: plan.customDesigns, adDesigns: plan.adDesigns },
+    photosPerPost: plan.photosPerPost,
+    features: { scheduling: plan.scheduling, emailReminders: plan.emailReminders, textReminders: plan.textReminders > 0, customDesigns: plan.customDesigns, adDesigns: plan.adDesigns, postVoice: plan.postVoice },
     imageQuality: plan.imageQuality,
     admin: Boolean(account.admin),
   }
@@ -372,6 +373,7 @@ const FEATURE_NAMES: Record<Feature, [string, boolean]> = {
   textReminders: ['Text reminders', true],
   customDesigns: ['Creating your own designs', false],
   adDesigns: ['Facebook and Instagram ads', true],
+  postVoice: ['Writing in the voice of your own posts', false],
 }
 
 export async function hasFeature(db: any, userId: string, feature: Feature): Promise<boolean> {
@@ -400,29 +402,15 @@ export async function requireBrandSlot(db: any, userId: string) {
   { limit: 'brands', max: plan.brands, used, requiredPlan: next?.id || null })
 }
 
-/**
- * The person's own images: uploads with `ownerId` and `userUpload: true` (gallery uploads, photos added to a post
- * idea and images added in the editor), with their stored `size` in bytes.
- */
-export async function uploadUsage(db: any, userId: string): Promise<{ images: number; bytes: number }> {
-  const rows = await db.collection('uploads').aggregate([
-    { $match: { ownerId: userId, userUpload: true } },
-    { $group: { _id: null, images: { $sum: 1 }, bytes: { $sum: { $ifNull: ['$size', 0] } } } },
-  ]).toArray()
-  return { images: rows[0]?.images || 0, bytes: rows[0]?.bytes || 0 }
-}
-
-/** Refuses with limit_reached (402) when one more image of `bytes` would not fit in the plan's uploads allowance. */
-export async function requireUploadRoom(db: any, userId: string, bytes: number) {
+/** Refuses with limit_reached (402) when a post has more of the person's own photos than their plan adds to one. */
+export async function requirePhotoRoom(db: any, userId: string, photos: number) {
   const plan = effectivePlan(await loadBilling(db, userId))
-  const usage = await uploadUsage(db, userId)
-  const { maxImages, maxBytes } = plan.uploads
-  if (maxImages != null && usage.images + 1 > maxImages) {
-    throw billingError(402, 'limit_reached', `Your ${plan.name} plan holds up to ${maxImages} of your own images. Delete some from the Gallery, or upgrade for more space.`, { limit: 'uploads', maxImages, images: usage.images })
-  }
-  if (maxBytes != null && usage.bytes + Math.max(0, bytes) > maxBytes) {
-    throw billingError(402, 'limit_reached', `This image doesn't fit: you've used ${formatBytes(usage.bytes)} of your ${formatBytes(maxBytes)}. Delete some images from the Gallery, or upgrade for more space.`, { limit: 'uploads', maxBytes, bytes: usage.bytes })
-  }
+  if (photos <= plan.photosPerPost) return
+  const next = cheapestPlanForPhotos(photos)
+  throw billingError(402, 'limit_reached', next
+    ? `A post on the ${plan.name} plan takes up to ${plan.photosPerPost} photos. Upgrade to ${next.name} to add up to ${next.photosPerPost}.`
+    : `A post can use up to ${plan.photosPerPost} of your photos.`,
+  { limit: 'photos', max: plan.photosPerPost, wanted: photos, requiredPlan: next?.id || null })
 }
 
 /** Standard images on Free, the best model on paid plans. */

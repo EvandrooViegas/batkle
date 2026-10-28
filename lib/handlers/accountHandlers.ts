@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { clerkClient } from '@clerk/nextjs/server'
 import { corsify } from '@/lib/services/middleware'
 import { loadAccount } from '@/lib/auth'
-import { parseOnboarding, parseOnboardingDraft } from '@/lib/onboardingOptions'
+import { parseName, parseOnboarding, parseOnboardingDraft } from '@/lib/onboardingOptions'
 import { unverifiedPhone } from '@/lib/notifications/settings'
 
 /** Keeps answers typed but not yet submitted on the account, so someone who leaves finds them filled in. */
@@ -18,6 +18,22 @@ export async function handleClearOnboardingDraft(db: any, userId: string) {
 }
 
 /**
+ * Keeps Clerk's profile (account settings, the account menu) in step with the name saved on the account. Email
+ * sign-ups have no name in Clerk until onboarding gives one. Best effort: the account's own name is what teammates see.
+ */
+async function syncClerkName(userId: string, name: string) {
+  try {
+    const clerk = await clerkClient()
+    const user = await clerk.users.getUser(userId)
+    const [firstName, ...rest] = name.split(' ')
+    const lastName = rest.join(' ')
+    if ((user.firstName || '') !== firstName || (user.lastName || '') !== lastName) await clerk.users.updateUser(userId, { firstName, lastName })
+  } catch (error: any) {
+    console.warn('[account] could not update the name in Clerk:', error?.errors?.[0]?.message || error?.message)
+  }
+}
+
+/**
  * Saves the name (and the optional phone number, unverified until it is checked in Settings) and marks the account
  * ready for the app.
  */
@@ -30,17 +46,15 @@ export async function handleCompleteOnboarding(db: any, userId: string, body: an
   const now = new Date()
   const phone = answers.phone ? { phone: unverifiedPhone(answers.phone, account.phone) } : {}
   await db.collection('users').updateOne({ id: userId }, { $set: { name: answers.name, ...phone, onboardedAt: now, updatedAt: now }, $unset: { onboardingDraft: '' } })
-
-  // Email sign-ups have no name in Clerk yet; keep Clerk's profile (account settings) in step with the one given here.
-  try {
-    const clerk = await clerkClient()
-    const user = await clerk.users.getUser(userId)
-    const [firstName, ...rest] = answers.name.split(' ')
-    const lastName = rest.join(' ')
-    if ((user.firstName || '') !== firstName || (user.lastName || '') !== lastName) await clerk.users.updateUser(userId, { firstName, lastName })
-  } catch (error: any) {
-    console.warn('[account] could not update the name in Clerk:', error?.errors?.[0]?.message || error?.message)
-  }
-
+  await syncClerkName(userId, answers.name)
   return corsify(NextResponse.json({ success: true }))
+}
+
+/** Settings → Your name: changes the name on the account, which the people it shares brands with see, and in Clerk. */
+export async function handleUpdateName(db: any, userId: string, body: any) {
+  const answer = parseName(body?.name)
+  if ('error' in answer) return corsify(NextResponse.json({ error: answer.error, field: 'name' }, { status: 400 }))
+  await db.collection('users').updateOne({ id: userId }, { $set: { name: answer.name, updatedAt: new Date() } })
+  await syncClerkName(userId, answer.name)
+  return corsify(NextResponse.json({ name: answer.name }))
 }

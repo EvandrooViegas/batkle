@@ -7,7 +7,7 @@ export const PILLARS = ['Educational', 'Expertise', 'Services', 'Projects / Case
 type FacetKind = 'service' | 'project' | 'differentiator' | 'topic' | 'company'
 export interface Facet { kind: FacetKind; label: string; detail: string }
 /** `text` is everything the idea talks about (topic, hook, core message, outline), used to spot recurring subjects. */
-export interface PastIdea { topic?: string; text?: string; pillar?: string; format?: string; slides?: number; angle?: { pillar?: string; facet?: string } }
+export interface PastIdea { topic?: string; text?: string; pillar?: string; format?: string; slides?: number; angle?: { pillar?: string; facet?: string }; hookShape?: string; hook?: string }
 export interface CarouselLength { label: 'short' | 'medium' | 'long'; min: number; max: number; use: string }
 /**
  * `avoid`: subjects the recent ideas already lean on, which this idea must not bring up again.
@@ -177,7 +177,9 @@ export function ideaHistory(...sources: any[][]): PastIdea[] {
   for (const source of sources) for (const item of list(source)) {
     const slides = Array.isArray(item?.outline) ? item.outline.length : Number(item?.slides) || undefined
     const said = item && typeof item === 'object' ? [item.topic, item.hook, item.coreMessage, ...list(item.outline)].map(text).filter(Boolean).join(' \n ') : text(item)
-    const idea: PastIdea = typeof item === 'string' ? { topic: item, text: item } : item && typeof item === 'object' ? { topic: text(item.topic), text: said, pillar: text(item.pillar), format: text(item.format), ...(slides ? { slides } : {}), angle: item.angle && typeof item.angle === 'object' ? { pillar: text(item.angle.pillar), facet: text(item.angle.facet) } : undefined } : {}
+    // Ideas from before hook shapes were chosen count as a call-out when their hook opens by addressing the reader.
+    const shape = item && typeof item === 'object' ? text(item.hookShape) || (callsOutReader(text(item.hook), text(item.targetAudience)) ? 'callout' : '') : ''
+    const idea: PastIdea = typeof item === 'string' ? { topic: item, text: item } : item && typeof item === 'object' ? { topic: text(item.topic), text: said, pillar: text(item.pillar), format: text(item.format), ...(slides ? { slides } : {}), angle: item.angle && typeof item.angle === 'object' ? { pillar: text(item.angle.pillar), facet: text(item.angle.facet) } : undefined, ...(shape ? { hookShape: shape } : {}), ...(text(item.hook) ? { hook: text(item.hook) } : {}) } : {}
     const key = fold(idea.topic || '')
     if (!key) continue
     const known = byKey.get(key)
@@ -186,4 +188,166 @@ export function ideaHistory(...sources: any[][]): PastIdea[] {
     byKey.set(key, idea); out.push(idea)
   }
   return out.slice(0, 40)
+}
+
+// ---- Hooks: how a post (or story) opens ----
+
+/**
+ * The ways a hook can open. The model chooses the one that fits each topic (no fixed rotation); it sees how the
+ * brand's recent posts opened, so a brand's posts do not all open the same way (an audience call-out on every cover
+ * reads like a template). The examples come from other businesses and only show the shape.
+ */
+export const HOOK_SHAPES = [
+  { id: 'scene', label: 'A scene they know', use: 'a short moment from the reader’s day, in the present tense: what they see, hear or do, not who they are', example: 'POV: the kitchen renovation was meant to take three weeks. It’s month four.' },
+  { id: 'belief', label: 'A belief to correct', use: 'one plain statement that corrects something people believe about the subject', example: 'A bigger website is not a better website.' },
+  { id: 'mistake', label: 'The costly mistake', use: 'the mistake, named plainly, and what it costs', example: 'The most expensive renovation mistake: choosing the tiles before the plan.' },
+  { id: 'question', label: 'The question in their head', use: 'the exact question the reader asks themselves, in their own words, not a question that sets up a pitch', example: 'Why does the damp come back every winter?' },
+  { id: 'result', label: 'A specific result or count', use: 'what the post delivers, made specific: a count of signs, steps or mistakes, or a concrete outcome, with numbers only from the profile or the slides themselves', example: '4 signs a roof needs work before winter' },
+  { id: 'story', label: 'A story that starts mid-way', use: 'the first line of a real situation from the brand’s work (a project, a request, a site), told plainly', example: 'The call came on a Friday: half the ceiling was on the floor.' },
+  { id: 'contrast', label: 'Two ways side by side', use: 'two things set against each other in few words: before and after, or the usual way and the better one', example: 'Tiles first, plan later. Or plan first and pay once.' },
+  { id: 'callout', label: 'Call out the reader', use: 'name who the post is for and their situation; the only way that opens by addressing the reader', example: 'Landlords who heard about the leak from the tenant downstairs' },
+] as const
+export type HookShape = typeof HOOK_SHAPES[number]
+
+const openingOf = (hook: string) => (fold(String(hook || '')).match(/[a-z0-9]+/g) || []).slice(0, 3).join(' ')
+
+/**
+ * How to open, for the idea prompt: the ways a hook can open (the model picks the one that fits the topic and says
+ * which in "hookShape"), and how the brand's recent posts opened, so this one opens differently.
+ */
+export function hookChoiceBlock(history: PastIdea[]) {
+  const recent = history.map(i => i.hook).filter(Boolean).slice(0, 6) as string[]
+  const addressed = recent.slice(0, 3).some(h => callsOutReader(h))
+  return `HOW TO OPEN (your choice): pick the way in that best fits this topic, and give its id as "hookShape". The examples come from other businesses and only show the shape; never reuse their words.
+${HOOK_SHAPES.map(s => `- ${s.id}: ${s.label}: ${s.use}. "${s.example}"`).join('\n')}${recent.length ? `\nThe brand's recent posts opened like this. Open this one differently, in other words and preferably another way in:\n${recent.map(h => `- "${h}"`).join('\n')}` : ''}${addressed ? '\nA recent post already opened by addressing the reader: do not open this one that way.' : ''}`
+}
+
+// Short words that never say what a post is about.
+const FILLER_WORDS = new Set(['your', 'their', 'with', 'from', 'that', 'this', 'what', 'about', 'para', 'como', 'with', 'sobre', 'mais', 'muito', 'have', 'they', 'sua', 'seu', 'suas', 'seus', 'uma', 'umas', 'pelo', 'pela', 'post', 'posts', 'reader', 'leitor'])
+
+/**
+ * Whether the hook says what the model itself says a reader understands from it alone ("hookSubject"): at least one
+ * of the subject's words must be in the hook. "Your feed repeats the same post style three days straight." does not
+ * contain "content ideas", so it goes back.
+ */
+export function hookSubjectIssue(hook: string, subject: string): string[] {
+  const words = (value: string) => (fold(String(value || '')).match(/[a-z0-9]{4,}/g) || []).filter(w => !FILLER_WORDS.has(w))
+  const wanted = words(subject), said = words(hook)
+  if (!wanted.length) return []
+  return wanted.some(w => said.some(h => h.slice(0, 5) === w.slice(0, 5))) ? [] : [`the hook does not say what the post is about: you said a reader understands "${String(subject).slice(0, 80)}", but none of that is in "${String(hook).slice(0, 80)}"; put the subject in the hook`]
+}
+
+/** A hook that repeats how a recent post opened: its first words, or addressing the reader right after one that did. */
+export function hookRepeats(hook: string, history: PastIdea[]): string[] {
+  const recent = history.map(i => i.hook).filter(Boolean).slice(0, 6) as string[]
+  const opening = openingOf(hook)
+  const same = opening.split(' ').length >= 2 ? recent.find(h => openingOf(h) === opening) : undefined
+  if (same) return [`the hook opens like a recent post ("${String(same).slice(0, 60)}"); open it another way`]
+  if (callsOutReader(hook) && recent.slice(0, 3).some(h => callsOutReader(h))) return ['the hook opens by addressing the reader, like a recent post did; open it another way (a moment, a mistake, a belief, a question, a result)']
+  return []
+}
+
+// Openings that address the reader ("Para donos de restaurantes: …", "If you run a shop, …"), accents folded.
+const ADDRESS = /^(para|for|attention|atencao|hey|ola|ei|caro|cara|caros|dear|calling all|se (es|e|tens|tem|esta|estas|trabalha|trabalhas|gere|geres)|if you( are|'re| run| own| have| work| manage)|you( are|'re) (a|an))\b/
+// An opening phrase that is a group of people ("Empresas de construção, …", "Construction marketers: …").
+const GROUP = /^(\w+ )?(empresas|empresarios|empreendedores|donos|proprietarios|gestores|marketeers?|marketers?|owners|business owners|founders|landlords|senhorios|clientes|lojistas|profissionais|equipas|teams|managers|agencias|agencies|negocios|marcas|brands|criadores|creators|freelancers|startups)\b/
+
+/** Whether a hook opens by naming or addressing its audience ("Construction marketers, …", "Empresas de x, …"). */
+export function callsOutReader(hook: string, audience = ''): boolean {
+  const opening = fold(String(hook || '').trim())
+  if (!opening) return false
+  if (ADDRESS.test(opening)) return true
+  const lead = opening.match(/^([^,:;.!?—–]{3,60})[,:;—–]\s/)
+  if (!lead) return false
+  if (GROUP.test(lead[1])) return true
+  // The opening phrase repeats the audience's own words.
+  const words = lead[1].match(/[a-z]{4,}/g) || []
+  const audienceWords = fold(audience).match(/[a-z]{5,}/g) || []
+  return audienceWords.some(a => words.some(w => w.slice(0, 5) === a.slice(0, 5)))
+}
+
+/** The hook problem the idea and copy checks send back: an audience call-out when the chosen shape is another. */
+export function hookIssues(hook: string, shape: string | undefined, audience = ''): string[] {
+  if (!shape || shape === 'callout' || !callsOutReader(hook, audience)) return []
+  const wanted = HOOK_SHAPES.find(s => s.id === shape)
+  return [`the hook opens by naming or addressing who the post is for ("${String(hook).slice(0, 60)}"); open with ${wanted ? wanted.label.toLowerCase() : 'the moment, the problem or the belief'} instead`]
+}
+
+// Phrases that make copy read as machine-written, in English and Portuguese.
+const AI_TELLS = [
+  /\bturns? (?:that|this|your|the|a|an) [^.,;:!?]{2,40} into\b/i, /\btransforma(?:m|r)? (?:o|a|os|as|esse|essa|isso|o seu|a sua|a tua|o teu)\b[^.,;:!?]{0,40}\b(?:em|num|numa|nuns|numas)\b/i,
+  /\bthe result(?:\s*[?:]|\s+(?:is|was|are)\b)/i, /(?:^|[.\n]\s*|\bo )resultado(?:\s*[?:]|\s+(?:é|foi|são|foram)(?![\p{L}]))/iu, /\bwant to see (?:it|how)\b/i, /\bquer(?:es)? (?:ver|saber) como\b/i,
+  // A question to the reader that only sets up the pitch ("Want to grow your bookings?", "Quer evitar esse erro?").
+  /\bwant to [^?.\n]{3,60}\?/i, /\bquer(?:es)? (?!saber como|ver como)[^?.\n]{3,60}\?/i,
+  /\bgoes beyond\b/i, /\bvai (?:muito )?além d[eoa]s?\b/i,
+  /\bin (?:just )?minutes\b/i, /\bem (?:poucos |apenas )?minutos\b/i, /\bsay goodbye to\b/i, /\bdiga adeus\b/i,
+  /\b(?:it'?s|is) not just\b/i, /\bisn'?t just\b/i, /\bnão é (?:apenas|só)\b/i,
+  /\bimagine\b/i, /\bgame[- ]?changer\b/i, /\bseamless(?:ly)?\b/i, /\beffortless(?:ly)?\b/i, /\bsem esforço\b/i,
+  /\b(?:the )?next level\b/i, /\bpróximo nível\b/i, /\bunlock\b/i, /\bdesbloque\w*/i, /\belevate\b/i, /\bempower\w*/i,
+  /\bsupercharge\w*/i, /\bstreamline\w*/i, /\brevolutioni[sz]e\w*/i, /\bin today'?s\b/i, /\bnos dias de hoje\b/i, /\bno mundo (?:atual|digital)\b/i,
+  /\blook no further\b/i, /\bwhether you'?re\b/i, /\b(?:instagram|content) gold\b/i,
+  // A next step that names nothing: say what to try or ask for, and from whom.
+  /\b(?:try|watch|see) (?:the|a|our) demo\b/i, /\bsee how it works\b/i, /\b(?:experimente|veja|conheça) (?:a|o nosso|a nossa) demo\b/i, /\bveja como funciona\b/i,
+]
+
+// Machine phrases that come out of a sentence without changing what it says, so they are cut in code instead of
+// costing a retry. A sentence opening on "The result is" / "O resultado é" keeps the rest ("The result is clunky
+// wording." → "Clunky wording."), and a "want to see it…?" question that only sets up the next line is dropped.
+const RESULT_LEAD = /(^|[.!?]["”']?[ \t]+|\n[ \t]*)(?:the result(?:\s+(?:is|was|are|were)(?:\s+that)?|\s*[:?])|o resultado(?:\s+(?:é|foi|são|foram)(?:\s+que)?|\s*[:?]))\s+(\p{L})/giu
+const SEE_IT = /(^|[.!?]["”']?[ \t]+|\n[ \t]*)(?:want to see (?:it|how)\b|quer(?:es)? (?:ver|saber) como\b)[^?.!\n]{0,80}\?[ \t]*(\n?)/giu
+
+/** Some copy without the machine phrases that can be cut cleanly; text that would be left empty stays as it is. */
+export function cutMachinePhrases(text: string): string {
+  const said = String(text ?? '')
+  const cut = said
+    .replace(RESULT_LEAD, (_whole, before, first) => before + first.toLocaleUpperCase())
+    // A question on its own line takes its line break with it.
+    .replace(SEE_IT, (_whole, before, after) => (before.includes('\n') || !before ? before : before + after))
+    .replace(/[ \t]+\n/g, '\n').replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+  return cut ? cut : said
+}
+
+// Claims that something grew or improved, with no figure (so the figure check misses them): "cresceram
+// significativamente", "a significant increase in bookings".
+const RESULT_CLAIMS = [
+  /\b(?:aument(?:o|ou|aram|ar)|cresc(?:eu|eram|imento)|subi(?:u|ram)|duplic(?:ou|aram)|multiplic(?:ou|aram))\b[^.\n]{0,50}\b(?:significativ\w*|consideravelmente|exponencial\w*|muito|imenso)\b/iu,
+  /\b(?:significativ\w*|consideráve\w*|grande) (?:aumento|crescimento|subida)\b/iu,
+  /\b(?:significant(?:ly)?|dramatic(?:ally)?|massive(?:ly)?) (?:increase[sd]?|grow(?:th|n)?|boost(?:ed)?|rise|more)\b/i, /\b(?:grew|increased|doubled|tripled|skyrocketed|soared)\b[^.\n]{0,40}\b(?:significantly|dramatically|considerably)\b/i,
+]
+
+/** Result claims without figures in some copy (at most four), unless the brand's own facts make the same claim. */
+export function resultClaims(texts: unknown[], facts = ''): string[] {
+  const found = new Set<string>()
+  for (const value of texts) {
+    const said = String(value || '')
+    for (const claim of RESULT_CLAIMS) { const match = said.match(claim); if (match && !fold(facts).includes(fold(match[0]))) found.add(match[0].trim().toLowerCase()) }
+  }
+  return [...found].slice(0, 4)
+}
+
+// Offers a business has to honour: something free, or a guarantee ("crescimento garantido"). "Garantimos que" (we
+// make sure that) is everyday Portuguese, not a guarantee, so only the explicit forms count.
+const PROMISES = [
+  { kind: 'free', claim: /(?<!\p{L})(?:grátis|gratuit[oa]s?|free of charge|for free|free)(?!\p{L})/iu },
+  { kind: 'guarantee', claim: /(?<!\p{L})(?:garantid[oa]s?|garantia de|guaranteed|money[- ]back)(?!\p{L})/iu },
+]
+
+/** Free offers and guarantees in some copy that the brand's own facts never make. */
+export function unbackedPromises(texts: unknown[], facts = ''): string[] {
+  const found = new Set<string>()
+  for (const { claim } of PROMISES) {
+    if (claim.test(facts)) continue
+    for (const value of texts) { const match = String(value || '').match(claim); if (match) found.add(match[0].toLowerCase()) }
+  }
+  return [...found]
+}
+
+/** The machine-sounding phrases in some copy, as found (at most six), for the copy checks to send back. */
+export function aiTells(texts: unknown[]): string[] {
+  const found = new Set<string>()
+  for (const value of texts) {
+    const said = String(value || '')
+    for (const tell of AI_TELLS) { const match = said.match(tell); if (match) found.add(match[0].trim().toLowerCase()) }
+  }
+  return [...found].slice(0, 6)
 }

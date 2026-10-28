@@ -21,11 +21,14 @@ const photo = (n, description) => ({ id: `asset_photo${n}aaaa`, ref: `u${n}`, ur
 const before = photo(1, 'A worn barbershop website on a phone, with a phone number to book.')
 const after = photo(2, 'A modern barbershop website with an online booking calendar.')
 
-test('photo ids are validated: unique, valid uploads, at most four', () => {
+test('photo ids are validated: unique, valid uploads, at most the largest plan’s ten (each plan’s own limit is billing’s)', () => {
   assert.deepEqual(images.postImageIds(undefined), [])
   assert.deepEqual(images.postImageIds(['asset_abc12345', 'asset_def67890']), ['asset_abc12345', 'asset_def67890'])
   assert.throws(() => images.postImageIds(['asset_abc12345', 'asset_abc12345']), /only once/)
-  assert.throws(() => images.postImageIds(['asset_a1b2c3d4', 'asset_b1b2c3d4', 'asset_c1b2c3d4', 'asset_d1b2c3d4', 'asset_e1b2c3d4']), /up to 4 photos/)
+  const ids = n => Array.from({ length: n }, (_, i) => `asset_photo${String(i).padStart(2, '0')}x`)
+  assert.equal(images.MAX_POST_IMAGES, 10)
+  assert.deepEqual(images.postImageIds(ids(10)), ids(10), 'a post made on Business keeps its photos after a downgrade')
+  assert.throws(() => images.postImageIds(ids(11)), /up to 10 photos/)
   assert.throws(() => images.postImageIds(['https://evil.example/x.png']), /not a valid upload/)
   assert.throws(() => images.postImageIds('asset_abc12345'), e => e.status === 400)
 })
@@ -134,8 +137,8 @@ function ideasHandler({ outputs, assets = [], families = [{ family: forest }] })
   const fs = require('node:fs')
   const { stripTypeScriptTypes } = require('node:module')
   const src = path => stripTypeScriptTypes(fs.readFileSync(path, 'utf8').replace(/^import .*$/gm, '').replace(/export /g, ''))
-  const helpers = new Function('hydrateBrandFamilies', 'familyImagery', src('lib/services/contentLanguage.ts') + src('lib/services/contentAngles.ts') + src('lib/services/ideaRequest.ts') + src('lib/services/postImages.ts') + src('lib/services/copyFacts.ts')
-    + ';return {postLanguage,readSlideCount,slideCountRule,fitOutline,readLanguageChoice,lengthOf,contentLanguage,languageIssues,copyTexts,chooseAngle,ideaHistory,topicSimilarity,readIdeaRequest,ideaRequestBlock,formatRule,finalFormat,IDEA_REQUEST_RULE,postImageIds,prepareIdeaImages,postImagesBlock,inventedFigures,ideaOutline,outlineIssue,recurringSubjects,mentionsSubject,chooseCarouselLength,CAROUSEL_LENGTHS}')(async () => families, study.familyImagery)
+  const helpers = new Function('hydrateBrandFamilies', 'familyImagery', src('lib/services/contentLanguage.ts') + src('lib/services/contentAngles.ts') + src('lib/services/ideaRequest.ts') + src('lib/services/postImages.ts') + src('lib/services/copyFacts.ts') + src('lib/services/postFeedback.ts')
+    + ';return {postLanguage,HOOK_SHAPES,hookChoiceBlock,hookRepeats,hookSubjectIssue,cutMachinePhrases,feedbackBlock,loadPostFeedback,withoutDislikedDesigns,hookIssues,callsOutReader,aiTells,resultClaims,unbackedPromises,readSlideCount,slideCountRule,fitOutline,readLanguageChoice,lengthOf,contentLanguage,languageIssues,copyTexts,chooseAngle,ideaHistory,topicSimilarity,readIdeaRequest,ideaRequestBlock,formatRule,finalFormat,IDEA_REQUEST_RULE,postImageIds,prepareIdeaImages,postImagesBlock,inventedFigures,ideaOutline,outlineIssue,recurringSubjects,mentionsSubject,chooseCarouselLength,CAROUSEL_LENGTHS}')(async () => families, study.familyImagery)
   const requests = [], updates = []
   const brandProfile = { id: 'k', name: 'KACHICA', language: 'Portuguese', website: 'https://www.kachica.pt/', about: 'Digital marketing agency.', services: ['Website Development — Conversion-focused sites.'], projects: [{ name: 'Barber PH', description: 'Website with booking.' }] }
   const db = { collection: name => name === 'assets'

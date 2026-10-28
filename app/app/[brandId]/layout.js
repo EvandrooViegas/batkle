@@ -14,8 +14,9 @@ import { SIDEBAR_COOKIE, brandLogo } from '@/components/app/ui'
 export default async function AppBrandLayout({ children, params }) {
   const { brandId } = await params
   const account = await requireOnboardedAccount(`/app/${encodeURIComponent(brandId)}/creation`)
-  const [flows, flow, galleryCount, scheduleCount] = await Promise.all([getFlows(), getFlow(brandId), getGalleryCount(brandId), getScheduleCount(brandId)])
+  const [flows, flow, galleryCount] = await Promise.all([getFlows(), getFlow(brandId), getGalleryCount(brandId)])
   if (!flow) notFound()
+  const scheduleCount = await getScheduleCount(brandId, flow.access.ownerId)
 
   const brandContext = flow.brandContext || {}
   const logo = brandLogo(brandContext)
@@ -25,11 +26,12 @@ export default async function AppBrandLayout({ children, params }) {
     logo: logo.src,
     logoOnDark: logo.onDark,
     language: contentLanguage(brandContext).code.toUpperCase(),
+    // 'owner', or the account's role in a brand shared with it, and the owner's name.
+    role: flow.access.role,
+    owner: flow.access.owner,
   }
-  // Ideas made on Stories are marked; every other idea is a post's.
-  const ideas = Array.isArray(flow.creationState?.ideas) ? flow.creationState.ideas : []
-  const stories = ideas.filter(i => i?.surface === 'story').length
-  const counts = { creation: ideas.length - stories, stories, schedule: scheduleCount, gallery: galleryCount }
+  // Posts & stories counts every idea, posts and stories alike.
+  const counts = { creation: flow.creationState?.ideas?.length || 0, schedule: scheduleCount, gallery: galleryCount }
   // Most recently used first; the open brand is the one in use right now, so it leads.
   const ordered = [...flows.filter(f => f.id === flow.id), ...flows.filter(f => f.id !== flow.id)]
   // The saved sidebar state, so a collapsed sidebar does not flash open on reload.

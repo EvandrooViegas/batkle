@@ -9,8 +9,8 @@ const { stripTypeScriptTypes } = require('node:module')
 const it = require.main === module ? test : () => {}
 
 const strip = file => stripTypeScriptTypes(fs.readFileSync(file, 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, ''))
-const PLAN_EXPORTS = ['PLANS', 'TRIAL', 'approxPosts', 'cheapestPlanForBrands', 'cheapestPlanWith', 'formatBytes', 'planById', 'uploadsLabel']
-const ACCOUNT_EXPORTS = ['BILLING_CODES', 'billingError', 'billingErrorBody', 'addMonths', 'creditPeriod', 'effectivePlanId', 'effectivePlan', 'allowances', 'loadBilling', 'creditsLeft', 'getBillingSummary', 'summarize', 'canStartTrial', 'chargeCredits', 'refundCharge', 'settleCharge', 'findCharge', 'grantExtraCredits', 'takeTextReminder', 'returnTextReminder', 'hasFeature', 'requireFeature', 'requireBrandSlot', 'uploadUsage', 'requireUploadRoom', 'imageQualityFor', 'findBillingByCustomer', 'setStripeCustomer', 'applySubscription', 'releaseStaleCharges', 'STALE_CHARGE_MS']
+const PLAN_EXPORTS = ['PLANS', 'TRIAL', 'approxPosts', 'cheapestPlanForBrands', 'cheapestPlanForPhotos', 'cheapestPlanWith', 'planById']
+const ACCOUNT_EXPORTS = ['BILLING_CODES', 'billingError', 'billingErrorBody', 'addMonths', 'creditPeriod', 'effectivePlanId', 'effectivePlan', 'allowances', 'loadBilling', 'creditsLeft', 'getBillingSummary', 'summarize', 'canStartTrial', 'chargeCredits', 'refundCharge', 'settleCharge', 'findCharge', 'grantExtraCredits', 'takeTextReminder', 'returnTextReminder', 'hasFeature', 'requireFeature', 'requireBrandSlot', 'requirePhotoRoom', 'imageQualityFor', 'findBillingByCustomer', 'setStripeCustomer', 'applySubscription', 'releaseStaleCharges', 'STALE_CHARGE_MS']
 const plans = new Function(strip('lib/billing/plans.ts') + `;return {${PLAN_EXPORTS.join(',')}}`)()
 
 /** A clock the billing code reads through its own `Date`: `new Date()` and `Date.now()` give `clock.now`. */
@@ -35,7 +35,7 @@ function loadAccount(clock = makeClock()) {
 /**
  * An in-memory stand-in for the MongoDB calls billing makes: equality filters (Dates by value) with $gte, $lt, $in,
  * $exists and $ne; $set, $inc and $setOnInsert updates with upsert; unique indexes from createIndex; find with sort
- * and limit; countDocuments; deleteOne; and the $match + $group aggregate uploadUsage runs. Every update is atomic,
+ * and limit; countDocuments; deleteOne; and $match + $group aggregates. Every update is atomic,
  * as one document update is in MongoDB. With `interleave`, every call first waits a turn of the event loop, so
  * concurrent requests read and write in the worst order: all of them read before any of them writes.
  */
@@ -463,7 +463,7 @@ it('a free trial caps credits at 50 and texts at 5, whatever the plan', async ()
     await assert.rejects(billing.chargeCredits(db, USER, 1), { code: 'insufficient_credits' })
     for (let i = 0; i < 5; i++) assert.equal(await billing.takeTextReminder(db, USER), true)
     assert.equal(await billing.takeTextReminder(db, USER), false)
-    const summary = billing.summarize(stored(db), { images: 0, bytes: 0 }, 0)
+    const summary = billing.summarize(stored(db), 0)
     assert.deepEqual([summary.plan, summary.trial.active, iso(summary.trial.endsAt), summary.credits.allowance, summary.credits.left, summary.texts.left], [planId, true, '2026-02-07T10:00:00.000Z', 50, 0, 0])
   }
   const { billing } = setup()
@@ -550,6 +550,7 @@ it('requireFeature names the feature and the plans that have it', async () => {
     textReminders: 'Text reminders are part of Pro and Business. Upgrade to use them.',
     customDesigns: 'Creating your own designs is part of Pro and Business. Upgrade to use it.',
     adDesigns: 'Facebook and Instagram ads are part of Business. Upgrade to use them.',
+    postVoice: 'Writing in the voice of your own posts is part of Pro and Business. Upgrade to use it.',
   }
   for (const [feature, message] of Object.entries(expected)) {
     const error = await refusal(feature)
@@ -559,7 +560,7 @@ it('requireFeature names the feature and the plans that have it', async () => {
     assert.equal(await billing.hasFeature(db, USER, feature), false)
   }
   await subscribe(billing, db, 'pro', 'active')
-  for (const feature of ['scheduling', 'emailReminders', 'textReminders', 'customDesigns']) assert.equal(await refusal(feature), null, feature)
+  for (const feature of ['scheduling', 'emailReminders', 'textReminders', 'customDesigns', 'postVoice']) assert.equal(await refusal(feature), null, feature)
   assert.equal((await refusal('adDesigns')).message, expected.adDesigns)
   await subscribe(billing, db, 'business', 'active')
   assert.equal(await refusal('adDesigns'), null)
@@ -591,24 +592,23 @@ it('requireBrandSlot stops a new brand at the plan’s limit, counting only the 
   assert.deepEqual([error.code, billing.billingErrorBody(error).used, billing.billingErrorBody(error).requiredPlan], ['limit_reached', 3, 'business'])
 })
 
-it('uploads are limited by image count on Free and by size on paid plans, counting only the person’s own images', async () => {
-  const MB = 1024 ** 2
-  const own = (n, size) => Array.from({ length: n }, (_, i) => ({ id: `u${i}`, ownerId: USER, userUpload: true, ...(size == null ? {} : { size }) }))
-  let { billing, db } = setup({ seed: { uploads: [...own(19, 1000), { id: 'generated', ownerId: USER, size: 5 * MB }, { id: 'theirs', ownerId: 'someone_else', userUpload: true, size: 1 }, { id: 'nosize', ownerId: USER, userUpload: true }] } })
-  assert.deepEqual(await billing.uploadUsage(db, USER), { images: 20, bytes: 19000 })
-  let error = await billing.requireUploadRoom(db, USER, 10).catch(e => e)
-  assert.equal(error.message, 'Your Free plan holds up to 20 of your own images. Delete some from the Gallery, or upgrade for more space.')
-  assert.deepEqual(billing.billingErrorBody(error), { error: error.message, code: 'limit_reached', limit: 'uploads', maxImages: 20, images: 20 })
-  db.table('uploads').pop()
-  assert.equal(await billing.requireUploadRoom(db, USER, 10 * MB), undefined, 'Free counts images, not bytes')
+it('a post takes as many of the person’s photos as their plan allows, and the upgrade named is the cheapest that fits', async () => {
+  let { billing, db } = setup()
+  assert.equal(await billing.requirePhotoRoom(db, USER, 4), undefined)
+  let error = await billing.requirePhotoRoom(db, USER, 5).catch(e => e)
+  assert.equal(error.message, 'A post on the Free plan takes up to 4 photos. Upgrade to Pro to add up to 8.')
+  assert.deepEqual(billing.billingErrorBody(error), { error: error.message, code: 'limit_reached', limit: 'photos', max: 4, wanted: 5, requiredPlan: 'pro' })
+  error = await billing.requirePhotoRoom(db, USER, 9).catch(e => e)
+  assert.deepEqual([error.status, billing.billingErrorBody(error).requiredPlan], [402, 'business'], 'Pro would not fit nine photos')
 
-  ;({ billing, db } = setup({ seed: { uploads: own(1, 2 * 1024 * MB - MB) } }))
-  assert.deepEqual(await billing.uploadUsage(setup().db, USER), { images: 0, bytes: 0 }, 'no uploads at all')
   await subscribe(billing, db, 'pro', 'active')
-  assert.equal(await billing.requireUploadRoom(db, USER, MB / 2), undefined)
-  error = await billing.requireUploadRoom(db, USER, 2 * MB).catch(e => e)
-  assert.equal(error.message, "This image doesn't fit: you've used 2 GB of your 2 GB. Delete some images from the Gallery, or upgrade for more space.")
-  assert.deepEqual(billing.billingErrorBody(error), { error: error.message, code: 'limit_reached', limit: 'uploads', maxBytes: 2 * 1024 ** 3, bytes: 2 * 1024 * MB - MB })
+  assert.equal(await billing.requirePhotoRoom(db, USER, 8), undefined)
+  ;({ billing, db } = setup())
+  await subscribe(billing, db, 'business', 'active')
+  assert.equal(await billing.requirePhotoRoom(db, USER, 10), undefined)
+  error = await billing.requirePhotoRoom(db, USER, 11).catch(e => e)
+  assert.equal(error.message, 'A post can use up to 10 of your photos.')
+  assert.equal(billing.billingErrorBody(error).requiredPlan, null)
 })
 
 it('billingErrorBody answers for plan limits only', () => {
@@ -625,7 +625,7 @@ it('billingErrorBody answers for plan limits only', () => {
 })
 
 it('the summary shows what is left this month, including bought credits', async () => {
-  const { billing, db } = setup({ start: '2026-01-31T10:00:00Z', seed: { flows: [{ id: 'b', ownerId: USER }], uploads: [{ id: 'u', ownerId: USER, userUpload: true, size: 2048 }] } })
+  const { billing, db } = setup({ start: '2026-01-31T10:00:00Z', seed: { flows: [{ id: 'b', ownerId: USER }] } })
   await billing.grantExtraCredits(db, USER, 10, { ref: 'cs_1' })
   await billing.chargeCredits(db, USER, 5)
   const summary = await billing.getBillingSummary(db, USER)
@@ -634,8 +634,8 @@ it('the summary shows what is left this month, including bought credits', async 
   assert.equal(iso(renewsAt), '2026-02-28T10:00:00.000Z')
   assert.deepEqual([summary.plan, summary.planName, summary.interval, summary.hasSubscription, summary.imageQuality], ['free', 'Free', null, false, 'standard'])
   assert.deepEqual(summary.brands, { used: 1, max: 1 })
-  assert.deepEqual(summary.uploads, { images: 1, bytes: 2048, maxImages: 20, maxBytes: null, label: 'Up to 20 images' })
+  assert.equal(summary.photosPerPost, 4)
   assert.deepEqual(summary.texts, { allowance: 0, used: 0, left: 0 })
   assert.equal(summary.trial.available, true)
-  assert.deepEqual(summary.features, { scheduling: false, emailReminders: false, textReminders: false, customDesigns: false, adDesigns: false })
+  assert.deepEqual(summary.features, { scheduling: false, emailReminders: false, textReminders: false, customDesigns: false, adDesigns: false, postVoice: false })
 })

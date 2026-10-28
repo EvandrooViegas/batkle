@@ -7,19 +7,24 @@ import UpgradeNotice from '../billing/UpgradeNotice'
 import { ScheduleLine, approvalAction } from '../schedule/ScheduleStatus'
 import { StageBar } from './StageBar'
 import { PostThumb, ThumbSkeleton, editorHref } from './PostThumb'
-import { useSurfaceWords } from './surface'
+import { wordsFor } from './surface'
+import { PostRating } from './PostRating'
+import { useBrandAccess } from '../AppShell'
 
 /**
  * One idea in the list, with its post thumbnail (click to preview), progress and next action. A ready post shows
  * its approval step (`approval`: { state, entry }): approve, schedule or edit its schedule. A build stopped by a plan
- * limit (`limit`, from useCreation's limitOf) offers the upgrade instead of a retry.
+ * limit (`limit`, from useCreation's limitOf) offers the upgrade instead of a retry. A ready post is liked or disliked
+ * with one compact control beside its actions (`rating`, `onRate`). Someone who can only view the brand sees the post
+ * and its preview, without the actions.
  */
-export function IdeaRow({ idea, number, status, approval, onApproval, selecting, selected, onToggle, onPreview, onBuild, onRetry, limit = null, order = 0 }) {
-  const w = useSurfaceWords()
+export function IdeaRow({ idea, number, status, approval, onApproval, selecting, selected, onToggle, onPreview, onBuild, onRetry, rating = null, onRate, limit = null, order = 0 }) {
+  const w = wordsFor(idea)
   const { phase, canvas, steps, error, slides } = status
   const building = phase === 'building'
-  const href = editorHref(canvas)
-  const action = phase === 'ready' && approval ? approvalAction(approval.state) : null
+  const { canEdit } = useBrandAccess()
+  const href = canEdit ? editorHref(canvas) : null
+  const action = canEdit && phase === 'ready' && approval ? approvalAction(approval.state) : null
   const unapproved = !approval || approval.state === 'unapproved'
   const showThumb = !!canvas || building
 
@@ -105,6 +110,7 @@ export function IdeaRow({ idea, number, status, approval, onApproval, selecting,
         {phase === 'ready' && (
           <>
             {unapproved && <span className="text-[12.5px] font-bold text-[#1E8A5A] dark:text-[#4CC38A]">{w.Noun} ready</span>}
+            {canvas && onRate && canEdit && <PostRating value={rating} onRate={onRate} noun={w.noun} compact />}
             {action && (
               <button type="button" onClick={onApproval} className={appButton(['unapproved', 'changed', 'approved'].includes(approval?.state ?? 'unapproved') ? 'primary' : 'outline', 'md')}>
                 {action.kind === 'approve' ? <Check className="size-3.5" strokeWidth={3} /> : <CalendarClock className="size-3.5" />}{action.label}
@@ -116,10 +122,10 @@ export function IdeaRow({ idea, number, status, approval, onApproval, selecting,
         {phase === 'failed' && !limit && (
           <>
             <span className="text-[12.5px] font-bold text-[#C2412F] dark:text-[#F0826F]">Couldn&apos;t finish</span>
-            <button type="button" onClick={onRetry} className={appButton('outline', 'md')}><RefreshCw className="size-3.5" />Retry</button>
+            {canEdit && <button type="button" onClick={onRetry} className={appButton('outline', 'md')}><RefreshCw className="size-3.5" />Retry</button>}
           </>
         )}
-        {phase === 'idea' && (
+        {phase === 'idea' && canEdit && (
           <button type="button" onClick={onBuild} className={appButton('primary', 'md')}>Generate {w.noun}</button>
         )}
       </div>

@@ -1,6 +1,6 @@
 // The pricing section's words and numbers, worked out from lib/billing/plans.ts so a price or limit changed there
 // changes the landing page too. Pure functions, no React, so tests/landingPricing.test.cjs can check them.
-import { CREDIT_PACK, NEWSLETTER_DISCOUNT, PAID_PLAN_IDS, PLANS, SLIDES_PER_POST, TRIAL, approxPosts, formatBytes, formatPrice, isComingSoon } from '@/lib/billing/plans'
+import { CREDIT_PACK, NEWSLETTER_DISCOUNT, PAID_PLAN_IDS, PLANS, SLIDES_PER_POST, TRIAL, approxPosts, formatPrice, isComingSoon } from '@/lib/billing/plans'
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`
 
@@ -39,12 +39,6 @@ export function priceText(plan, interval) {
   return interval === 'year' ? `${amount} ${unit} (${detail})` : `${amount} ${unit}`
 }
 
-function uploadsText(plan) {
-  if (plan.uploads.maxImages != null) return `Up to ${plan.uploads.maxImages} of your own images`
-  if (plan.uploads.maxBytes != null) return `${formatBytes(plan.uploads.maxBytes)} for your own images`
-  return 'Unlimited space for your own images'
-}
-
 function scheduleText(plan) {
   const parts = [
     plan.scheduling && 'Schedule calendar',
@@ -60,9 +54,10 @@ export function planHighlights(plan) {
     { text: plural(plan.brands, 'brand'), included: true },
     { text: `${plan.credits} credits a month (≈ ${plural(approxPosts(plan.credits), 'post')})`, included: true },
     { text: plan.imageQuality === 'high' ? 'High-quality AI images' : 'Standard AI images', included: true },
-    { text: uploadsText(plan), included: true },
+    { text: `Up to ${plan.photosPerPost} of your photos in each post`, included: true },
     scheduleText(plan),
     plan.customDesigns ? { text: 'Create and share your own designs', included: true } : { text: 'Batkle’s designs; browse the ones members make', included: true },
+    { text: 'Posts in the voice of your own posts', included: plan.postVoice },
     { text: 'Facebook and Instagram ads', included: plan.adDesigns },
   ]
 }

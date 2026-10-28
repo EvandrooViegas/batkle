@@ -3,7 +3,6 @@ import sharp from 'sharp'
 import { corsify } from '@/lib/services/middleware'
 import { parseDataUrl, storeImageBytes, newAssetId, releaseUploads } from './assetHandlers'
 import { describePostImage, POST_IMAGE_SOURCE } from '@/lib/services/postImages'
-import { requireUploadRoom } from '@/lib/billing/account'
 import { DIRECT_UPLOAD_MAX_BYTES, withDirectUpload } from '@/lib/services/uploadStore'
 
 const TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -13,9 +12,9 @@ const MIN_SIDE = 300
 const error = (message: string, status: number) => corsify(NextResponse.json({ error: message }, { status }))
 
 /**
- * A photo the user attaches to a post idea. It is stored with the brand, read by the vision model so the planner
- * knows what it shows, and kept out of automatic gallery matching: it is used only by the post it is attached to.
- * It is one of the person's own images, so it counts against their plan (402 limit_reached when there is no room).
+ * A photo the user attaches to a post idea: the way people use their own photos (the gallery holds only AI cutouts).
+ * It is stored with the brand and read by the vision model so the planner knows what it shows, and it is used only by
+ * the post it is attached to. How many one post may use is the plan's (requirePhotoRoom, when the idea is written).
  * The photo is stored exactly as sent: it comes inside the request as a data URL, or was uploaded to R2 first
  * (`upload`, from POST /api/uploads/sign).
  */
@@ -50,8 +49,6 @@ async function storePostImage(db: any, body: any, userId: string | null | undefi
   }
   if (Math.min(width, height) < MIN_SIDE) return error(`Photo too small: use at least ${MIN_SIDE} px on each side.`, 400)
 
-  // Outside any try: a billing error reaches the route, which answers 402 with its code.
-  if (userId) await requireUploadRoom(db, userId, buf.length)
   // Relative URLs keep the photo working on any host or port (renderers read /api/uploads/ straight from storage).
   const { url, thumbnail_url, mime_type: storedType } = await storeImageBytes(db, buf, mime_type, '', userId)
   const now = new Date()
@@ -77,8 +74,8 @@ async function storePostImage(db: any, body: any, userId: string | null | undefi
 }
 
 /**
- * Removes a photo the user detached before it was used by a post, and gives its space back (see releaseUploads).
- * Photos already used by a post are kept.
+ * Removes a photo the user detached before it was used by a post (see releaseUploads). Photos already used by a post
+ * are kept.
  */
 export async function handleDeletePostImage(db: any, id: string, brandId: string | null) {
   if (!brandId) return error('brand_id is required', 400)

@@ -130,9 +130,32 @@ export function deriveGrammar(family: GlobalDesignFamily): DesignGrammar {
   })
 }
 
+const PANEL_SHAPE = '(?:block|panel|box|rectangle|card)s?'
+const PANEL_OUTLINE = new RegExp(`\\b(?:outlined|outlines?|bordered|borders?|keylines?)\\b[^.]{0,60}\\b${PANEL_SHAPE}\\b|\\b${PANEL_SHAPE}\\b[^.]{0,60}\\b(?:outlined|outlines?|bordered|borders?)\\b`, 'i')
+const PANEL_OFFSET = new RegExp(`\\b(?:ghost|offset|layered|layering|overlapping)\\b[^.]{0,60}\\b${PANEL_SHAPE}\\b`, 'i')
+const GHOST_ONLY = /\bghost\b|outline only|outlined only/i
+const SOLID_SECOND = /secondary (?:accent |solid |colou?r(?:ed)? )?blocks?|solid (?:and outlined )?(?:blocks|rectangles)/i
+
+/**
+ * A filled headline panel's outline and offset block, read from the study's own words when the grammar doesn't say
+ * (studies made before the grammar had them). "Ghost" or "outline only" alone makes the second block an outline.
+ */
+function studiedPanel(study: any): NonNullable<DesignGrammar['panel']> {
+  const prose = [study?.decorative, study?.composition, study?.colorRoles?.decoration, ...(study?.distinctive || []), ...(study?.familyRules || [])].filter(Boolean).join('. ')
+  const offset = !PANEL_OFFSET.test(prose) ? 'none' : SOLID_SECOND.test(prose) || !GHOST_ONLY.test(prose) ? 'block' : 'outline'
+  // "Outline only" describes the second block, not a line around the panel.
+  return { outline: PANEL_OUTLINE.test(prose.replace(/\b(?:outline|outlined) only\b/gi, '')), offset }
+}
+
 /** The grammar generation follows, made consistent with the study's imagery strategy. */
 export function familyGrammar(family: GlobalDesignFamily): DesignGrammar {
-  const grammar = family.study?.grammar ? grammarSchema.parse(family.study.grammar) : deriveGrammar(family)
+  const parsed = family.study?.grammar ? grammarSchema.parse(family.study.grammar) : deriveGrammar(family)
+  // A reference whose photo fills the canvas is image-led, whatever the model called it: a split gives the photo one
+  // side. Every arrangement the references show is one the language allows.
+  const references = parsed.references.map(r => r.image && r.imagePos === 'full' && r.composition === 'split' ? { ...r, composition: 'image-led' as const } : r)
+  const shown = [...new Set(references.map(r => r.composition))].filter(c => !parsed.compositions.includes(c))
+  const panel = parsed.panel ?? (parsed.headline.frame === 'solid' ? studiedPanel(family.study) : undefined)
+  const grammar = { ...parsed, references, compositions: [...parsed.compositions, ...shown], ...(panel ? { panel } : {}) }
   const imagery = familyImagery(family)
   if (imagery.mode === 'none') {
     const compositions = textCompositions(grammar.compositions)

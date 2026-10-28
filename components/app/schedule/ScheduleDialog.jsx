@@ -190,7 +190,7 @@ export function ScheduleDialog({ open, onOpenChange, entry, canvas, onSave, onUn
             />
           </div>
 
-          <p className="mt-4 flex gap-2.5 rounded-xl border border-bk-line bg-bk-alt/60 px-3.5 py-3 text-[12.5px] leading-relaxed text-bk-fg/80">
+          <p className="mt-4 flex gap-2.5 rounded-xl bg-bk-alt/60 px-3.5 py-3 text-[12.5px] leading-relaxed text-bk-fg/80">
             <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-bk-muted" />
             <span>
               Batkle doesn’t post for you. At the time you pick, it reminds you with the slides and caption ready to post.{' '}

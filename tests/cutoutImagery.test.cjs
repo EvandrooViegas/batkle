@@ -80,14 +80,18 @@ test('a photo slot filled with a generated cutout is composed as a cutout, and a
 })
 
 const photoHelpers = load('lib/services/postImages.ts', ['loadPostImages', 'postImageIds', 'uploadPlanningBlock', 'assignUploads', 'ideaForCopy'], { hydrateBrandFamilies: async () => [], familyImagery: study.familyImagery })
+const { isGalleryCutout } = load('lib/services/generatedAssetLibrary.ts', ['isGalleryCutout'], { createHash: crypto.createHash })
+/** A saved AI cutout as the gallery keeps it. */
+const savedCutout = (id, subject_description) => ({ id, source: 'ai_generated', subject: { url: `/api/uploads/${id}-cut` }, subject_description })
 function planner(writeCopy, planAssets) {
   return load('lib/handlers/postPlanHandler.ts', ['handlePlanPost', 'designPlanningPrompt', 'sanitizeDesignPlan', 'galleryCutouts', 'cutoutLabel'], {
     NextResponse: { json: (body, init) => ({ body, status: init?.status || 200 }) }, corsify: r => r,
     loadGenerationBrandContext: async (_db, body) => ({ id: 'kachica', name: 'KACHICA', ...body.brandContext }),
+    loadPostFeedback: async () => [], withoutDislikedDesigns: brand => brand,
     chooseBrandFamily: async (_db, b) => b.family ? { family: b.family, design: { id: 'global-' + b.family.id } } : null,
     studyForPlanning: study.studyForPlanning, familyGrammar: study.familyGrammar, familyImagery: study.familyImagery, familyCutouts: study.familyCutouts, familyPhotoLed: study.familyPhotoLed,
     writeCopy, copyErrorResponse: error => ({ body: { error: error.message }, status: error.status || 500 }), planAssets,
-    ...photoHelpers, listItems: compose.listItems,
+    ...photoHelpers, listItems: compose.listItems, isGalleryCutout,
   })
 }
 const GALLERY = [{ ref: 'g1', id: 'generated-phone', description: 'hand holding a smartphone' }, { ref: 'g2', id: 'generated-laptop', description: 'laptop with an open calendar' }]
@@ -121,7 +125,7 @@ test('the copy plan describes isolated subjects and may reuse one fitting galler
 test('planning loads the brand cutouts once and threads the chosen reuse into the asset plan', async () => {
   const forest = family(FOREST_IMAGERY)
   const queries = []
-  const db = { collection: name => ({ find: query => { queries.push([name, query]); return { sort: () => ({ limit: () => ({ toArray: async () => [{ id: 'generated-phone', subject_description: 'hand holding a smartphone' }] }) }) } } }) }
+  const db = { collection: name => ({ find: query => { queries.push([name, query]); return { sort: () => ({ limit: () => ({ toArray: async () => [savedCutout('generated-phone', 'hand holding a smartphone')] }) }) } } }) }
   let prompt = '', planned
   const { handlePlanPost } = planner(async (_brand, _idea, design) => { prompt = design.prompt; return { copy: { format: 'single', headline: 'Ainda faz tudo à mão?', design: { composition: 'image-led', image: { reuse: 'g1' } } } } }, async (_db, input) => { planned = input.copy; return { slots: [] } })
   const result = await handlePlanPost(db, { brandContext: { family: forest }, idea: { topic: 'Automação' } })
@@ -136,7 +140,7 @@ test('planning loads the brand cutouts once and threads the chosen reuse into th
   assert.equal(queries.length, before + 1, 'a study without imagery never reads the gallery')
 })
 
-test('saved cutouts are offered by subject: instruction-like descriptions and duplicates are skipped', async () => {
+test('saved cutouts are offered by subject: instruction-like descriptions, duplicates and bad cutouts are skipped', async () => {
   // Real descriptions saved by the older pipeline for one brand.
   const saved = [
     'professional typing at a desktop workstation in three-quarter view',
@@ -144,7 +148,9 @@ test('saved cutouts are offered by subject: instruction-like descriptions and du
     'Object-only: a rolled blueprint with a hard hat and tape measure, no people, no hands, no table or workbench',
     'professional typing at a desktop workstation in three-quarter view',
     'Carrossel de 4 slides: 1) número de desperdício de orçamento em destaque',
-  ].map((subject_description, i) => ({ id: `generated-${i}`, subject_description }))
+  ].map((subject_description, i) => savedCutout(`generated-${i}`, subject_description))
+  // The background never came off, or the subject is cut at the side: not offered for reuse.
+  saved.unshift({ ...savedCutout('no-cutout', 'a red toolbox on the floor'), subject: undefined }, { ...savedCutout('cut-off', 'a ladder against a wall'), subject: { url: '/x', cropEdges: { left: true } } })
   const db = { collection: () => ({ find: () => ({ sort: () => ({ limit: () => ({ toArray: async () => saved }) }) }) }) }
   const { galleryCutouts } = planner()
   assert.deepEqual(await galleryCutouts(db, 'kachica'), [

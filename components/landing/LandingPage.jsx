@@ -9,7 +9,7 @@ import ScrollReveal from './ScrollReveal'
 import SmoothScroll from './SmoothScroll'
 import PricingPlans from './PricingPlans'
 import NewsletterForm from './NewsletterForm'
-import { CONTACT } from '@/lib/billing/plans'
+import { CONTACT, PLANS } from '@/lib/billing/plans'
 import { contactHref } from '@/lib/client/billing'
 import { creditFaqAnswer, creditPackNote, newsletterBlurb, newsletterTitle, pricingFaqAnswer, pricingIntro, trialNote } from './pricingText'
 import {
@@ -51,7 +51,7 @@ const STEPS = [
   },
   {
     title: 'Create posts',
-    body: 'Describe a post or let Batkle suggest one from your services and projects. One click writes the headline, slides, caption and hashtags and designs it as a single post or a carousel (1080×1350), with AI images, stock photos or your own gallery.',
+    body: 'Describe a post or let Batkle suggest one from your services and projects. One click writes the headline, slides, caption and hashtags and designs it as a single post or a carousel (1080×1350), with AI images, stock photos or your own photos.',
   },
   {
     title: 'Edit anything',
@@ -117,7 +117,7 @@ const FAQS = [
   },
   {
     q: 'Can I use my own photos?',
-    a: "Yes. Upload your photos to your brand's gallery, or attach them to a single post idea, and Batkle places them in your posts alongside stock photos and AI-generated images and cutouts.",
+    a: `Yes. Add them when you write a post or story idea: up to ${PLANS.free.photosPerPost} photos a post on Free, ${PLANS.pro.photosPerPost} on Pro and ${PLANS.business.photosPerPost} on Business. Batkle puts each one on the slide it fits, alongside stock photos and AI cutouts.`,
   },
   {
     q: 'Can Batkle post to Instagram and TikTok for me?',
@@ -388,7 +388,7 @@ function Studio() {
       <SectionTitle className="max-w-[13em]">One studio per brand, from first idea to scheduled post.</SectionTitle>
       <p {...reveal(2)} className="mt-4 max-w-[720px] text-[17px] leading-relaxed text-bk-muted">
         Every brand gets its own workspace: Creation for ideas and posts, a Schedule for what goes out when, a Gallery of
-        photos and cutouts, its brand profile and the designs it uses. Switch brands from the sidebar.
+        AI cutouts, its brand profile and the designs it uses. Switch brands from the sidebar.
       </p>
       <div {...reveal(3)} className="mt-10 sm:mt-12">
         <AppPreview />
@@ -612,7 +612,7 @@ function Features() {
       <div className="mt-5 grid gap-5 md:grid-cols-2">
         <Card i={0} lift className="p-6 sm:p-8">
           <CardTitle>AI images and cutouts</CardTitle>
-          <p className={bodyText}>AI-generated images and transparent cutouts, stock photos and your own gallery, all saved for reuse.</p>
+          <p className={bodyText}>Transparent AI cutouts saved to a gallery and reused, stock photos, and your own photos added to any post.</p>
           <div className="bk-checker mt-5 flex h-[85px] items-center justify-center rounded-lg border border-bk-line" aria-hidden="true">
             <span className="h-[60px] w-12 rounded-b-md rounded-t-full border-[1.5px] border-bk-ink bg-[#F2A900]" />
           </div>

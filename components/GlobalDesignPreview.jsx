@@ -10,7 +10,7 @@ const DEMO_BRAND = { name: 'Your brand', website: 'https://yourbrand.com', color
 /** "By …" for a design a member published (its `library` from the API); empty for Batkle's own. */
 export const designAuthor = family => (family?.library && !family.library.official ? `By ${family.library.mine ? 'you' : family.library.author}` : '')
 
-export const COMPOSITION_LABELS ={ statement: 'Statement', stacked: 'Stacked', split: 'Split', 'image-led': 'Image-led', 'backdrop-type': 'Backdrop type', list: 'List', closing: 'Closing' }
+export const COMPOSITION_LABELS = { statement: 'Statement', stacked: 'Stacked', split: 'Split', 'image-led': 'Photo-led', 'backdrop-type': 'Big word behind', list: 'List', closing: 'Closing' }
 
 // Reference colors belong only to unbranded library previews. Brand previews use brand tokens.
 const previewBrandFor = (family, brand) => Object.keys(brand).length ? { ...DEMO_BRAND, ...brand } : { ...DEMO_BRAND, ...referencePreviewBrand(family) }

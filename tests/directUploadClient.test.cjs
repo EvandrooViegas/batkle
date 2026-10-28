@@ -32,13 +32,13 @@ test('with direct uploads: sign, PUT the file itself to the signed URL, then sen
     json(200, { id: 'asset_1', url: '/api/uploads/x' }),
   )
   const chosen = file(10 * 1024 * 1024)
-  const result = await client.uploadFile('/api/assets', chosen, { purpose: 'gallery', fields: { filename: 'shop.jpg', brand_id: 'brand_k', description: '' }, fetch })
+  const result = await client.uploadFile('/api/post-images', chosen, { purpose: 'post-image', fields: { filename: 'shop.jpg', brand_id: 'brand_k' }, fetch })
   assert.deepEqual(result, { id: 'asset_1', url: '/api/uploads/x' })
-  assert.deepEqual(calls.map(c => [c.method, c.url]), [['POST', '/api/uploads/sign'], ['PUT', 'https://r2.test/incoming/up-1?X-Amz-Signature=abc'], ['POST', '/api/assets']])
-  assert.deepEqual(JSON.parse(calls[0].body), { contentType: 'image/jpeg', size: 10 * 1024 * 1024, purpose: 'gallery', brand_id: 'brand_k' })
+  assert.deepEqual(calls.map(c => [c.method, c.url]), [['POST', '/api/uploads/sign'], ['PUT', 'https://r2.test/incoming/up-1?X-Amz-Signature=abc'], ['POST', '/api/post-images']])
+  assert.deepEqual(JSON.parse(calls[0].body), { contentType: 'image/jpeg', size: 10 * 1024 * 1024, purpose: 'post-image', brand_id: 'brand_k' })
   assert.equal(calls[1].body, chosen, 'the file goes up unchanged, however large')
   assert.deepEqual(calls[1].headers, { 'Content-Type': 'image/jpeg' })
-  assert.deepEqual(JSON.parse(calls[2].body), { filename: 'shop.jpg', brand_id: 'brand_k', description: '', upload: 'up-1' })
+  assert.deepEqual(JSON.parse(calls[2].body), { filename: 'shop.jpg', brand_id: 'brand_k', upload: 'up-1' })
 })
 
 test('without direct uploads (404 { direct: false }), the file goes inside the request as before', async () => {
@@ -52,30 +52,38 @@ test('without direct uploads (404 { direct: false }), the file goes inside the r
 
 test('the fallback refuses files over 3 MB before sending them, and nothing is ever over 25 MB', async () => {
   const fallback = fakeFetch(json(404, { direct: false }))
-  await assert.rejects(client.uploadFile('/api/assets', file(client.FALLBACK_MAX_BYTES + 1), { purpose: 'gallery', fetch: fallback.fetch }), /larger than 3 MB/)
+  await assert.rejects(client.uploadFile('/api/post-images', file(client.FALLBACK_MAX_BYTES + 1), { purpose: 'post-image', fetch: fallback.fetch }), /larger than 3 MB/)
   assert.equal(fallback.calls.length, 1)
   const none = fakeFetch()
-  await assert.rejects(client.uploadFile('/api/assets', { name: 'huge.jpg', size: client.DIRECT_MAX_BYTES + 1, type: 'image/jpeg' }, { purpose: 'gallery', fetch: none.fetch }), /larger than 25 MB/)
+  await assert.rejects(client.uploadFile('/api/post-images', { name: 'huge.jpg', size: client.DIRECT_MAX_BYTES + 1, type: 'image/jpeg' }, { purpose: 'post-image', fetch: none.fetch }), /larger than 25 MB/)
   assert.equal(none.calls.length, 0)
 })
 
 test('billing errors keep their code, from signing or from the upload itself', async () => {
-  const limit = { error: 'Your Free plan holds up to 20 of your own images.', code: 'limit_reached', limit: 'uploads', maxImages: 20, images: 20 }
+  const limit = { error: 'This brand runs on Anna’s plan, so ask Anna to upgrade.', code: 'upgrade_required', sharedBy: 'Anna' }
   const atSign = fakeFetch(json(402, limit))
-  await assert.rejects(client.uploadFile('/api/assets', file(), { purpose: 'gallery', fetch: atSign.fetch }), error => error.status === 402 && error.code === 'limit_reached' && error.billing.maxImages === 20 && error.message === limit.error)
-  assert.equal(atSign.calls.length, 1, 'nothing is sent once the plan is full')
+  await assert.rejects(client.uploadFile('/api/post-images', file(), { purpose: 'post-image', fetch: atSign.fetch }), error => error.status === 402 && error.code === 'upgrade_required' && error.billing.sharedBy === 'Anna' && error.message === limit.error)
+  assert.equal(atSign.calls.length, 1, 'nothing is sent once signing is refused')
   const atUpload = fakeFetch(json(200, { id: 'up-2', url: 'https://r2.test/p', headers: {} }), new Response(null, { status: 200 }), json(402, limit))
-  await assert.rejects(client.uploadFile('/api/post-images', file(), { purpose: 'post-image', fetch: atUpload.fetch }), error => error.code === 'limit_reached')
+  await assert.rejects(client.uploadFile('/api/post-images', file(), { purpose: 'post-image', fetch: atUpload.fetch }), error => error.code === 'upgrade_required')
   const other = fakeFetch(json(415, { error: 'Use a JPEG, PNG or WebP photo.' }))
   await assert.rejects(client.uploadFile('/api/post-images', file(), { purpose: 'post-image', fetch: other.fetch }), error => error.code === undefined && error.message === 'Use a JPEG, PNG or WebP photo.')
 })
 
-test('a PUT that fails says so and sends nothing more', async () => {
+test('a PUT that fails sends a file that fits a request inside it instead', async () => {
   for (const failure of [new TypeError('Failed to fetch'), new Response('<Error/>', { status: 403 })]) {
-    const { fetch, calls } = fakeFetch(json(200, { id: 'up-3', url: 'https://r2.test/q', headers: {} }), failure)
-    await assert.rejects(client.uploadFile('/api/uploads', file(), { purpose: 'editor', fetch }), /could not be uploaded\. Please check your connection/)
-    assert.equal(calls.length, 2)
+    const { fetch, calls } = fakeFetch(json(200, { id: 'up-3', url: 'https://r2.test/q', headers: {} }), failure, json(200, { url: '/api/uploads/z' }))
+    const result = await client.uploadFile('/api/uploads', file(4, 'image/png', 'logo.png'), { purpose: 'editor', fetch })
+    assert.equal(result.url, '/api/uploads/z')
+    assert.deepEqual(calls.map(c => c.method), ['POST', 'PUT', 'POST'])
+    assert.deepEqual(JSON.parse(calls[2].body), { data: 'data:image/png;base64,' + Buffer.alloc(4, 7).toString('base64') }, 'the data, not the unfinished upload id')
   }
+})
+
+test('a PUT that fails for a file too large for a request says so and sends nothing more', async () => {
+  const { fetch, calls } = fakeFetch(json(200, { id: 'up-4', url: 'https://r2.test/r', headers: {} }), new TypeError('Failed to fetch'))
+  await assert.rejects(client.uploadFile('/api/uploads', file(client.FALLBACK_MAX_BYTES + 1), { purpose: 'editor', fetch }), /could not be uploaded\. Please check your connection/)
+  assert.equal(calls.length, 2)
 })
 
 test('post photos are sent unchanged, and the fallback sends a photo that fits a request as it is', async () => {

@@ -8,7 +8,7 @@ const { seeds, generation, study } = require('./globalDesigns.test.cjs')
 const load = file => stripTypeScriptTypes(fs.readFileSync(file, 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, ''))
 const meta = new Function(load('lib/ads/meta.ts') + ';return { AD_PLACEMENTS, DEFAULT_PLACEMENTS, AD_TEXT_LIMITS, AD_ANGLES, CREATIVE_LIMITS, STORY_SAFE, META_CTAS, AD_OBJECTIVES, AD_VARIANTS, placementById, objectiveById, isMetaCta, readPlacements }')()
 const story = new Function(load('lib/designs/global/story.ts') + ';return { toStoryCanvas, storyArea, STORY_FRAME }')()
-const language = new Function(load('lib/services/contentLanguage.ts') + load('lib/services/copyFacts.ts') + load('lib/services/contentAngles.ts') + ';return { postLanguage, languageIssues, modernPortuguese, inventedFigures, brandSubjects, mentionsSubject }')()
+const language = new Function(load('lib/services/contentLanguage.ts') + load('lib/services/copyFacts.ts') + load('lib/services/contentAngles.ts') + ';return { postLanguage, languageIssues, modernPortuguese, inventedFigures, brandSubjects, mentionsSubject, aiTells, resultClaims }')()
 
 function adHandlers(overrides = {}) {
   const deps = {

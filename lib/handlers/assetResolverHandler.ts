@@ -2,7 +2,7 @@ import { hasWatermarkMetadata } from './assetPlannerHandler'
 import { billingErrorBody, findCharge, imageQualityFor, refundCharge } from '@/lib/billing/account'
 import type { ImageQuality } from '@/lib/billing/plans'
 import { persistInlineImages } from '@/lib/services/persistInlineImages'
-import { findGeneratedAsset, saveGeneratedAsset } from '@/lib/services/generatedAssetLibrary'
+import { findGeneratedAsset, isGalleryCutout, saveGeneratedAsset } from '@/lib/services/generatedAssetLibrary'
 /**
  * Asset Resolver
  *
@@ -12,19 +12,18 @@ import { findGeneratedAsset, saveGeneratedAsset } from '@/lib/services/generated
  *
  * Resolution strategy per slot:
  *
- *   uploaded_asset → look up the planned candidate by asset_id in MongoDB.
- *                    If the planner found no candidate, fall back to a
- *                    fresh tag-overlap search against the brand library.
+ *   uploaded_asset → the photo the user attached to the idea (user_upload),
+ *                    looked up by asset_id in MongoDB, or nothing.
  *
- *   unsplash       → legacy stock preference: search Unsplash and Pexels,
- *                    compare relevance and resolution, and reserve the winner.
+ *   unsplash       → background photos: search Unsplash and Pexels, compare
+ *                    relevance and resolution, and reserve the winner.
  *                    Global-design photo slots marked cutout_fallback use a
- *                    transparent cutout when no gallery or stock photo fits.
+ *                    transparent cutout when no stock photo fits.
  *
  *   ai_generated   → transparent PNG cutouts only: the gallery cutout the plan
  *                    chose, else a matching saved cutout, else one OpenAI
- *                    generation with a transparent background. New cutouts are
- *                    saved to the brand gallery for reuse.
+ *                    generation with a transparent background. Good new
+ *                    cutouts are saved to the brand gallery for reuse.
  *
  *   none           → resolvedAsset: null (typography-only slot)
  */
@@ -333,7 +332,7 @@ async function plannedGalleryCutout(db: any, brand_id: string, id: string | unde
   if (!id) return null
   const asset = await db.collection('assets').findOne({ id, brand_id, status: 'ready' })
   const keys = [asset?.id, asset?.url, asset?.subject?.url].filter(Boolean)
-  if (!asset?.url || keys.some((key: string) => used.has(key))) return null
+  if (!asset?.url || !isGalleryCutout(asset) || keys.some((key: string) => used.has(key))) return null
   keys.forEach((key: string) => used.add(key))
   await db.collection('assets').updateOne({ id, brand_id }, { $inc: { usage_count: 1 }, $set: { last_used_at: new Date() } })
   return { url: asset.url, width: asset.width, height: asset.height, subject: asset.subject, asset_id: asset.id, reused: true, match_score: 1 }
@@ -397,15 +396,15 @@ async function resolveCutout(db: any, slot: VisualSlot, brand_id: string | null,
   return { ...cutoutBase, resolvedAsset: null, warning: [note, failure].filter(Boolean).join('; ') }
 }
 
-// ─── Uploaded-asset lookup ────────────────────────────────────────────────────
+// ─── The user's own photo ─────────────────────────────────────────────────────
 
+/** The photo the user attached for this slot (`selected`), unless it is missing or another slide already shows it. */
 async function resolveUploadedAsset(
   db: any,
   slot: VisualSlot,
   brand_id: string | null,
   usedPhotoIds = new Set<string>(),
 ): Promise<{ asset: ResolvedAsset | null; warning: string | null }> {
-  // Primary: use the asset the planner already selected
   if (slot.selected?.asset_id) {
     const doc = await db.collection('assets').findOne({ id: slot.selected.asset_id, brand_id })
     if (doc && !hasWatermarkMetadata(doc) && doc.url && !usedPhotoIds.has(doc.url) && !usedPhotoIds.has(doc.content_hash) && (doc.status === 'ready' || doc.description_tags?.length > 0)) {
@@ -428,50 +427,7 @@ async function resolveUploadedAsset(
   }
 
   // The user's own photo is never swapped for another image without saying so.
-  if (slot.user_upload) return { asset: null, warning: 'Your photo could not be used (it is missing or already shown on another slide)' }
-
-  // Fallback: fresh tag-overlap search if the planner had no candidate. Photos attached to a post idea belong to that post only.
-  if (brand_id) {
-    const assets = await db.collection('assets')
-      .find({ brand_id, source: { $ne: 'post_upload' }, $or: [{status:'ready'},{'description_tags.0':{$exists:true}}] })
-      .limit(500)
-      .toArray()
-
-    const words = (value:string) => value.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().match(/[\p{L}\p{N}]+/gu)||[]
-    const keywords = [...new Set((slot.search_keywords||[]).flatMap(words))]
-    let best:any = null, bestScore = 0
-    for (const asset of assets) {
-      if (hasWatermarkMetadata(asset) || !asset.url || asset.source==='ai_generated' || usedPhotoIds.has(asset.url) || usedPhotoIds.has(asset.content_hash)) continue
-      const tags = asset.description?.trim() ? asset.description_tags||[] : asset.tags||[]
-      const terms = new Set([...tags,asset.search_description||asset.description||''].flatMap(words))
-      const score = keywords.filter(word=>terms.has(word)).length / Math.max(keywords.length,1)
-      if (score>=.85 && score>bestScore) {best=asset;bestScore=score}
-    }
-    if (best) {
-      usedPhotoIds.add(best.url)
-      if(best.content_hash)usedPhotoIds.add(best.content_hash)
-      return {
-        asset: {
-          source:        'uploaded_asset',
-          url:           best.url,
-          thumbnail_url: best.thumbnail_url,
-          width:         best.width  ?? 0,
-          height:        best.height ?? 0,
-          asset_id:      best.id,
-          unsplash_id:   null,
-          alt:           best.description || best.search_description || best.filename,
-        },
-        warning: slot.selected?.asset_id
-          ? 'Planned asset unavailable; using closest tag match from library'
-          : null,
-      }
-    }
-  }
-
-  return {
-    asset:   null,
-    warning: 'No matching uploaded asset found',
-  }
+  return { asset: null, warning: 'Your photo could not be used (it is missing or already shown on another slide)' }
 }
 
 // ─── Main resolver ────────────────────────────────────────────────────────────
@@ -504,26 +460,18 @@ async function resolveSlot(
     return { ...base, treatment: 'environmental', source: 'uploaded_asset', resolvedAsset: asset, warning }
   }
 
-  // Background photos always consult the brand gallery, even for old stock-first plans.
-  if(slot.treatment==='environmental' || slot.preferred_source==='unsplash' || slot.preferred_source==='uploaded_asset') {
-    let galleryWarning:string|null = null
-    if(brand_id && db) {
-      try {
-        const {asset,warning}=await resolveUploadedAsset(db,slot,brand_id,usedPhotoIds)
-        if(asset)return {...base,source:'uploaded_asset',resolvedAsset:asset,warning}
-      } catch(error) {galleryWarning='Gallery lookup unavailable: '+(error as Error).message}
-    }
-    if(slot.treatment!=='environmental' && slot.preferred_source==='uploaded_asset')return {...base,resolvedAsset:null,warning:galleryWarning||'No matching unused gallery photo found'}
+  // Background photos come from stock: the gallery holds only cutouts, and the user's own photos are attached to the idea.
+  if(slot.treatment==='environmental' || slot.preferred_source==='unsplash') {
     // A photo is never generated. Global-design slots that allow it use a transparent cutout when no photo fits.
     const missing=async(warning:string):Promise<ResolvedSlot>=>slot.cutout_fallback
       ? resolveCutout(db,slot,brand_id,usedPhotoIds,base,warning+'; used a transparent cutout instead',quality)
       : {...base,resolvedAsset:null,warning}
     const pexelsKey=process.env.PEXELS_API_KEY?.trim()||null
-    if(!unsplashKey && !pexelsKey)return missing(galleryWarning||'No matching gallery photo; configure PEXELS_API_KEY or UNSPLASH_ACCESS_KEY')
+    if(!unsplashKey && !pexelsKey)return missing('No stock photo service; configure PEXELS_API_KEY or UNSPLASH_ACCESS_KEY')
     try {
       const asset=await searchStock(slot,unsplashKey,pexelsKey,usedPhotoIds)
       if(!asset)return missing('No relevant unused high-resolution stock photo found')
-      return {...base,source:asset.source,resolvedAsset:asset,warning:galleryWarning}
+      return {...base,source:asset.source,resolvedAsset:asset,warning:null}
     }catch(error){return missing((error as Error).message)}
   }
   return resolveCutout(db,slot,brand_id,usedPhotoIds,base,null,quality)
@@ -595,7 +543,7 @@ export async function handleResolveAssets(db: any, body: any, userId?: string) {
     for(const slot of prepared.slots){
       if(slot.source!=='ai_generated'||!slot.resolvedAsset)continue
       const request=plan.slots.find(s=>s.slot_id===slot.slot_id)
-      // Every generated image is a transparent cutout, including photo-slot fallbacks.
+      // Every generated image is a transparent cutout, including photo-slot fallbacks; only good ones are kept.
       try{await saveGeneratedAsset(db,brand_id||null,{...request,treatment:'isolated_subject'},slot.resolvedAsset)}
       catch(error){slot.warning=[slot.warning,'Generated image could not be saved to the brand gallery'].filter(Boolean).join('; ');console.warn('[resolver] Gallery save failed:',(error as Error).message)}
     }

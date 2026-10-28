@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { filterIdeas } from '@/lib/client/ideaStatus'
 import { scheduleState } from '@/lib/client/schedule'
 import { cn } from '@/lib/utils'
-import { useAppShell } from '../AppShell'
+import { useAppShell, useBrandAccess } from '../AppShell'
 import { usePopup } from '../popup'
 import { Eyebrow, appButton, displayClass } from '../ui'
 import { useCreation } from './useCreation'
@@ -17,15 +17,15 @@ import { IdeaRow } from './IdeaRow'
 import { PostPreview } from './PostPreview'
 import { ScheduleDialog } from '../schedule/ScheduleDialog'
 import { useSchedule } from '../schedule/useSchedule'
-import { SurfaceContext, surfaceWords } from './surface'
 
-const filtersFor = w => [
+const FILTERS = [
   { value: 'all', label: 'All ideas' },
   { value: 'building', label: 'Building' },
   { value: 'ready', label: 'Ready' },
   { value: 'approved', label: 'Approved' },
-  { value: 'carousel', label: w.noun === 'story' ? 'Several frames' : 'Carousels' },
-  { value: 'single', label: w.noun === 'story' ? 'One frame' : 'Single posts' },
+  { value: 'carousel', label: 'Carousels' },
+  { value: 'single', label: 'Single posts' },
+  { value: 'story', label: 'Stories' },
 ]
 
 function Notice({ tone = 'info', children }) {
@@ -49,16 +49,16 @@ function ListSkeleton() {
 }
 
 /**
- * Creation (posts, 4:5) and Stories (9:16): the brand's ideas for that surface, the one being worked on, and the list.
- * Stories are built the same way, composed clear of the bars Meta draws over a story.
+ * Posts & stories: the brand's ideas, the one being worked on and the list. The composer's settings say whether a new
+ * idea becomes a post (4:5, single or carousel; the default) or a story (9:16, composed clear of the bars Meta draws
+ * over a story); both are built the same way.
  */
-export default function CreationPage({ flowId, brandContext: suppliedBrand, surface = 'post' }) {
-  const w = surfaceWords(surface)
-  const story = surface === 'story'
-  const FILTERS = filtersFor(w)
-  const creation = useCreation({ flowId, brandContext: suppliedBrand, surface })
+export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
+  const creation = useCreation({ flowId, brandContext: suppliedBrand })
   const { brandContext, ideas, statusOf, loaded, loadError, busy } = creation
   const { setCount } = useAppShell()
+  // In a brand shared with this person: a viewer looks only; the profile and its designs are for admins and the owner.
+  const { canEdit, canManage, owner } = useBrandAccess()
   const [filter, setFilter] = useState('all')
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState(() => new Set())
@@ -67,7 +67,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
   const popup = usePopup()
   const schedule = useSchedule(flowId)
 
-  useEffect(() => { if (loaded && !loadError) setCount(story ? 'stories' : 'creation', ideas.length) }, [loaded, loadError, ideas.length, setCount, story])
+  useEffect(() => { if (loaded && !loadError) setCount('creation', ideas.length) }, [loaded, loadError, ideas.length, setCount])
 
   const brandName = brandContext?.name || 'Your brand'
   const hasBrand = !!(brandContext?.name || brandContext?.about)
@@ -108,7 +108,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
   const confirmDeleteAll = async () => {
     const ok = await popup.confirm({
       title: `Delete all ${ideas.length} ideas?`,
-      description: `This clears the ${w.noun} ideas for ${brandName}. What you already built stays in the Gallery and the editor.`,
+      description: `This clears the idea list for ${brandName}. Posts and stories you already built stay in the editor.`,
       tone: 'danger',
       confirmLabel: 'Delete all',
     })
@@ -119,7 +119,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
     const ids = new Set(selected)
     const ok = await popup.confirm({
       title: ids.size === 1 ? 'Delete this idea?' : `Delete ${ids.size} ideas?`,
-      description: `${w.Noun === 'Story' ? 'Stories' : 'Posts'} you already built from them stay in the Gallery and the editor.`,
+      description: 'Posts and stories you already built from them stay in the editor.',
       tone: 'danger',
       confirmLabel: ids.size === 1 ? 'Delete idea' : `Delete ${ids.size} ideas`,
     })
@@ -129,19 +129,18 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
   }
 
   return (
-    <SurfaceContext.Provider value={w}>
     <div className="px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pt-8">
       <div className="mx-auto max-w-[1160px]">
         <header>
-          <Eyebrow>{brandName} · {story ? 'Stories' : 'Posts'}</Eyebrow>
-          <h1 className={cn(displayClass, 'mt-1.5 text-[clamp(26px,2.6vw,34px)] leading-[1.05]')}>{story ? 'Stories' : 'Content ideas'}</h1>
-          {story && <p className="mt-2 max-w-[640px] text-[14px] leading-relaxed text-bk-muted">Instagram and Facebook stories (9:16) in your brand’s design. Words and logo stay clear of the bars Meta draws over the top and bottom.</p>}
+          <Eyebrow>{brandName} · Posts & stories</Eyebrow>
+          <h1 className={cn(displayClass, 'mt-1.5 text-[clamp(26px,2.6vw,34px)] leading-[1.05]')}>Posts & stories</h1>
+          <p className="mt-2 max-w-[640px] text-[14px] leading-relaxed text-bk-muted">Ideas for feed posts and Instagram and Facebook stories, in your brand’s design. Choose which in the settings; posts are the default.</p>
         </header>
 
         {!hasBrand && (
           <Notice>
             <span>Batkle needs your brand profile before it can write ideas.</span>
-            <Link href={`/app/${flowId}/brand-information`} className={appButton('primary', 'sm')}>Set up brand profile</Link>
+            {canManage && <Link href={`/app/${flowId}/brand-information`} className={appButton('primary', 'sm')}>Set up brand profile</Link>}
           </Notice>
         )}
         {loadError && (
@@ -152,12 +151,12 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
         )}
         {usesStarterDesigns && (
           <Notice>
-            <span>{story ? 'Stories use designs from the Design Library. Choose at least one for this brand first.' : 'Posts use your saved starter designs. Choose designs from the Global Design Library for more variety.'}</span>
-            <Link href={`/app/${flowId}/brand-information`} className="font-bold underline underline-offset-4">Choose designs</Link>
+            <span>Posts use your saved starter designs, and stories need a design from the Design Library. Choose designs there for more variety.</span>
+            {canManage && <Link href={`/app/${flowId}/brand-information`} className="font-bold underline underline-offset-4">Choose designs</Link>}
           </Notice>
         )}
 
-        <IdeaComposer
+        {canEdit ? <IdeaComposer
           className="mt-6"
           brandContext={brandContext}
           brandId={`brand_${flowId}`}
@@ -166,7 +165,11 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
           hasIdeas={ideas.length > 0}
           onCreate={idea => creation.createIdea({ ...idea, andBuild: true })}
           onSuggest={idea => creation.createIdea(idea)}
-        />
+        /> : (
+          <Notice>
+            <span>You can view the posts and stories of {brandName}. Ask {owner} for the Editor role to make or change them.</span>
+          </Notice>
+        )}
 
         {!loaded ? <ListSkeleton /> : (
           <>
@@ -183,6 +186,8 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
                 limit={creation.limitOf(featured.id)}
                 onRebuild={() => creation.rebuildDesign(featured)}
                 onNewVersion={() => creation.newVersion(featured)}
+                rating={creation.ratingOf(featured)}
+                onRate={value => creation.rate(featured, value)}
               />
             )}
 
@@ -190,7 +195,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
               <div className="mt-6 rounded-2xl border border-dashed border-bk-field px-6 py-10 text-center motion-safe:animate-bk-page">
                 <Sparkles className="mx-auto size-6 text-bk-muted" aria-hidden="true" />
                 <p className="mt-2.5 font-bk-display text-[17px] font-bold tracking-[-0.02em]">No ideas yet</p>
-                <p className="mx-auto mt-1 max-w-[400px] text-[13.5px] text-bk-muted">Describe a {w.noun} above, or leave it empty and Batkle will suggest one from your brand profile.</p>
+                <p className="mx-auto mt-1 max-w-[400px] text-[13.5px] text-bk-muted">{canEdit ? 'Describe a post or story above, or leave it empty and Batkle will suggest one from your brand profile.' : 'Posts and stories made in this brand will show here.'}</p>
               </div>
             ) : (
               <>
@@ -213,17 +218,17 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
                   </div>
                   <div className="flex items-center gap-5">
                     <span className="text-[13px] text-bk-muted">{ideas.length} idea{ideas.length === 1 ? '' : 's'}</span>
-                    <button type="button" onClick={confirmDeleteAll} disabled={creation.anyRunning} className="text-[13px] font-medium text-[#C2412F] underline underline-offset-4 hover:text-[#8F2D20] disabled:opacity-40 dark:text-[#F0826F]">
+                    {canEdit && <button type="button" onClick={confirmDeleteAll} disabled={creation.anyRunning} className="text-[13px] font-medium text-[#C2412F] underline underline-offset-4 hover:text-[#8F2D20] disabled:opacity-40 dark:text-[#F0826F]">
                       Delete all
-                    </button>
-                    <button type="button" onClick={() => (selecting ? endSelection() : setSelecting(true))} className={appButton('outline', 'sm')}>
+                    </button>}
+                    {canEdit && <button type="button" onClick={() => (selecting ? endSelection() : setSelecting(true))} className={appButton('outline', 'sm')}>
                       {selecting ? 'Cancel' : 'Select'}
-                    </button>
+                    </button>}
                   </div>
                 </div>
 
                 {visible.length ? (
-                  <ul className="mt-4 divide-y divide-bk-line overflow-hidden rounded-2xl border border-bk-line bg-bk-surface">
+                  <ul className="mt-4 divide-y divide-bk-line overflow-hidden rounded-2xl bg-bk-surface shadow-bk-card">
                     {visible.map((idea, order) => (
                       <IdeaRow
                         key={idea.id}
@@ -239,6 +244,8 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
                         onPreview={page => setPreview({ id: idea.id, page })}
                         onBuild={() => creation.startBuild(idea)}
                         onRetry={() => creation.retry(idea)}
+                        rating={creation.ratingOf(idea)}
+                        onRate={value => creation.rate(idea, value)}
                         limit={creation.limitOf(idea.id)}
                       />
                     ))}
@@ -279,7 +286,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
               onClick={() => { const ids = new Set(selected); endSelection(); creation.buildMany(ids) }}
               className={appButton('primary', 'sm')}
             >
-              Generate {w.plural}
+              Generate
             </button>
           </div>
         </div>
@@ -295,6 +302,8 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
         initialPage={preview?.page || 0}
         onRebuild={() => previewIdea && creation.rebuildDesign(previewIdea)}
         onNewVersion={() => previewIdea && creation.newVersion(previewIdea)}
+        rating={previewIdea ? creation.ratingOf(previewIdea) : null}
+        onRate={value => previewIdea && creation.rate(previewIdea, value)}
       />
 
       <ScheduleDialog
@@ -307,6 +316,5 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand, surf
       />
 
     </div>
-    </SurfaceContext.Provider>
   )
 }

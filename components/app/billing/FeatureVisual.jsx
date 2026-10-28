@@ -1,215 +1,270 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
+import { ArrowRight, Bell, Check, Coins, Plus } from 'lucide-react'
+import { PLANS, approxPosts } from '@/lib/billing/plans'
+import { BrandTile } from '../ui'
 import { cn } from '@/lib/utils'
 
 /**
- * A small picture of what an upgrade unlocks, drawn as Batkle's own screens (a calendar with posts on it, ads in
- * Meta's sizes, designs with their authors…), never icons. SVG, so it is sharp at the notice's size and the
- * dialog's, and follows light and dark mode through the theme colours.
+ * What an upgrade unlocks, shown with the product itself: real posts from Batkle's own designs, this month's calendar,
+ * the plan's real numbers. No drawn stand-ins (bars for text, shapes for photos): those read as a template.
  */
 
-// Post colours from the design previews' demo brand, so the mock posts look like real ones.
-const POST = { orange: '#ed5125', navy: '#101327', yellow: '#ffe05b', cream: '#fff6e3' }
-const text = { fontFamily: 'inherit' }
+// Real posts, loaded only when a picture shows (they bring the design composer with them).
+const RealPost = dynamic(() => import('./RealPost'), { ssr: false, loading: () => <span className="block aspect-[4/5] w-full rounded-lg bg-bk-surface" /> })
 
-/** A mock post: a coloured slide with a headline and a line. */
-function Post({ x, y, w, h, bg, fg, accent, r = 5 }) {
-  return (
-    <g>
-      <rect x={x} y={y} width={w} height={h} rx={r} fill={bg} />
-      <rect x={x + w * 0.14} y={y + h * 0.18} width={w * 0.5} height={Math.max(2, h * 0.07)} rx={1} fill={accent} />
-      <rect x={x + w * 0.14} y={y + h * 0.34} width={w * 0.72} height={Math.max(3, h * 0.11)} rx={1.5} fill={fg} />
-      <rect x={x + w * 0.14} y={y + h * 0.5} width={w * 0.58} height={Math.max(3, h * 0.11)} rx={1.5} fill={fg} />
-      <rect x={x + w * 0.14} y={y + h * 0.78} width={w * 0.3} height={Math.max(2, h * 0.06)} rx={1} fill={fg} opacity={0.55} />
-    </g>
-  )
+// Each picture is laid out at this size and scaled to the space it gets, so it reads the same in a notice and in the
+// dialog.
+const W = 360, H = 240
+const card = 'rounded-xl bg-bk-surface shadow-bk-card'
+const caption = 'text-[10px] font-bold uppercase tracking-[0.12em] text-bk-muted'
+// The Design Library's demo brand: a design drawn in colours other than its own.
+const YOUR_BRAND = { name: 'Your brand' }
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+function Post({ design, sample = 0, brand, width, className = '' }) {
+  return <div className={cn('overflow-hidden rounded-lg shadow-bk-card', className)} style={{ width }}><RealPost design={design} sample={sample} brand={brand} /></div>
 }
 
-const Card = props => <rect rx={14} className="fill-bk-surface stroke-bk-line" strokeWidth={1} {...props} />
-const Chip = ({ x, y, label, dark = false, w = label.length * 5.6 + 18 }) => (
-  <g>
-    <rect x={x} y={y} width={w} height={18} rx={9} className={dark ? 'fill-bk-ink' : 'fill-bk-butter'} />
-    <text x={x + w / 2} y={y + 12.5} textAnchor="middle" fontSize={9.5} fontWeight={700} className={dark ? 'fill-bk-cream' : 'fill-bk-ink'} style={text}>{label}</text>
-  </g>
-)
-
+/** This week and the next, as the Schedule page shows them, with posts on some days and today's reminder. */
 function Schedule() {
-  const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
-  const posts = { 1: [POST.orange, '#fff', POST.yellow], 3: [POST.navy, POST.cream, POST.yellow], 7: [POST.yellow, POST.navy, POST.orange], 12: [POST.cream, POST.navy, POST.orange] }
+  const today = new Date()
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (today.getDay() + 6) % 7)
+  const days = Array.from({ length: 14 }, (_, i) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i))
+  const todayIndex = (today.getDay() + 6) % 7
+  // Posts on days the reminder card doesn't cover: today, another day this week, and early next week.
+  const posts = { [todayIndex]: ['highlight-editorial', 0], [todayIndex === 2 ? 4 : 2]: ['serif-escape', 1], 7: ['highlight-editorial', 3], 8: ['serif-escape', 3] }
   return (
     <>
-      <Card x={18} y={14} width={284} height={168} />
-      <text x={34} y={38} fontSize={12} fontWeight={800} className="fill-bk-fg" style={text}>October</text>
-      <rect x={250} y={27} width={36} height={14} rx={7} className="fill-bk-alt" />
-      {days.map((d, i) => <text key={i} x={44 + i * 37} y={58} textAnchor="middle" fontSize={8.5} fontWeight={700} className="fill-bk-muted" style={text}>{d}</text>)}
-      {Array.from({ length: 14 }, (_, i) => {
-        const x = 28 + (i % 7) * 37, y = 66 + Math.floor(i / 7) * 54
-        const post = posts[i]
-        return (
-          <g key={i}>
-            <rect x={x} y={y} width={33} height={48} rx={7} className="fill-bk-alt" />
-            <text x={x + 5} y={y + 11} fontSize={7.5} fontWeight={700} className="fill-bk-muted" style={text}>{i + 13}</text>
-            {post && <Post x={x + 6} y={y + 15} w={21} h={27} bg={post[0]} fg={post[1]} accent={post[2]} r={3} />}
-          </g>
-        )
-      })}
-      {/* The reminder that arrives when a post is due. */}
-      <g>
-        <rect x={168} y={146} width={140} height={42} rx={12} className="fill-bk-ink" />
-        <circle cx={186} cy={167} r={9} className="fill-bk-butter" />
-        <path d="M182 169.5h8m-6.5 0v-3.5a2.5 2.5 0 0 1 5 0v3.5m-3.2 2h1.4" className="stroke-bk-ink" strokeWidth={1.3} fill="none" strokeLinecap="round" />
-        <text x={201} y={163} fontSize={9.5} fontWeight={800} className="fill-bk-cream" style={text}>Time to post · 10:00</text>
-        <text x={201} y={176} fontSize={8} className="fill-bk-cream" opacity={0.7} style={text}>Slides and caption ready</text>
-      </g>
+      <div className={cn(card, 'absolute left-3 top-3 w-[334px] p-3')}>
+        <div className="flex items-baseline justify-between">
+          <p className="text-[13px] font-bold">{MONTHS[today.getMonth()]} {today.getFullYear()}</p>
+          <p className="text-[10px] font-semibold text-bk-muted">This week and next</p>
+        </div>
+        <div className="mt-2 grid grid-cols-7 gap-1.5">
+          {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <span key={i} className="text-center text-[9px] font-bold text-bk-muted">{d}</span>)}
+          {days.map((day, i) => (
+            <div key={i} className={cn('flex h-[62px] flex-col items-center gap-0.5 rounded-lg bg-bk-alt pt-1', i === todayIndex && 'ring-2 ring-bk-butter')}>
+              <span className={cn('text-[9px] font-bold', i === todayIndex ? 'text-bk-fg' : 'text-bk-muted')}>{day.getDate()}</span>
+              {posts[i] && <Post design={posts[i][0]} sample={posts[i][1]} width={34} className="rounded-[4px]" />}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="absolute bottom-2.5 right-3 flex w-[212px] items-center gap-2.5 rounded-xl bg-bk-ink px-3 py-2.5 text-bk-cream shadow-bk-pop">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-bk-butter text-bk-ink"><Bell className="size-3.5" /></span>
+        <span className="min-w-0">
+          <span className="block text-[11px] font-bold">Due today, 10:00</span>
+          <span className="block text-[10px] opacity-75">Slides and caption are ready to post</span>
+        </span>
+      </div>
     </>
   )
 }
 
+/** An example someone uploads, and the design Batkle makes from it, drawn in another brand's colours. */
 function Designs() {
   return (
-    <>
-      {/* The examples a member uploads… */}
-      <g transform="rotate(-6 70 100)">
-        <rect x={24} y={44} width={84} height={104} rx={8} fill={POST.cream} className="stroke-bk-line" />
-        <rect x={34} y={56} width={64} height={46} rx={4} fill="#d9c7a7" />
-        <rect x={34} y={110} width={52} height={7} rx={2} fill={POST.navy} />
-        <rect x={34} y={122} width={38} height={5} rx={2} fill={POST.navy} opacity={0.5} />
-      </g>
-      <g transform="rotate(4 92 96)">
-        <rect x={52} y={40} width={84} height={104} rx={8} fill={POST.navy} />
-        <text x={64} y={84} fontSize={30} fontWeight={700} fill={POST.yellow} style={{ fontFamily: 'Georgia, serif' }}>Aa</text>
-        <rect x={64} y={100} width={58} height={6} rx={2} fill="#fff" />
-        <rect x={64} y={112} width={44} height={6} rx={2} fill="#fff" opacity={0.6} />
-      </g>
-      <path d="M150 98h28m0 0-7-6m7 6-7 6" className="stroke-bk-muted" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      {/* …become a design in the brand's own colours. */}
-      <Card x={190} y={26} width={112} height={150} />
-      <Post x={200} y={36} w={92} h={92} bg={POST.orange} fg="#fff" accent={POST.yellow} r={6} />
-      {[POST.orange, POST.navy, POST.yellow, POST.cream].map((c, i) => <circle key={c} cx={209 + i * 15} cy={143} r={5.5} fill={c} className="stroke-bk-line" />)}
-      <Chip x={204} y={154} label="By you" />
-    </>
+    <div className="flex h-full items-center justify-center gap-4">
+      <figure>
+        <figcaption className={caption}>Your example</figcaption>
+        <img src="/design-references/3.png" alt="" className="mt-1.5 aspect-[4/5] w-[128px] rounded-lg object-cover shadow-bk-card" />
+      </figure>
+      <ArrowRight className="mt-4 size-5 shrink-0 text-bk-muted" />
+      <figure>
+        <figcaption className={caption}>Your design, any brand</figcaption>
+        <Post design="highlight-editorial" sample={1} brand={YOUR_BRAND} width={150} className="mt-1.5" />
+      </figure>
+    </div>
   )
 }
 
+/** Designs members publish, each drawn in the brand's own colours. */
 function Community() {
-  const cards = [
-    { x: 22, rot: -5, post: [POST.navy, '#fff', POST.yellow], by: 'By Ana' },
-    { x: 116, rot: 0, post: [POST.yellow, POST.navy, POST.orange], by: 'By Studio Norte' },
-    { x: 212, rot: 5, post: [POST.orange, '#fff', POST.navy], by: 'By Rui' },
-  ]
-  return cards.map(c => (
-    <g key={c.x} transform={`rotate(${c.rot} ${c.x + 43} 100)`}>
-      <Card x={c.x} y={30} width={86} height={128} />
-      <Post x={c.x + 7} y={37} w={72} h={90} bg={c.post[0]} fg={c.post[1]} accent={c.post[2]} r={6} />
-      <circle cx={c.x + 16} cy={142} r={6} className="fill-bk-alt stroke-bk-line" />
-      <text x={c.x + 26} y={145.5} fontSize={8.5} fontWeight={700} className="fill-bk-fg" style={text}>{c.by}</text>
-    </g>
-  ))
+  const designs = [['momentum-timeline', 0, 'Momentum Timeline'], ['highlight-editorial', 1, 'Highlight Editorial'], ['serif-escape', 0, 'Serif Escape']]
+  return (
+    <div className="flex h-full items-center justify-center gap-3">
+      {designs.map(([design, sample, name], i) => (
+        <figure key={design} className={cn(card, 'w-[104px] p-1.5', i === 1 && '-translate-y-2')}>
+          <Post design={design} sample={sample} brand={YOUR_BRAND} width={92} className="shadow-none" />
+          <figcaption className="mt-1.5 px-0.5 text-[10px] font-bold leading-tight">{name}</figcaption>
+        </figure>
+      ))}
+    </div>
+  )
 }
 
+/** The Team page's people list. */
 function Team() {
-  const people = [['M', '#ed5125'], ['J', '#101327'], ['S', '#1f7a5a']]
+  const people = [['AM', 'Ana Moreira', 'ana@yourbrand.com', 'Owner', 'bg-bk-ink text-bk-cream'], ['MS', 'Marta Silva', 'marta@yourbrand.com', 'Editor', 'bg-[#ED5125] text-white'], ['JC', 'João Costa', 'joao@yourbrand.com', 'Viewer', 'bg-[#1F7A5A] text-white']]
   return (
-    <>
-      <Card x={70} y={36} width={180} height={140} />
-      <Post x={82} y={48} w={78} h={98} bg={POST.navy} fg="#fff" accent={POST.yellow} r={6} />
-      <text x={172} y={66} fontSize={10} fontWeight={800} className="fill-bk-fg" style={text}>Studio style</text>
-      <g><rect x={172} y={74} width={66} height={16} rx={8} className="fill-bk-alt" /><text x={180} y={85} fontSize={8} fontWeight={700} className="fill-bk-fg" style={text}>Your team</text></g>
-      {people.map(([initial, color], i) => (
-        <g key={initial}><circle cx={182 + i * 16} cy={116} r={10} fill={color} className="stroke-bk-surface" strokeWidth={2.5} /><text x={182 + i * 16} y={119.5} textAnchor="middle" fontSize={9} fontWeight={800} fill="#fff" style={text}>{initial}</text></g>
-      ))}
-      <text x={172} y={146} fontSize={8.5} className="fill-bk-muted" style={text}>Shared with 3 people</text>
-      {/* A teammate picking the design up. */}
-      <path d="M262 46l9 22 3.5-8.5 8.5-3.5z" className="fill-bk-ink" />
-      <Chip x={272} y={66} label="Marta" dark w={42} />
-    </>
+    <div className="flex h-full items-center justify-center">
+      <div className={cn(card, 'w-[300px] overflow-hidden')}>
+        <div className="flex items-center justify-between border-b border-bk-line px-3.5 py-2.5">
+          <p className="text-[12.5px] font-bold">People</p>
+          <p className="text-[10.5px] text-bk-muted">3 of 20</p>
+        </div>
+        {people.map(([initials, name, email, role, tone]) => (
+          <div key={name} className="flex items-center gap-2.5 border-b border-bk-line px-3.5 py-2 last:border-0">
+            <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold', tone)}>{initials}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[11.5px] font-bold">{name}</span>
+              <span className="block truncate text-[10px] text-bk-muted">{email}</span>
+            </span>
+            <span className={cn('rounded-md px-1.5 py-0.5 text-[9.5px] font-bold', role === 'Owner' ? 'bg-bk-fg text-bk-bg' : 'bg-bk-chip text-bk-fg')}>{role}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
+/** The same ad in the feed and as a story, as Meta shows them. */
 function Ads() {
-  const frames = [
-    { x: 30, w: 76, h: 136, ratio: '9:16', post: [POST.navy, '#fff', POST.yellow] },
-    { x: 122, w: 84, h: 106, ratio: '4:5', post: [POST.orange, '#fff', POST.yellow] },
-    { x: 222, w: 72, h: 72, ratio: '1:1', post: [POST.yellow, POST.navy, POST.orange] },
+  const header = <div className="flex items-center gap-1.5 px-2 py-1.5"><span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-[#ED5125] text-[8px] font-bold text-white">Y</span><span className="min-w-0 leading-tight"><span className="block truncate text-[9.5px] font-bold">Your brand</span><span className="block text-[8px] text-bk-muted">Sponsored</span></span></div>
+  return (
+    <div className="flex h-full items-center justify-center gap-4">
+      <figure className="text-center">
+        <div className={cn(card, 'w-[122px] overflow-hidden text-left')}>
+          {header}
+          <Post design="serif-escape" sample={0} width={122} className="rounded-none shadow-none" />
+          <div className="flex items-center justify-between gap-1.5 bg-bk-alt px-2 py-1.5">
+            <span className="min-w-0 truncate text-[8.5px] font-semibold text-bk-muted">yourbrand.com</span>
+            <span className="shrink-0 whitespace-nowrap rounded bg-bk-chip px-1.5 py-0.5 text-[8.5px] font-bold">Learn more</span>
+          </div>
+        </div>
+        <figcaption className={cn(caption, 'mt-1.5')}>Feed 4:5</figcaption>
+      </figure>
+      <figure className="text-center">
+        <div className="flex h-[178px] w-[100px] flex-col overflow-hidden rounded-xl bg-[#14131A] shadow-bk-card">
+          <div className="flex items-center gap-1 px-1.5 py-1.5 text-white"><span className="size-3.5 shrink-0 rounded-full bg-[#ED5125]" /><span className="min-w-0 leading-tight"><span className="block truncate text-[8px] font-bold">Your brand</span><span className="block text-[7px] opacity-70">Sponsored</span></span></div>
+          <div className="flex flex-1 items-center"><Post design="highlight-editorial" sample={3} brand={YOUR_BRAND} width={100} className="rounded-none shadow-none" /></div>
+          <span className="mx-auto mb-2 rounded-full bg-white px-2.5 py-0.5 text-[8px] font-bold text-[#14131A]">Learn more</span>
+        </div>
+        <figcaption className={cn(caption, 'mt-1.5')}>Story 9:16</figcaption>
+      </figure>
+    </div>
+  )
+}
+
+/** Captions from the brand's own posts, and a new one written the same way. */
+function Voice() {
+  const theirs = ['Sourdough sold out by ten again. Tomorrow we bake two more batches.', 'We close at two on Sundays so the team can rest. See you Monday at seven.']
+  return (
+    <div className="flex h-full items-center justify-center gap-3">
+      <div className="w-[146px] space-y-2">
+        {theirs.map(text => (
+          <div key={text} className={cn(card, 'p-2.5')}>
+            <p className={caption}>Your post</p>
+            <p className="mt-1 text-[11px] leading-snug">{text}</p>
+          </div>
+        ))}
+      </div>
+      <ArrowRight className="size-5 shrink-0 text-bk-muted" />
+      <div className={cn(card, 'w-[150px] p-2.5 ring-2 ring-bk-butter')}>
+        <p className={caption}>New post</p>
+        <p className="mt-1 text-[11.5px] font-semibold leading-snug">New on the counter: rye with fennel. Same 7 a.m. start, so come early.</p>
+        <span className="mt-2 inline-flex items-center gap-1 rounded-md bg-bk-butter px-1.5 py-0.5 text-[9.5px] font-bold text-bk-ink"><Check className="size-3" />Sounds like you</span>
+      </div>
+    </div>
+  )
+}
+
+/** The sidebar's brand switcher with the brands the next plan holds; those past this plan's limit carry its name. */
+function Brands({ current, target }) {
+  const names = [['Corner Bakery', 'EN-GB'], ['Studio Norte', 'PT-PT'], ['Barber PH', 'EN-US']]
+  const shown = names.slice(0, Math.min(3, target.brands))
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className={cn(card, 'w-[260px] p-1.5')}>
+        <p className={cn(caption, 'px-2 pb-1 pt-1')}>Your brands</p>
+        {shown.map(([name, language], i) => (
+          <div key={name} className={cn('flex items-center gap-2.5 rounded-lg px-2 py-1.5', i === 0 && 'bg-bk-alt')}>
+            <BrandTile name={name} size={26} />
+            <span className="min-w-0 flex-1"><span className="block truncate text-[11.5px] font-bold">{name}</span><span className="block text-[9.5px] text-bk-muted">Brand · {language}</span></span>
+            {i === 0 ? <Check className="size-3.5 text-bk-fg" /> : i >= current.brands && <span className="rounded-md bg-bk-butter px-1.5 py-0.5 text-[9px] font-bold text-bk-ink">{target.name}</span>}
+          </div>
+        ))}
+        {target.brands > shown.length && <p className="px-2 pb-1 pt-1.5 text-[10.5px] font-semibold text-bk-muted">Up to {target.brands} brands on {target.name}</p>}
+      </div>
+    </div>
+  )
+}
+
+/** The post composer with photos attached; each one becomes a slide. */
+function Photos({ current, target }) {
+  // Four different pictures from the two sample images: the whole landscape, close-ups of its rocks and clouds, and
+  // the potted plant on a backdrop.
+  const photos = [
+    { src: '/samples/landscape.jpg', zoom: 1, origin: '50% 50%' },
+    { src: '/samples/cutout.png', zoom: 1, origin: '50% 50%', backdrop: '#E7DED0', contain: true },
+    { src: '/samples/landscape.jpg', zoom: 2.6, origin: '20% 95%' },
+    { src: '/samples/landscape.jpg', zoom: 2.2, origin: '85% 10%' },
   ]
-  return frames.map(f => {
-    const y = 176 - f.h - 22
-    return (
-      <g key={f.ratio}>
-        <rect x={f.x - 4} y={y - 16} width={f.w + 8} height={f.h + 42} rx={10} className="fill-bk-surface stroke-bk-line" />
-        <circle cx={f.x + 4} cy={y - 7} r={3.5} className="fill-bk-butter" />
-        <text x={f.x + 11} y={y - 4} fontSize={6.5} fontWeight={700} className="fill-bk-muted" style={text}>Sponsored</text>
-        <Post x={f.x} y={y} w={f.w} h={f.h} bg={f.post[0]} fg={f.post[1]} accent={f.post[2]} r={4} />
-        <rect x={f.x} y={y + f.h + 5} width={f.w * 0.42} height={5} rx={2} className="fill-bk-line" />
-        <rect x={f.x + f.w - 34} y={y + f.h + 3} width={34} height={11} rx={3} className="fill-bk-alt" />
-        <text x={f.x + f.w - 17} y={y + f.h + 10.5} textAnchor="middle" fontSize={6} fontWeight={800} className="fill-bk-fg" style={text}>Learn More</text>
-        <text x={f.x + f.w / 2} y={192} textAnchor="middle" fontSize={8.5} fontWeight={800} className="fill-bk-muted" style={text}>{f.ratio}</text>
-      </g>
-    )
-  })
-}
-
-function Brands() {
-  const rows = [['K', POST.orange, 'Kachica'], ['P', POST.navy, 'Prumo'], ['B', '#1f7a5a', 'Barber PH']]
+  const have = Math.min(current.photosPerPost, photos.length)
+  const slots = Math.min(8, target.photosPerPost)
   return (
-    <>
-      <Card x={70} y={22} width={180} height={156} />
-      {rows.map(([initial, color, name], i) => (
-        <g key={name}>
-          <rect x={84} y={36 + i * 34} width={152} height={28} rx={8} className={i === 0 ? 'fill-bk-alt' : 'fill-bk-surface'} />
-          <rect x={90} y={40 + i * 34} width={20} height={20} rx={6} fill={color} />
-          <text x={100} y={54 + i * 34} textAnchor="middle" fontSize={10} fontWeight={800} fill="#fff" style={text}>{initial}</text>
-          <text x={118} y={54 + i * 34} fontSize={10} fontWeight={700} className="fill-bk-fg" style={text}>{name}</text>
-        </g>
-      ))}
-      <rect x={84} y={140} width={152} height={28} rx={8} fill="none" className="stroke-bk-field" strokeDasharray="4 3" />
-      <text x={160} y={158} textAnchor="middle" fontSize={10} fontWeight={700} className="fill-bk-muted" style={text}>+ Add a brand</text>
-    </>
+    <div className="flex h-full items-center justify-center">
+      <div className={cn(card, 'w-[320px] p-3')}>
+        <p className="text-[11.5px] text-bk-fg/80">Before and after of the bathroom job in Alfama</p>
+        <div className="mt-2.5 grid grid-cols-4 gap-1.5">
+          {Array.from({ length: slots }, (_, i) => i < have
+            ? <span key={i} className="block aspect-square w-full overflow-hidden rounded-md" style={{ background: photos[i].backdrop }}><img src={photos[i].src} alt="" className={cn('size-full', photos[i].contain ? 'object-contain p-1' : 'object-cover')} style={{ transform: `scale(${photos[i].zoom})`, transformOrigin: photos[i].origin }} /></span>
+            : <span key={i} className="flex aspect-square w-full items-center justify-center rounded-md border border-dashed border-bk-field text-bk-muted"><Plus className="size-3.5" /></span>)}
+        </div>
+        <div className="mt-2.5 flex items-center justify-between text-[10.5px]">
+          <span className="font-semibold text-bk-muted">{have} of {target.photosPerPost} photos</span>
+          <span className="font-bold">One photo on each slide</span>
+        </div>
+      </div>
+    </div>
   )
 }
 
-function Uploads() {
-  const tones = ['#d9c7a7', '#9fb7c9', '#c9a9a0', '#a7c4a0', '#e0cf9f', '#b5a9c9']
-  return (
-    <>
-      <Card x={46} y={20} width={228} height={160} />
-      {tones.map((c, i) => <rect key={c} x={60 + (i % 3) * 68} y={34 + Math.floor(i / 3) * 52} width={62} height={46} rx={7} fill={c} />)}
-      <rect x={60} y={148} width={198} height={7} rx={3.5} className="fill-bk-alt" />
-      <rect x={60} y={148} width={70} height={7} rx={3.5} className="fill-bk-butter" />
-      <text x={60} y={170} fontSize={8.5} fontWeight={700} className="fill-bk-muted" style={text}>Your photos, in every post</text>
-    </>
+/** The account menu's credits meter for this plan beside the next one's. */
+function Credits({ current, target }) {
+  const meter = (plan, full) => (
+    <div className={cn(card, 'w-[150px] p-3', full && 'ring-2 ring-bk-butter')}>
+      <p className={caption}>{plan.name}</p>
+      <p className="mt-1.5 flex items-center gap-1.5 text-[18px] font-bold tabular-nums"><Coins className="size-4 text-bk-fg/70" />{plan.credits}</p>
+      <p className="text-[10px] text-bk-muted">credits a month</p>
+      <span className="mt-2.5 block h-1.5 overflow-hidden rounded-full bg-bk-alt"><span className="block h-full rounded-full bg-bk-butter" style={{ width: `${Math.round(100 * plan.credits / target.credits)}%` }} /></span>
+      <p className="mt-1.5 text-[10.5px] font-semibold">≈ {approxPosts(plan.credits)} posts</p>
+    </div>
   )
+  return <div className="flex h-full items-center justify-center gap-3">{meter(current, false)}{meter(target, true)}</div>
 }
 
-function Credits() {
-  return (
-    <>
-      <Card x={36} y={30} width={150} height={140} />
-      <text x={52} y={74} fontSize={34} fontWeight={800} className="fill-bk-fg" style={text}>150</text>
-      <text x={52} y={92} fontSize={9.5} fontWeight={700} className="fill-bk-muted" style={text}>credits every month</text>
-      <rect x={52} y={110} width={118} height={7} rx={3.5} className="fill-bk-alt" />
-      <rect x={52} y={110} width={34} height={7} rx={3.5} className="fill-bk-butter" />
-      <text x={52} y={140} fontSize={8.5} className="fill-bk-muted" style={text}>≈ 37 posts</text>
-      <g transform="rotate(6 250 100)"><Post x={208} y={40} w={84} h={104} bg={POST.yellow} fg={POST.navy} accent={POST.orange} r={8} /></g>
-      <g transform="rotate(-4 236 108)"><Post x={194} y={58} w={84} h={104} bg={POST.navy} fg="#fff" accent={POST.yellow} r={8} /></g>
-    </>
-  )
-}
-
-const VISUALS = { schedule: Schedule, designs: Designs, community: Community, team: Team, ads: Ads, brands: Brands, uploads: Uploads, credits: Credits }
+const VISUALS = { schedule: Schedule, designs: Designs, community: Community, team: Team, ads: Ads, voice: Voice, brands: Brands, photos: Photos, credits: Credits }
 
 /** Which picture a plan limit shows. */
 export function visualFor(info = {}) {
   if (info.limit === 'brands') return 'brands'
-  if (info.limit === 'uploads') return 'uploads'
-  return { scheduling: 'schedule', emailReminders: 'schedule', textReminders: 'schedule', customDesigns: 'designs', communityDesigns: 'community', teams: 'team', adDesigns: 'ads' }[info.feature] || 'credits'
+  if (info.limit === 'photos') return 'photos'
+  return { scheduling: 'schedule', emailReminders: 'schedule', textReminders: 'schedule', customDesigns: 'designs', communityDesigns: 'community', teams: 'team', adDesigns: 'ads', postVoice: 'voice' }[info.feature] || 'credits'
 }
 
-export default function FeatureVisual({ name, className = '' }) {
+/** The picture, scaled to its container's width. `current` and `target` are plans (ids or plan objects). */
+export default function FeatureVisual({ name, current = 'free', target = 'pro', className = '' }) {
   const Visual = VISUALS[name] || Credits
+  const ref = useRef(null), [scale, setScale] = useState(0)
+  useEffect(() => {
+    const box = ref.current
+    if (!box) return
+    const fit = () => setScale(box.clientWidth / W)
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [])
+  const plan = value => (typeof value === 'string' ? PLANS[value] : value) || PLANS.pro
   return (
-    <svg viewBox="0 0 320 200" role="img" aria-hidden="true" className={cn('block h-auto w-full font-sans', className)}>
-      <Visual />
-    </svg>
+    <div ref={ref} aria-hidden="true" className={cn('relative w-full select-none', className)} style={{ aspectRatio: `${W}/${H}` }}>
+      <div className="absolute left-0 top-0 origin-top-left transition-opacity" style={{ width: W, height: H, transform: `scale(${scale})`, opacity: scale ? 1 : 0 }}>
+        <Visual current={plan(current)} target={plan(target)} />
+      </div>
+    </div>
   )
 }

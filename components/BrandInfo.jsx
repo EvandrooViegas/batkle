@@ -3,7 +3,7 @@ import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowUpRight, Copy, Globe, Loader2, Pipette, Plus, X } from 'lucide-react'
+import { ArrowUpRight, Copy, Globe, Loader2, Pencil, Pipette, Plus, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import ColorPriority, { reorderColors } from '@/components/ColorPriority'
 import { BookSection, EmptyHint, GrowingTextarea, ListEditor, paragraphsOf } from '@/components/brand/ProfileBlocks'
@@ -11,21 +11,26 @@ import { Popup } from '@/components/app/popup'
 import { appField } from '@/components/app/field'
 import { BrandTile, Eyebrow, Notice, appButton, brandLogo, pageShell, panelClass } from '@/components/app/ui'
 import UpgradeNotice from '@/components/app/billing/UpgradeNotice'
+import { useBilling } from '@/components/app/billing/useBilling'
+import { useBrandAccess } from '@/components/app/AppShell'
 import { apiError, isBillingCode } from '@/lib/client/billing'
 import { loadEnglishProfile } from '@/lib/client/englishProfile'
 import { cn } from '@/lib/utils'
 
 const sectionLoading = () => <div role="status" className="h-40 rounded-2xl bg-bk-surface motion-safe:animate-pulse" aria-label="Loading" />
 const BrandDesignStudio = dynamic(() => import('@/components/BrandDesignStudio'), { loading: sectionLoading })
-const LogoVariants = dynamic(() => import('@/components/LogoVariants'), { loading: sectionLoading })
+const LogoInput = dynamic(() => import('@/components/brand/LogoInput'), { loading: sectionLoading })
+const BrandPosts = dynamic(() => import('@/components/brand/BrandPosts'), { loading: sectionLoading })
+const RereadReview = dynamic(() => import('@/components/brand/RereadReview'))
 
 function normalizeBrand(bc) {
   if (!bc || !(bc.name || bc.about || bc.colors?.length || bc.fonts?.length)) return null
   return { ...bc, name: bc.name || '', about: bc.about || '', logo: bc.logo || '', logoVariants: bc.logoVariants || null, language: bc.language || '', colors: bc.colors || [], fonts: bc.fonts || [] }
 }
 
-// Designs are saved the moment they are picked, so they never count as an unsaved change.
-const snapshot = data => (data ? JSON.stringify({ ...data, designs: undefined, designLibraryVersion: undefined }) : '')
+// Designs and the brand's own posts are saved the moment they change, and logo versions are made by themselves from
+// the logo (again later if they aren't saved), so none of them counts as an unsaved change.
+const snapshot = data => (data ? JSON.stringify({ ...data, designs: undefined, designLibraryVersion: undefined, logoVariants: undefined, postExamples: undefined }) : '')
 
 // "Inter-Bold" → "Inter": the family name Google Fonts knows.
 const normalizeFontName = fontName => (fontName ? fontName.replace(/-?(Thin|ExtraLight|Light|Regular|Medium|SemiBold|Bold|ExtraBold|Black)/gi, '').replace(/-?(Italic|Oblique)/gi, '').trim() : '')
@@ -38,20 +43,25 @@ const luminance = value => {
   const [r, g, b] = [0, 2, 4].map(o => parseInt(hex.slice(o, o + 2), 16) / 255).map(v => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
   return r * 0.2126 + g * 0.7152 + b * 0.0722
 }
+/** The website a profile was read from, or ''. */
+const websiteOf = data => data?.website || data?.researchSources?.[0]?.url || ''
+const hostOf = url => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url } }
+
 // "Social Media Management — Content creation…" → name and description.
 const splitService = item => { const match = item.match(/^(.{3,100}?)\s+[—–]\s+([\s\S]+)$/); return match ? [match[1], match[2]] : [null, item] }
 
 const GROUPS = [
   ['The business', ['about', 'services', 'projects']],
-  ['Audience & voice', ['audience', 'voice', 'apart']],
+  ['Audience & voice', ['audience', 'voice', 'posts', 'apart']],
   ['What posts say', ['ctas', 'topics']],
   ['How posts look', ['logo', 'colours', 'type', 'designs']],
 ]
 const TITLES = {
-  about: 'About the business', services: 'Services & products', projects: 'Projects & work', audience: 'Ideal customers', voice: 'Voice & tone',
+  about: 'About the business', services: 'Services & products', projects: 'Projects & work', audience: 'Ideal customers', voice: 'Voice & tone', posts: 'Your posts',
   apart: 'What sets you apart', ctas: 'Calls to action', topics: 'Content opportunities', logo: 'Logo', colours: 'Colours', type: 'Typography', designs: 'Post designs & language',
 }
 const ORDER = GROUPS.flatMap(([, ids]) => ids)
+const proTag = 'shrink-0 rounded-full bg-bk-butter/60 px-1.5 py-px text-[10px] font-bold leading-4 text-bk-ink'
 
 export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }) {
   const router = useRouter()
@@ -71,7 +81,15 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
   const [activeId, setActiveId] = useState(ORDER[0])
   // A plan limit that stopped saving a new brand (the plan's brand limit), shown with the way to upgrade.
   const [limit, setLimit] = useState(null)
+  // The website read again, waiting for the person to choose what to update: { next, pages }.
+  const [review, setReview] = useState(null)
+  // Your posts is part of Pro and Business: null while the plan loads. If the plan can't be read, the section opens
+  // and the server, which checks the plan on every save, answers with the upgrade when needed.
+  const { data: billing, error: billingError } = useBilling()
+  const postVoice = billing ? Boolean(billing.summary?.features?.postVoice) : billingError ? true : null
   const dirty = useMemo(() => !!extractedData && snapshot(extractedData) !== saved, [extractedData, saved])
+  // In a brand shared with this person, the profile is the owner's and its admins' to change: everyone else reads it.
+  const { canManage, owner } = useBrandAccess()
 
   // Server-provided data avoids a second request after hydration.
   useEffect(() => {
@@ -154,16 +172,23 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
 
   const handleExtract = async () => {
     if (!url.trim()) { toast.error('Enter your website address'); return }
+    // A brand with a profile only previews the website: the person then confirms what to update (RereadReview).
+    const preview = Boolean(flowId && extractedData)
     setLoading(true)
     try {
       const response = await fetch('/api/extract-business-info', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim(), flowId }),
+        body: JSON.stringify({ url: url.trim(), flowId, ...(preview ? { preview: true } : {}) }),
       })
       if (!response.ok) throw apiError(await response.json().catch(() => ({})), response.status, 'The website could not be read')
       const data = await response.json()
       if (data.logoVariantsError) toast.warning(data.logoVariantsError)
+      if (data.preview) {
+        setImportOpen(false)
+        setReview({ next: data.brandContext, pages: data.pagesAnalyzed })
+        return
+      }
       const next = {
         ...data.flow?.brandContext,
         name: data.name || '',
@@ -198,11 +223,15 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
   }
   const addFont = () => setExtractedData(prev => ({ ...prev, fonts: [...prev.fonts, ''] }))
   const removeFont = index => setExtractedData(prev => ({ ...prev, fonts: prev.fonts.filter((_, i) => i !== index) }))
-  const toggle = id => () => setEditing(prev => ({ ...prev, [id]: !prev[id] }))
-  const startEditing = id => () => setEditing(prev => ({ ...prev, [id]: true }))
+  // No Edit or Add buttons for someone who can't change the profile (BookSection and EmptyHint show them only with these).
+  const toggle = id => (canManage ? () => setEditing(prev => ({ ...prev, [id]: !prev[id] })) : undefined)
+  const startEditing = id => (canManage ? () => setEditing(prev => ({ ...prev, [id]: true })) : undefined)
 
-  const handleSave = async () => {
-    if (!extractedData) return
+  /** Saves `source` (the profile on screen unless given, such as the one confirmed after reading the website again). */
+  const handleSave = async (source = extractedData) => {
+    if (!source) return false
+    // Projects added by hand and left blank are not kept.
+    const profile = Array.isArray(source.projects) ? { ...source, projects: source.projects.filter(p => String(p?.name || '').trim() || String(p?.description || '').trim()) } : source
     setSaving(true)
     try {
       let targetFlowId = flowId
@@ -211,7 +240,7 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
         const res = await fetch('/api/flows', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: extractedData.name || `Brand ${Date.now()}` }),
+          body: JSON.stringify({ name: profile.name || `Brand ${Date.now()}` }),
         })
         if (!res.ok) throw apiError(await res.json().catch(() => ({})), res.status, 'The brand could not be created')
         const newFlow = await res.json()
@@ -223,23 +252,26 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           brandContext: {
-            ...extractedData,
-            logoVariants: extractedData.logoVariants?.source === extractedData.logo ? extractedData.logoVariants : null,
-            designs: extractedData.designs || [],
+            ...profile,
+            logoVariants: profile.logoVariants?.source === profile.logo ? profile.logoVariants : null,
+            designs: profile.designs || [],
           },
-          ...(extractedData.name ? { name: extractedData.name } : {}),
+          ...(profile.name ? { name: profile.name } : {}),
         }),
       })
       if (!res.ok) throw new Error('Your changes could not be saved')
       onFlowCreated?.(await res.json())
-      setSaved(snapshot(extractedData))
+      setExtractedData(profile)
+      setSaved(snapshot(profile))
       setEditing({})
       // The sidebar shows the brand name and logo from the server.
       router.refresh()
       toast.success('Brand profile saved')
+      return true
     } catch (error) {
       if (isBillingCode(error.code)) setLimit(error)
       else toast.error(error.message || 'Your changes could not be saved')
+      return false
     } finally {
       setSaving(false)
     }
@@ -253,23 +285,31 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
   const toolbar = (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <Eyebrow>{extractedData?.name || 'Your brand'} · Brand profile</Eyebrow>
-      <div className="flex items-center gap-2">
-        <button type="button" onClick={() => setImportOpen(true)} disabled={busy} className={appButton('outline', 'sm')}><Globe className="size-4" />{extractedData ? 'Re-read website' : 'Import website'}</button>
-        {extractedData && (
-          <button type="button" onClick={handleSave} disabled={busy || !dirty} className={appButton('primary', 'sm')}>
-            {saving && <Loader2 className="size-4 animate-spin" />}{saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
-          </button>
-        )}
-      </div>
+      {extractedData && (canManage ? (
+        <button type="button" onClick={() => handleSave()} disabled={busy || !dirty} className={appButton('primary', 'sm')}>
+          {saving && <Loader2 className="size-4 animate-spin" />}{saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
+        </button>
+      ) : <p className="text-[12.5px] text-bk-muted">Only {owner} and the brand’s admins can change its profile.</p>)}
     </div>
   )
+
+  const site = websiteOf(extractedData)
+  const rereading = Boolean(flowId && extractedData)
+  const openImport = () => { setUrl(current => current || site); setImportOpen(true) }
+  // A profile filled in by hand: an empty one to start from, with the first chapter open.
+  const startByHand = () => {
+    setExtractedData({ name: '', about: '', logo: '', logoVariants: null, language: '', colors: [], fonts: [], designs: [] })
+    setEditing({ about: true })
+  }
 
   const importPopup = (
     <Popup
       open={importOpen}
       onOpenChange={open => !loading && setImportOpen(open)}
-      title={extractedData ? 'Re-read your website' : 'Import your website'}
-      description="Batkle reads up to five pages and updates your services, projects, voice, colours and fonts. Useful photos go to your gallery."
+      title={rereading ? 'Read your website again' : 'Read your website'}
+      description={rereading
+        ? 'Batkle reads up to five pages, then shows you what it found. Nothing in your profile changes until you choose what to update.'
+        : 'Batkle reads up to five pages and fills in your services, projects, voice, colours and fonts. You can change all of it afterwards.'}
       footer={<>
         <button type="button" onClick={() => setImportOpen(false)} disabled={loading} className={appButton('quiet', 'md')}>Cancel</button>
         <button type="button" onClick={handleExtract} disabled={loading} className={appButton('primary', 'md')}>
@@ -281,9 +321,24 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
         <label htmlFor="import-website" className="text-[13px] font-bold">Website address</label>
         <input id="import-website" type="url" placeholder="https://your-business.com" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && !loading && handleExtract()} disabled={loading} autoFocus className={appField('mt-2')} />
         {loading && <p role="status" className="mt-3 text-[13px] text-bk-muted">Reading the relevant pages. This can take a minute.</p>}
-        {extractedData && <p className="mt-3 text-[12.5px] text-bk-muted">Edits you made by hand are replaced by what the website says.</p>}
       </div>
     </Popup>
+  )
+
+  // After the website is read again: confirm what to update, then save it.
+  const reviewPopup = review && (
+    <RereadReview
+      open
+      current={extractedData}
+      next={review.next}
+      pages={review.pages}
+      applying={saving}
+      onCancel={() => setReview(null)}
+      onApply={async merged => {
+        setExtractedData(merged)
+        if (await handleSave(merged)) { setReview(null); router.refresh() }
+      }}
+    />
   )
 
   if (!extractedData) {
@@ -296,10 +351,13 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
           <UpgradeNotice error={limit} className="mt-5" />
           {!profileLoading && (
             <div className="mt-6 overflow-hidden rounded-[28px] bg-bk-ink px-6 py-14 text-center text-bk-cream sm:px-10">
-              <Globe className="mx-auto size-7 opacity-80" aria-hidden="true" />
-              <h1 className="mt-4 font-bk-display text-[clamp(28px,4vw,44px)] font-bold tracking-[-0.04em]">Start your brand book</h1>
-              <p className="mx-auto mt-2 max-w-[460px] text-[15px] text-bk-cream/75">Batkle reads up to five pages of your website and fills in your services, projects, voice, colours and fonts.</p>
-              <button type="button" onClick={() => setImportOpen(true)} className={appButton('primary', 'md', 'mt-6 h-11 px-5')}><Globe className="size-4" />Import website</button>
+              <h1 className="font-bk-display text-[clamp(28px,4vw,44px)] font-bold tracking-[-0.04em]">Start your brand book</h1>
+              <p className="mx-auto mt-2 max-w-[480px] text-[15px] text-bk-cream/75">Let Batkle read your website and fill it in, or write it yourself. Either way, you can change every chapter later.</p>
+              <div className="mt-7 flex flex-wrap justify-center gap-3">
+                <button type="button" onClick={openImport} className={appButton('primary', 'md', 'h-11 px-5')}><Globe className="size-4" />Read my website</button>
+                <button type="button" onClick={startByHand} className={appButton('onDark', 'md', 'h-11 px-5')}><Pencil className="size-4" />Fill it in myself</button>
+              </div>
+              <p className="mt-4 text-[13px] text-bk-cream/60">No website? Fill it in yourself.</p>
             </div>
           )}
         </div>
@@ -317,11 +375,14 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
   const usesGlobalDesigns = (data.designs || []).some(d => d.source === 'global')
   const complete = {
     about: !!data.about.trim(), services: filled(data.services), projects: projects.length > 0, audience: !!String(data.targetAudience || '').trim(),
-    voice: !!String(data.tone || '').trim(), apart: filled(data.differentiators), ctas: filled(data.suggestedCtas), topics: filled(data.contentTopics),
+    voice: !!String(data.tone || '').trim(), posts: !!data.postExamples?.posts?.length || data.postExamples?.enabled === false, apart: filled(data.differentiators), ctas: filled(data.suggestedCtas), topics: filled(data.contentTopics),
     logo: !!data.logo, colours: data.colors.length > 0, type: data.fonts.some(Boolean), designs: usesGlobalDesigns && !!data.language,
   }
-  const done = ORDER.filter(id => complete[id]).length
-  const strength = Math.round(done / ORDER.length * 100)
+  // A chapter the plan doesn't include never counts against the profile.
+  const locked = id => id === 'posts' && postVoice === false
+  const scored = ORDER.filter(id => !locked(id))
+  const done = scored.filter(id => complete[id]).length
+  const strength = Math.round(done / scored.length * 100)
   const strengthLabel = strength >= 90 ? 'Excellent' : strength >= 70 ? 'Strong' : strength >= 45 ? 'Getting there' : 'Needs detail'
   const numberOf = id => String(ORDER.indexOf(id) + 1).padStart(2, '0')
   const go = id => { document.getElementById(`book-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActiveId(id) }
@@ -331,8 +392,37 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
   const coverInk = luminance(primary) > 0.42 ? '#14131A' : '#F6F3EA'
   const headingFont = normalizeFontName(data.fonts[0])
   const logo = brandLogo(data)
+  // The cover shows the logo's transparent version that reads on its colour, as posts choose it (lib/designs/global/compose.ts).
+  const versions = data.logoVariants?.source === data.logo && data.logoVariants?.originalTransparent ? data.logoVariants : null
+  const lightCover = coverInk === '#14131A'
+  const coverLogo = versions && (lightCover
+    ? (versions.lostOnLight < 0.08 ? versions.originalTransparent : versions.darkenedTransparent || versions.blackTransparent || versions.originalTransparent)
+    : (versions.lostOnDark < 0.08 ? versions.originalTransparent : versions.reversedTransparent || versions.whiteTransparent || versions.originalTransparent))
   const lead = paragraphsOf(data.about)[0]?.split(/(?<=[.!?])\s/)[0] || ''
   const aboutParagraphs = paragraphsOf(data.about)
+  // Where the profile came from. Reading the website is optional: every chapter can be written by hand.
+  const websiteCard = (
+    <div className={cn(panelClass, 'p-4')}>
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-bk-muted">Website</p>
+      {site ? (
+        <>
+          <a href={site} target="_blank" rel="noreferrer" className="mt-1.5 flex items-center gap-1 truncate text-[14px] font-bold hover:underline hover:underline-offset-4">{hostOf(site)}<ArrowUpRight className="size-3.5 shrink-0" aria-hidden="true" /></a>
+          <p className="mt-0.5 text-[12.5px] text-bk-muted">{data.researchSources?.length ? `${data.researchSources.length} page${data.researchSources.length === 1 ? '' : 's'} read` : 'Not read yet'}</p>
+          {canManage && (
+            <>
+              <button type="button" onClick={openImport} disabled={busy} className={appButton('outline', 'xs', 'mt-3 w-full')}><Globe className="size-3.5" />Read it again</button>
+              <p className="mt-2 text-[11.5px] leading-snug text-bk-muted">You choose what to update before anything changes.</p>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="mt-1.5 text-[13px] leading-snug text-bk-muted">{canManage ? 'No website yet. Fill in each chapter yourself, or let Batkle read your site.' : 'No website yet.'}</p>
+          {canManage && <button type="button" onClick={openImport} disabled={busy} className={appButton('outline', 'xs', 'mt-3 w-full')}><Globe className="size-3.5" />Read a website</button>}
+        </>
+      )}
+    </div>
+  )
 
   return (
     <div className={pageShell}>
@@ -357,7 +447,9 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
                 {data.researchSources?.length > 0 && <li className="rounded-full px-3 py-1" style={{ boxShadow: `inset 0 0 0 1px ${coverInk}40` }}>{data.researchSources.length} website page{data.researchSources.length === 1 ? '' : 's'} read</li>}
               </ul>
             </div>
-            <BrandTile name={data.name} logo={logo.src} logoOnDark={logo.onDark} size={112} className="rounded-3xl shadow-bk-pop" />
+            {coverLogo
+              ? <img src={coverLogo} alt={`${data.name || 'Brand'} logo`} className="max-h-[112px] w-auto max-w-[min(320px,70vw)] object-contain" />
+              : <BrandTile name={data.name} logo={logo.src} logoOnDark={logo.onDark} size={112} className="rounded-3xl shadow-bk-pop" />}
           </div>
           {data.colors.length > 0 && (
             <div className="flex h-4" aria-label="Brand palette">
@@ -370,7 +462,7 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
         <nav aria-label="Brand book contents" className="sticky top-12 z-20 -mx-4 mt-4 flex gap-1.5 overflow-x-auto bg-bk-alt/95 px-4 py-2.5 backdrop-blur [scrollbar-width:none] sm:-mx-6 sm:px-6 lg:hidden">
           {ORDER.map(id => (
             <button key={id} type="button" onClick={() => go(id)} className={cn('flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[12.5px] font-semibold transition-colors', activeId === id ? 'border-bk-fg bg-bk-fg text-bk-bg' : 'border-bk-line bg-bk-surface')}>
-              <span className={cn('size-1.5 rounded-full', complete[id] ? 'bg-[#1F7A5A]' : 'bg-bk-butter')} />{TITLES[id]}
+              {locked(id) ? <span className={proTag}>Pro</span> : <span className={cn('size-1.5 rounded-full', complete[id] ? 'bg-[#1F7A5A]' : 'bg-bk-butter')} />}{TITLES[id]}
             </button>
           ))}
         </nav>
@@ -384,8 +476,9 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-bk-line" role="progressbar" aria-valuenow={strength} aria-valuemin={0} aria-valuemax={100} aria-label="Profile strength">
                   <div className="h-full rounded-full bg-bk-fg transition-[width] duration-500" style={{ width: `${strength}%` }} />
                 </div>
-                <p className="mt-2 text-[12.5px] leading-snug text-bk-muted">{done === ORDER.length ? 'Every chapter is filled in.' : `${ORDER.length - done} chapter${ORDER.length - done === 1 ? '' : 's'} could use more detail. Specific profiles make better posts.`}</p>
+                <p className="mt-2 text-[12.5px] leading-snug text-bk-muted">{done === scored.length ? 'Every chapter is filled in.' : `${scored.length - done} chapter${scored.length - done === 1 ? '' : 's'} could use more detail. Specific profiles make better posts.`}</p>
               </div>
+              {websiteCard}
               <nav aria-label="Brand book contents" className="space-y-5">
                 {GROUPS.map(([group, ids]) => (
                   <div key={group}>
@@ -396,7 +489,9 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
                           <button type="button" onClick={() => go(id)} aria-current={activeId === id ? 'location' : undefined} className={cn('flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13.5px] transition-colors', activeId === id ? 'bg-bk-surface font-bold shadow-bk-card' : 'text-bk-fg/75 hover:bg-bk-surface/60 hover:text-bk-fg')}>
                             <span className="w-5 font-bk-display text-[11.5px] font-bold tabular-nums text-bk-muted">{numberOf(id)}</span>
                             <span className="min-w-0 flex-1 truncate">{TITLES[id]}</span>
-                            <span className={cn('size-2 shrink-0 rounded-full', complete[id] ? 'bg-[#1F7A5A]' : 'border-[1.5px] border-bk-field')} title={complete[id] ? 'Filled in' : 'Needs detail'} />
+                            {locked(id)
+                              ? <span className={proTag} title="Part of Pro and Business">Pro</span>
+                              : <span className={cn('size-2 shrink-0 rounded-full', complete[id] ? 'bg-[#1F7A5A]' : 'border-[1.5px] border-bk-field')} title={complete[id] ? 'Filled in' : 'Needs detail'} />}
                           </button>
                         </li>
                       ))}
@@ -407,7 +502,8 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
             </div>
           </aside>
 
-          <div className="min-w-0 space-y-14">
+          {/* Read-only for someone who can't manage the brand: every control in the chapters is switched off at once. */}
+          <fieldset disabled={!canManage} className="min-w-0 space-y-14">
             <BookSection id="about" number={numberOf('about')} title={TITLES.about} complete={complete.about} editing={editing.about} onToggle={toggle('about')}>
               {editing.about ? (
                 <div className="space-y-4">
@@ -417,8 +513,8 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
               ) : aboutParagraphs.length ? (
                 <div className="max-w-[760px] space-y-4">
                   <p className="text-[19px] leading-relaxed tracking-[-0.01em]">{aboutParagraphs[0]}</p>
-                  {(aboutExpanded ? aboutParagraphs.slice(1) : []).map((p, i) => <p key={i} className="text-[15px] leading-relaxed text-bk-fg/80">{p}</p>)}
-                  {aboutParagraphs.length > 1 && <button type="button" onClick={() => setAboutExpanded(v => !v)} aria-expanded={aboutExpanded} className="text-[13px] font-semibold underline underline-offset-4">{aboutExpanded ? 'Show less' : `Read the full story (${aboutParagraphs.length - 1} more paragraph${aboutParagraphs.length > 2 ? 's' : ''})`}</button>}
+                  {(aboutExpanded || !canManage ? aboutParagraphs.slice(1) : []).map((p, i) => <p key={i} className="text-[15px] leading-relaxed text-bk-fg/80">{p}</p>)}
+                  {aboutParagraphs.length > 1 && canManage && <button type="button" onClick={() => setAboutExpanded(v => !v)} aria-expanded={aboutExpanded} className="text-[13px] font-semibold underline underline-offset-4">{aboutExpanded ? 'Show less' : `Read the full story (${aboutParagraphs.length - 1} more paragraph${aboutParagraphs.length > 2 ? 's' : ''})`}</button>}
                 </div>
               ) : <EmptyHint onAdd={startEditing('about')}>Tell Batkle what the business does and why it matters.</EmptyHint>}
             </BookSection>
@@ -440,30 +536,43 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
               ) : <EmptyHint onAdd={startEditing('services')}>List your services so posts can be specific about them.</EmptyHint>}
             </BookSection>
 
-            <BookSection id="projects" number={numberOf('projects')} title={TITLES.projects} description="Real work your posts can point to." complete={complete.projects} editing={editing.projects} onToggle={projects.length ? toggle('projects') : undefined}>
-              {projects.length ? (
+            <BookSection id="projects" number={numberOf('projects')} title={TITLES.projects} description="Real work your posts can point to: projects, case studies, customer stories." complete={complete.projects} editing={editing.projects} onToggle={toggle('projects')}>
+              {editing.projects ? (
+                <div className="space-y-3">
+                  {projects.map((project, i) => {
+                    const update = patch => change('projects', projects.map((p, j) => (j === i ? { ...p, ...patch } : p)))
+                    return (
+                      <div key={i} className={cn(panelClass, 'space-y-2.5 p-4')}>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-bk-display text-[13px] font-bold tabular-nums text-bk-muted">Project {String(i + 1).padStart(2, '0')}</span>
+                          <button type="button" aria-label={`Remove project ${i + 1}`} onClick={() => change('projects', projects.filter((_, j) => j !== i))} className={appButton('quiet', 'xs', 'size-8 px-0 text-bk-muted hover:text-[#C2412F]')}><Trash2 className="size-4" /></button>
+                        </div>
+                        <input aria-label={`Project ${i + 1} name`} value={project.name || ''} onChange={e => update({ name: e.target.value })} placeholder="Name, such as Kitchen remodel in Lisbon" className={appField('h-10 text-[14px] font-semibold')} />
+                        <GrowingTextarea label={`Project ${i + 1} description`} value={project.description || ''} onChange={e => update({ description: e.target.value })} placeholder="What you did, for whom, and the result" />
+                        <input aria-label={`Project ${i + 1} link`} type="url" value={project.sourceUrl || ''} onChange={e => update({ sourceUrl: e.target.value })} placeholder="Link to the project (optional)" className={appField('h-10 text-[13.5px]')} />
+                      </div>
+                    )
+                  })}
+                  <button type="button" onClick={() => change('projects', [...projects, { name: '', description: '', sourceUrl: '' }])} className={appButton('outline', 'xs')}><Plus className="size-3.5" />Add project</button>
+                </div>
+              ) : projects.length ? (
                 <ul className="grid gap-3 md:grid-cols-2">
                   {projects.map((project, i) => (
                     <li key={i} className={cn(panelClass, 'flex flex-col overflow-hidden')}>
                       <div className="h-1.5" style={{ background: data.colors[i % Math.max(1, data.colors.length)] || '#FFD84D' }} />
                       <div className="flex flex-1 flex-col p-5">
-                        {editing.projects ? (
-                          <div className="space-y-2.5">
-                            <GrowingTextarea label={`Project ${i + 1} name`} value={project.name} onChange={e => change('projects', projects.map((p, j) => (j === i ? { ...p, name: e.target.value } : p)))} />
-                            <GrowingTextarea label={`Project ${i + 1} description`} value={project.description} onChange={e => change('projects', projects.map((p, j) => (j === i ? { ...p, description: e.target.value } : p)))} />
-                          </div>
-                        ) : (
-                          <>
-                            <h3 className="font-bk-display text-[18px] font-bold tracking-[-0.02em]">{project.name}</h3>
-                            <p className="mt-2 text-[14px] leading-relaxed text-bk-fg/80">{project.description}</p>
-                          </>
-                        )}
-                        {project.sourceUrl && <a href={project.sourceUrl} target="_blank" rel="noreferrer" className="mt-auto inline-flex items-center gap-1 pt-4 text-[12.5px] font-semibold text-bk-muted hover:text-bk-fg">View project<ArrowUpRight className="size-3.5" /></a>}
+                        <h3 className="font-bk-display text-[18px] font-bold tracking-[-0.02em]">{project.name || 'Untitled project'}</h3>
+                        {project.description && <p className="mt-2 text-[14px] leading-relaxed text-bk-fg/80">{project.description}</p>}
+                        {/^https?:\/\//i.test(project.sourceUrl || '') && <a href={project.sourceUrl} target="_blank" rel="noreferrer" className="mt-auto inline-flex items-center gap-1 pt-4 text-[12.5px] font-semibold text-bk-muted hover:text-bk-fg">View project<ArrowUpRight className="size-3.5" /></a>}
                       </div>
                     </li>
                   ))}
                 </ul>
-              ) : <EmptyHint>No projects were found on your website. Re-read the website after adding a portfolio page.</EmptyHint>}
+              ) : (
+                <EmptyHint addLabel="Add project" onAdd={() => { change('projects', [{ name: '', description: '', sourceUrl: '' }]); setEditing(prev => ({ ...prev, projects: true })) }}>
+                  Add work your posts can point to: a project, a case study or a customer story.
+                </EmptyHint>
+              )}
             </BookSection>
 
             <BookSection id="audience" number={numberOf('audience')} title={TITLES.audience} description="Who you serve and what they need." complete={complete.audience} editing={editing.audience} onToggle={toggle('audience')}>
@@ -478,6 +587,10 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
                   <p className="font-bk-display text-[clamp(20px,2.2vw,26px)] font-semibold leading-snug tracking-[-0.025em]">“{data.tone}”</p>
                 </blockquote>
               ) : <EmptyHint onAdd={startEditing('voice')}>How should your brand sound: friendly, technical, bold?</EmptyHint>}
+            </BookSection>
+
+            <BookSection id="posts" number={numberOf('posts')} title={TITLES.posts} description="Add posts you’ve published, carousels included. Batkle learns how you write from them (how your posts open and end, how your carousels are built, the words you like) and uses it as the base for new posts, stories and ads, never copying them." complete={locked('posts') ? undefined : complete.posts}>
+              <BrandPosts flowId={flowId} allowed={postVoice} value={data.postExamples} onChange={postExamples => setExtractedData(prev => ({ ...prev, postExamples }))} />
             </BookSection>
 
             <BookSection id="apart" number={numberOf('apart')} title={TITLES.apart} description="Specific strengths to bring into your content." complete={complete.apart} editing={editing.apart} onToggle={toggle('apart')}>
@@ -517,16 +630,15 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
               ) : <EmptyHint onAdd={startEditing('topics')}>Add subjects your customers care about.</EmptyHint>}
             </BookSection>
 
-            <BookSection id="logo" number={numberOf('logo')} title={TITLES.logo} description="Your original logo, plus transparent versions so it reads on light and dark designs." complete={complete.logo}>
-              <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-                <div className="space-y-3">
-                  <div className={cn('flex aspect-square items-center justify-center rounded-2xl border border-bk-line p-6', logo.onDark ? 'bg-bk-ink' : 'bg-white')}>
-                    {logo.src ? <img src={logo.src} alt={`${data.name} logo`} className="max-h-full max-w-full object-contain" /> : <span className="text-[13px] text-bk-muted">No logo yet</span>}
-                  </div>
-                  <label className="block text-[12.5px] font-bold">Logo address<input type="url" value={data.logo} onChange={e => change('logo', e.target.value)} className={appField('mt-1.5 h-10 text-[13.5px]')} /></label>
-                </div>
-                <LogoVariants key={String(flowId) + data.logo} logo={data.logo} variants={data.logoVariants} onChange={variants => setExtractedData(prev => (prev.logo === variants.source ? { ...prev, logoVariants: variants } : prev))} />
-              </div>
+            <BookSection id="logo" number={numberOf('logo')} title={TITLES.logo} description="Add your logo and Batkle prepares versions that read on light and dark designs." complete={complete.logo}>
+              <LogoInput
+                name={data.name}
+                value={data.logo}
+                variants={data.logoVariants}
+                // Versions made from the old logo no longer apply; LogoInput makes the new ones straight away.
+                onChange={next => setExtractedData(prev => ({ ...prev, logo: next, logoVariants: prev.logoVariants?.source === next ? prev.logoVariants : null }))}
+                onVariants={variants => setExtractedData(prev => (prev.logo === variants.source ? { ...prev, logoVariants: variants } : prev))}
+              />
             </BookSection>
 
             <BookSection id="colours" number={numberOf('colours')} title={TITLES.colours} description="Primary first; use the arrows to change their order. Type a hex value or pick a colour." complete={complete.colours}>
@@ -596,8 +708,10 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
               <BrandDesignStudio bare flowId={flowId} brand={data} onChange={setExtractedData} />
             </BookSection>
 
+            {/* On small screens the side column is hidden, so the website card sits at the end of the book. */}
+            <div className="lg:hidden">{websiteCard}</div>
             {data.researchSources?.length > 0 && (
-              <details className="rounded-2xl border border-bk-line px-5 py-4">
+              <details className="rounded-2xl bg-bk-surface px-5 py-4 shadow-bk-card">
                 <summary className="cursor-pointer text-[13px] font-semibold text-bk-muted">Sources · {data.researchSources.length} website pages</summary>
                 <ul className="mt-3 space-y-2">
                   {data.researchSources.map(page => (
@@ -608,20 +722,21 @@ export default function BrandInfo({ flowId, initialBrandContext, onFlowCreated }
             )}
             {data.researchWarnings?.map(item => <p key={item.url} className="text-[12.5px] text-[#9A6B00] dark:text-[#F2C14E]">{item.message} {item.url}</p>)}
 
-            {dirty && (
+            {dirty && canManage && (
               <div className="sticky bottom-4 z-20 motion-safe:animate-bk-page">
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-bk-fg bg-bk-surface p-2.5 pl-4 shadow-bk-pop">
                   <p className="text-[13.5px] font-bold">You have unsaved changes</p>
-                  <button type="button" onClick={handleSave} disabled={busy} className={appButton('primary', 'sm')}>
+                  <button type="button" onClick={() => handleSave()} disabled={busy} className={appButton('primary', 'sm')}>
                     {saving && <Loader2 className="size-4 animate-spin" />}{saving ? 'Saving…' : 'Save changes'}
                   </button>
                 </div>
               </div>
             )}
-          </div>
+          </fieldset>
         </div>
       </div>
       {importPopup}
+      {reviewPopup}
     </div>
   )
 }

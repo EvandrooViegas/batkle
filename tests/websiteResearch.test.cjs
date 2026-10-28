@@ -65,7 +65,7 @@ test('empty business synthesis fails without retrying or inventing a profile', a
 })
 
 test('copywriter receives detailed services, projects, audience and CTA context beyond the old 900-character cutoff', () => {
-  const compact = new Function(stripTypeScriptTypes(source('lib/services/ai/requestBudget.ts')) + ';return compactBrand')()
+  const compact = new Function(stripTypeScriptTypes(source('lib/services/brandPosts.ts')) + stripTypeScriptTypes(source('lib/services/ai/requestBudget.ts')) + ';return compactBrand')()
   const result = compact({ about: 'A'.repeat(1500) + ' Historic project details.', services: ['Facade work'], projects: [{ name: 'Ministry', description: 'Restoration participation' }], targetAudience: 'Property owners', tone: 'Technical and approachable', suggestedCtas: ['Request a quote'], contentTopics: ['Facade rehabilitation'], logo: 'ignored', fonts: ['ignored'] })
   assert.match(result.about, /Historic project details/)
   assert.match(result.projects, /Ministry/)

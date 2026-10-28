@@ -8,6 +8,7 @@ import { PLATFORMS, defaultScheduleView, groupSchedule, scheduleState } from '@/
 import { cn } from '@/lib/utils'
 import { usePopup } from '../popup'
 import { EmptyState, Notice, PageHeader, SegmentedTabs, appButton, pageInner, pageShell, panelClass } from '../ui'
+import { useBrandAccess } from '../AppShell'
 import { PostThumb, ThumbSkeleton, editorHref } from '../creation/PostThumb'
 import UpgradeNotice from '../billing/UpgradeNotice'
 import { ScheduleCalendar } from './ScheduleCalendar'
@@ -81,6 +82,8 @@ function ScheduleRow({ entry, canvas, state, busy, highlight, card = false, shar
   const working = action => busy === `${entry.id}:${action}`
   const any = Boolean(busy?.startsWith(`${entry.id}:`))
   const handOut = state === 'due' || (highlight && state !== 'posted') || (card && state === 'scheduled')
+  // Someone who can only view the brand downloads, copies and shares; changing the schedule is for editors.
+  const { canEdit } = useBrandAccess()
   return (
     <li
       id={card ? undefined : `post-${entry.id}`}
@@ -89,9 +92,13 @@ function ScheduleRow({ entry, canvas, state, busy, highlight, card = false, shar
       className={cn('flex flex-col outline-none', card ? 'gap-4' : 'gap-3 px-4 py-3.5 sm:px-5 md:flex-row md:items-center md:gap-5', highlight && 'bg-bk-butter/[0.12] shadow-[inset_4px_0_0_0_#FFD84D]')}
     >
       <div className="flex min-w-0 flex-1 gap-3.5 sm:gap-4">
-        <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`Open in the editor: ${entry.topic}`} className="block w-[64px] shrink-0 rounded-md transition-transform duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg can-hover:-translate-y-0.5 sm:w-[80px]">
-          {canvas ? <PostThumb canvas={canvas} className="shadow-bk-card" /> : <ThumbSkeleton className="bg-bk-chip" />}
-        </a>
+        {canEdit ? (
+          <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`Open in the editor: ${entry.topic}`} className="block w-[64px] shrink-0 rounded-md transition-transform duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg can-hover:-translate-y-0.5 sm:w-[80px]">
+            {canvas ? <PostThumb canvas={canvas} className="shadow-bk-card" /> : <ThumbSkeleton className="bg-bk-chip" />}
+          </a>
+        ) : (
+          <div className="w-[64px] shrink-0 sm:w-[80px]">{canvas ? <PostThumb canvas={canvas} className="shadow-bk-card" /> : <ThumbSkeleton className="bg-bk-chip" />}</div>
+        )}
         <div className="min-w-0 flex-1">
           {highlight && (
             <p className="mb-1 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#9A6B00] dark:text-[#F2C14E]">
@@ -128,13 +135,17 @@ function ScheduleRow({ entry, canvas, state, busy, highlight, card = false, shar
               {entry.format === 'carousel' ? 'Download slides' : 'Download'}
             </button>
             <button type="button" onClick={onCopy} className={appButton('outline', 'sm')}><Copy className="size-3.5" />Copy caption</button>
-            <button type="button" onClick={onPosted} disabled={any} className={appButton(shareable ? 'outline' : 'primary', 'sm')}>
-              {working('posted') && <Loader2 className="size-3.5 animate-spin" />}{highlight || card ? 'I posted it' : 'Mark as posted'}
-            </button>
-            <button type="button" onClick={onEdit} disabled={any} className={appButton('quiet', 'sm')}>{state === 'approved' ? 'Schedule' : card ? 'Edit schedule' : 'Edit'}</button>
+            {canEdit && (
+              <>
+                <button type="button" onClick={onPosted} disabled={any} className={appButton(shareable ? 'outline' : 'primary', 'sm')}>
+                  {working('posted') && <Loader2 className="size-3.5 animate-spin" />}{highlight || card ? 'I posted it' : 'Mark as posted'}
+                </button>
+                <button type="button" onClick={onEdit} disabled={any} className={appButton('quiet', 'sm')}>{state === 'approved' ? 'Schedule' : card ? 'Edit schedule' : 'Edit'}</button>
+              </>
+            )}
           </>
         )}
-        {!handOut && state === 'approved' && (
+        {!handOut && state === 'approved' && canEdit && (
           <>
             <button type="button" onClick={onEdit} disabled={any} className={appButton('primary', 'sm')}><CalendarClock className="size-3.5" />Schedule</button>
             <button type="button" onClick={onRemove} disabled={any} className={appButton('quiet', 'sm', 'text-bk-muted hover:text-bk-fg')}>Remove</button>
@@ -142,13 +153,13 @@ function ScheduleRow({ entry, canvas, state, busy, highlight, card = false, shar
         )}
         {!handOut && state === 'scheduled' && (
           <>
-            <button type="button" onClick={onEdit} disabled={any} className={appButton('outline', 'sm')}><CalendarClock className="size-3.5" />Edit schedule</button>
+            {canEdit && <button type="button" onClick={onEdit} disabled={any} className={appButton('outline', 'sm')}><CalendarClock className="size-3.5" />Edit schedule</button>}
             <button type="button" onClick={onDownload} disabled={any} title="Download the slides now" aria-label="Download the slides now" className={appButton('quiet', 'sm', 'px-2')}>
               {working('download') ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
             </button>
           </>
         )}
-        {state === 'posted' && (
+        {state === 'posted' && canEdit && (
           <button type="button" onClick={onUnpost} disabled={any} className={appButton('quiet', 'sm', 'text-bk-muted hover:text-bk-fg')}>
             {working('unpost') ? <Loader2 className="size-3.5 animate-spin" /> : <Undo2 className="size-3.5" />}Not posted yet
           </button>
@@ -321,7 +332,7 @@ export default function SchedulePage({ flowId, brandName = 'Your brand' }) {
           )}
         />
 
-        <p className="mt-5 flex max-w-[760px] gap-2.5 rounded-xl border border-bk-line bg-bk-surface px-3.5 py-3 text-[13px] leading-relaxed text-bk-fg/80">
+        <p className="mt-5 flex max-w-[760px] gap-2.5 rounded-xl bg-bk-surface shadow-bk-card px-3.5 py-3 text-[13px] leading-relaxed text-bk-fg/80">
           <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-bk-muted" />
           <span>
             Batkle doesn’t post to Instagram or TikTok for you. When a post’s time comes, it reminds you and the post moves to Due now, with its slides and caption ready.{' '}

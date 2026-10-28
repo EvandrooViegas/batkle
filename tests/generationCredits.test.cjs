@@ -32,6 +32,7 @@ function planner(billing, { written } = {}) {
   const deps = {
     NextResponse: response, corsify: r => r, randomUUID,
     loadGenerationBrandContext: async () => ({ id: 'brand', name: 'Brand' }),
+    loadPostFeedback: async () => [], withoutDislikedDesigns: brand => brand,
     chooseBrandFamily: async () => null, DesignLibraryError: class extends Error {},
     studyForPlanning: () => ({}), familyGrammar: () => ({ compositions: [] }), familyImagery: () => ({ mode: 'none' }), familyPhotoLed: () => false, listItems: () => [],
     loadPostImages: async () => [], postImageIds: () => [], uploadPlanningBlock: () => '', assignUploads: slides => ({ slides }), ideaForCopy: idea => idea,

@@ -3,8 +3,8 @@ const assert = require('node:assert/strict')
 const { load, fakeDb, NextResponse, notificationModules } = require('./notificationTestHelpers.cjs')
 
 const sms = load('lib/notifications/sms.ts', ['CALLING_CODES', 'toE164'])
-const { parseOnboarding, parseOnboardingDraft, parsePhoneAnswer, defaultPhoneCountry, NAME_MAX, PHONE_INPUT_MAX } = load('lib/onboardingOptions.js',
-  ['parseOnboarding', 'parseOnboardingDraft', 'parsePhoneAnswer', 'defaultPhoneCountry', 'NAME_MAX', 'PHONE_INPUT_MAX'], { './notifications/sms': sms })
+const { parseName, parseOnboarding, parseOnboardingDraft, parsePhoneAnswer, defaultPhoneCountry, NAME_MAX, PHONE_INPUT_MAX } = load('lib/onboardingOptions.js',
+  ['parseName', 'parseOnboarding', 'parseOnboardingDraft', 'parsePhoneAnswer', 'defaultPhoneCountry', 'NAME_MAX', 'PHONE_INPUT_MAX'], { './notifications/sms': sms })
 
 test('account onboarding asks for a name and an optional phone, and stores nothing else', () => {
   assert.deepEqual(parseOnboarding({ name: '  Ana   Silva ' }), { name: 'Ana Silva' })
@@ -55,7 +55,7 @@ test('finishing onboarding saves the phone unverified, keeping a number already 
     '@clerk/nextjs/server': { clerkClient: async () => ({ users: { getUser: async () => ({ firstName: 'Ana', lastName: '' }), updateUser: async () => {} } }) },
     '@/lib/services/middleware': { corsify: response => response },
     '@/lib/auth': { loadAccount: async (db, id) => db.collection('users').findOne({ id }) },
-    '@/lib/onboardingOptions': { parseOnboarding, parseOnboardingDraft },
+    '@/lib/onboardingOptions': { parseName, parseOnboarding, parseOnboardingDraft },
     '@/lib/notifications/settings': settings,
   })
 
@@ -74,4 +74,32 @@ test('finishing onboarding saves the phone unverified, keeping a number already 
   const none = fakeDb({ users: [{ id: 'u3', email: 'cy@example.com' }] })
   await handlers.handleCompleteOnboarding(none, 'u3', { name: 'Cy' })
   assert.equal('phone' in none.data.users[0], false)
+})
+
+test('Settings changes the name on the account and in Clerk, with the same rules as onboarding', async () => {
+  const { settings } = notificationModules()
+  const clerkUser = { firstName: 'Ana', lastName: '' }, updates = []
+  const handlers = load('lib/handlers/accountHandlers.ts', ['handleUpdateName'], {
+    'next/server': { NextResponse },
+    '@clerk/nextjs/server': { clerkClient: async () => ({ users: { getUser: async () => clerkUser, updateUser: async (id, fields) => updates.push([id, fields]) } }) },
+    '@/lib/services/middleware': { corsify: response => response },
+    '@/lib/auth': { loadAccount: async () => { throw Error('not needed') } },
+    '@/lib/onboardingOptions': { parseName, parseOnboarding, parseOnboardingDraft },
+    '@/lib/notifications/settings': settings,
+  })
+  const onboardedAt = new Date('2026-10-01')
+  const db = fakeDb({ users: [{ id: 'u1', email: 'ana@example.com', name: 'Ana', onboardedAt }] })
+
+  const saved = await handlers.handleUpdateName(db, 'u1', { name: '  Ana   Maria Silva ' })
+  assert.deepEqual([saved.status ?? 200, saved.body], [200, { name: 'Ana Maria Silva' }])
+  assert.equal(db.data.users[0].name, 'Ana Maria Silva')
+  assert.equal(db.data.users[0].onboardedAt.getTime(), onboardedAt.getTime(), 'nothing else on the account changes')
+  assert.deepEqual(updates, [['u1', { firstName: 'Ana', lastName: 'Maria Silva' }]])
+
+  for (const name of ['   ', 'x'.repeat(NAME_MAX + 1), 42]) {
+    const refused = await handlers.handleUpdateName(db, 'u1', { name })
+    assert.deepEqual([refused.status, refused.body.field], [400, 'name'])
+  }
+  assert.equal(db.data.users[0].name, 'Ana Maria Silva')
+  assert.equal(updates.length, 1)
 })

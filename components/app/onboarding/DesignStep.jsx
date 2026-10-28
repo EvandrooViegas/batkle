@@ -100,7 +100,7 @@ export default function DesignStep({ flowId, brand, eyebrow = 'Step 4 of 4 · De
           {[0, 1, 2].map(i => <li key={i} className="aspect-[4/5] rounded-2xl bg-bk-surface motion-safe:animate-pulse" />)}
         </ul>
       ) : loadError ? (
-        <div role="alert" className="mt-8 rounded-2xl border border-bk-line bg-bk-surface p-5">
+        <div role="alert" className="mt-8 rounded-2xl bg-bk-surface shadow-bk-card p-5">
           <p className="text-[15px] font-bold">The designs could not be loaded</p>
           <p className="mt-1 text-[14px] text-bk-muted">{loadError}</p>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -110,7 +110,7 @@ export default function DesignStep({ flowId, brand, eyebrow = 'Step 4 of 4 · De
           </div>
         </div>
       ) : families.length === 0 ? (
-        <div className="mt-8 rounded-2xl border border-bk-line bg-bk-surface p-5">
+        <div className="mt-8 rounded-2xl bg-bk-surface shadow-bk-card p-5">
           <p className="text-[15px] font-bold">No designs are published yet</p>
           <p className="mt-1 text-[14px] text-bk-muted">Batkle will use its starter designs for now. You can choose designs later in the brand profile.</p>
         </div>

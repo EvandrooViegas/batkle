@@ -64,6 +64,15 @@ test('filters select by build phase and post format', () => {
   assert.deepEqual(filterIdeas(ideas, 'single', statusOf).map(i => i.id), ['b', 'c'])
 })
 
+test('stories have their own filter and are left out of carousels and single posts', () => {
+  const ideas = [{ id: 'post', format: 'carousel' }, { id: 'frames', format: 'carousel', surface: 'story' }, { id: 'frame', format: 'single', surface: 'story' }, { id: 'single', format: 'single' }]
+  const statusOf = () => ({ phase: 'idea' })
+  assert.deepEqual(filterIdeas(ideas, 'story', statusOf).map(i => i.id), ['frames', 'frame'])
+  assert.deepEqual(filterIdeas(ideas, 'carousel', statusOf).map(i => i.id), ['post'])
+  assert.deepEqual(filterIdeas(ideas, 'single', statusOf).map(i => i.id), ['single'])
+  assert.equal(filterIdeas(ideas, 'all', statusOf).length, 4)
+})
+
 test('an older saved post with only its canvas shows every stage as done', () => {
   const s = ideaStatus({ design: { loading: false, error: null, canvas: carousel } })
   assert.equal(s.phase, 'ready')

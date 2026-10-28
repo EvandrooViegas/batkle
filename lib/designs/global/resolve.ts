@@ -36,11 +36,13 @@ export const referencePreviewBrand = (family: GlobalDesignFamily) => ({ ...(fami
 
 // Width of a font against the generic estimate below. Condensed display faces set their capitals far narrower than
 // their lowercase, so capitals get their own factor. Measured in Chrome; like the generic estimate for regular fonts,
-// each still errs about 10% wide, so copy never runs past its box.
+// each still errs about 10% wide, so copy never runs past its box. Archivo Black runs the other way: its heavy
+// capitals are about 5% wider than the generic estimate (measured in the post renderer), so it errs about 5% wide.
 const FONT_WIDTH: Record<string, { lower: number; caps: number }> = {
   Anton: { lower: .82, caps: .72 },
   'Bebas Neue': { lower: .68, caps: .6 },
   Oswald: { lower: .82, caps: .82 },
+  'Archivo Black': { lower: 1.05, caps: 1.1 },
 }
 const fontFactor = (font: string) => FONT_WIDTH[font] || (['Playfair Display', 'Dancing Script', 'Pacifico', 'Lobster'].includes(font) ? { lower: 1.12, caps: 1.12 } : { lower: 1, caps: 1 })
 

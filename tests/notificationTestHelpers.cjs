@@ -157,7 +157,7 @@ const NextResponse = { json: (body, init) => ({ body, status: init?.status || 20
  * them on and off or makes them fail; `outbox` records what was sent. `reset()` clears both.
  */
 function notificationModules() {
-  const plans = load('lib/billing/plans.ts', ['PLANS', 'TRIAL', 'approxPosts', 'cheapestPlanForBrands', 'cheapestPlanWith', 'formatBytes', 'planById', 'uploadsLabel'])
+  const plans = load('lib/billing/plans.ts', ['PLANS', 'TRIAL', 'approxPosts', 'cheapestPlanForBrands', 'cheapestPlanForPhotos', 'cheapestPlanWith', 'planById'])
   const account = load('lib/billing/account.ts', ['loadBilling', 'effectivePlan', 'allowances', 'takeTextReminder', 'returnTextReminder', 'requireFeature', 'hasFeature', 'getBillingSummary', 'billingError', 'billingErrorBody', 'creditPeriod'], { './plans': plans })
   const schedule = load('lib/client/schedule.js', ['PLATFORM_IDS', 'CAPTION_MAX', 'platformNames', 'scheduleProblem'])
   const email = load('lib/notifications/email.ts', ['emailLayout', 'escapeHtml'])

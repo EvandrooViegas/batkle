@@ -4,11 +4,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, ArrowRight, ImagePlus, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { ACCEPTED_TYPES, MAX_POST_IMAGES, discardPostImage, imageFiles, uploadPostImage } from '@/lib/client/postImages'
-import { billingAction } from '@/lib/client/billing'
+import { ACCEPTED_TYPES, discardPostImage, imageFiles, uploadPostImage } from '@/lib/client/postImages'
+import { MAX_PHOTOS_PER_POST, PLANS, cheapestPlanForPhotos } from '@/lib/billing/plans'
 import { appButton } from '../ui'
+import { useBilling } from '../billing/useBilling'
+import UpgradeNotice from '../billing/UpgradeNotice'
 import { AUTO_SETTINGS, PostSettings, languageOption } from './PostSettings'
-import { useSurfaceWords } from './surface'
+import { surfaceWords } from './surface'
 
 const STARTERS = ['Before and after of a recent project', 'Explain one of our services', 'Meet the team']
 const MAX = 600
@@ -27,10 +29,10 @@ function exampleFor(brand) {
 let photoKey = 0
 
 /**
- * Photos attached to the next idea: uploaded (and read by the server) as soon as they are added.
- * Photos removed, or left behind when the page closes, are deleted unless an idea already uses them.
+ * Photos attached to the next idea, up to `max` (the plan's): uploaded (and read by the server) as soon as they are
+ * added. Photos removed, or left behind when the page closes, are deleted unless an idea already uses them.
  */
-function usePostPhotos(brandId) {
+function usePostPhotos(brandId, max) {
   const [photos, setPhotos] = useState([])
   const current = useRef(photos)
   current.current = photos
@@ -44,18 +46,17 @@ function usePostPhotos(brandId) {
 
   const update = (key, patch) => setPhotos(list => list.map(p => (p.key === key ? { ...p, ...patch } : p)))
 
+  /** Adds what fits; returns how many photos the post would have had when some did not fit, else 0. */
   const add = useCallback(fileList => {
     const files = imageFiles(fileList)
-    if (!files.length) return
-    const room = MAX_POST_IMAGES - current.current.length
-    if (room <= 0) { toast.error(`A post can use up to ${MAX_POST_IMAGES} photos.`); return }
-    if (files.length > room) toast.error(`A post can use up to ${MAX_POST_IMAGES} photos, so only ${room} more ${room === 1 ? 'was' : 'were'} added.`)
+    if (!files.length) return 0
+    const room = max - current.current.length
+    const wanted = files.length > room ? current.current.length + files.length : 0
+    if (room <= 0) return wanted
     const added = files.slice(0, room).map(file => ({ key: ++photoKey, name: file.name, file, preview: URL.createObjectURL(file), status: 'uploading', asset: null, error: null }))
     // Updated now, not on the next render, so two quick additions can never pass the limit.
     current.current = [...current.current, ...added]
     setPhotos(list => [...list, ...added])
-    // A plan limit stops every photo of this batch: it is offered once, with the way to more space.
-    let limitShown = false
     for (const photo of added) {
       uploadPostImage(photo.file, brandId)
         .then(asset => {
@@ -63,15 +64,10 @@ function usePostPhotos(brandId) {
           if (!current.current.some(p => p.key === photo.key)) { discardPostImage(asset.id, brandId); return }
           update(photo.key, { status: 'ready', asset, file: null })
         })
-        .catch(error => {
-          update(photo.key, { status: 'error', error: error.message || 'Upload failed' })
-          if (!error.code || limitShown) return
-          limitShown = true
-          const { href, label } = billingAction(error)
-          toast.error(error.message, { duration: 12000, action: { label, onClick: () => window.location.assign(href) } })
-        })
+        .catch(error => update(photo.key, { status: 'error', error: error.message || 'Upload failed' }))
     }
-  }, [brandId])
+    return wanted
+  }, [brandId, max])
 
   const remove = useCallback(key => {
     const photo = current.current.find(p => p.key === key)
@@ -131,14 +127,15 @@ function PhotoTile({ photo, onRemove }) {
 }
 
 /**
- * The user's own idea (or none), up to four photos and the post settings (format, slides, images, design,
- * language). "Create idea" writes a brief from the idea, the photos and the brand profile, then builds the post;
- * "Generate another idea" only suggests one.
+ * The user's own idea (or none), the photos it should show (as many as the plan allows) and the post settings
+ * (format, slides, images, design, language). "Create idea" writes a brief from the idea, the photos and the brand
+ * profile, then builds the post; "Generate another idea" only suggests one.
  */
 export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, onCreate, onSuggest, className = '' }) {
-  const w = useSurfaceWords()
   const [text, setText] = useState('')
   const [settings, setSettings] = useState(AUTO_SETTINGS)
+  // The words follow what the settings make: posts (the default) or stories.
+  const w = surfaceWords(settings.kind === 'story' ? 'story' : 'post')
   // The last image choice is remembered on this device; read after mount so the server render always matches.
   useEffect(() => {
     try { const saved = localStorage.getItem('bk_image_choice'); if (saved === 'on' || saved === 'off') setSettings(s => ({ ...s, imageChoice: saved })) } catch {}
@@ -152,12 +149,20 @@ export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, 
   const [dragging, setDragging] = useState(false)
   const input = useRef(null)
   const picker = useRef(null)
-  const { photos, add, remove, release } = usePostPhotos(brandId)
+  // The plan that pays for the post (the brand owner's, in a brand shared with you) sets how many photos it can show.
+  const { data: billing } = useBilling()
+  const plan = PLANS[billing?.summary?.plan] || PLANS.free
+  const maxPhotos = billing?.summary?.photosPerPost || plan.photosPerPost
+  const { photos, add, remove, release } = usePostPhotos(brandId, maxPhotos)
+  // Photos that did not fit: a plan that takes them is offered, until the post has room again.
+  const [photoLimit, setPhotoLimit] = useState(null)
+  useEffect(() => { if (photos.length < maxPhotos) setPhotoLimit(null) }, [photos.length, maxPhotos])
 
   const ready = photos.filter(p => p.status === 'ready')
   const uploading = photos.some(p => p.status === 'uploading')
   const failed = photos.some(p => p.status === 'error')
-  const full = photos.length >= MAX_POST_IMAGES
+  const full = photos.length >= maxPhotos
+  const upgradable = maxPhotos < MAX_PHOTOS_PER_POST
   const blocked = disabled || !!busy || uploading || failed
 
   // Grow with the text, up to a limit.
@@ -176,9 +181,19 @@ export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, 
     }
   }, [photos.length, settings.format])
 
+  // Each photo gets a slide of its own: a chosen length shorter than the photos grows to fit them.
+  useEffect(() => {
+    if (settings.slides !== 'auto' && settings.slides < photos.length) {
+      setSettings(s => ({ ...s, slides: photos.length }))
+      const unit = w.noun === 'story' ? 'frame' : 'slide'
+      toast.info(`Each photo gets its own ${unit}, so this ${w.noun} now has ${photos.length} ${unit}s.`)
+    }
+  }, [photos.length, settings.slides, w.noun])
+
   // The settings stay as they are after an idea is made, so several ideas can share them.
   const request = () => ({
     format: settings.format,
+    surface: settings.kind === 'story' ? 'story' : 'post',
     slides: settings.slides,
     imageChoice: settings.imageChoice,
     designId: settings.designId,
@@ -195,13 +210,26 @@ export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, 
     const idea = await onSuggest(request())
     if (idea) release()
   }
-  const addFiles = files => { if (!disabled) add(files) }
+  // The limit as an upgrade notice reads it (a plan that takes the photos); on the largest plan, just the limit.
+  const limitReached = wanted => {
+    if (!upgradable) { toast.error(`A post can use up to ${maxPhotos} photos.`); return }
+    const capped = Math.min(wanted, MAX_PHOTOS_PER_POST)
+    setPhotoLimit(Object.assign(new Error(`A post on the ${plan.name} plan takes up to ${maxPhotos} photos.`), {
+      code: 'limit_reached',
+      billing: { code: 'limit_reached', limit: 'photos', max: maxPhotos, wanted: capped, plan: plan.id, requiredPlan: cheapestPlanForPhotos(capped)?.id || null },
+    }))
+  }
+  const addFiles = files => {
+    if (disabled) return
+    const wanted = add(files)
+    if (wanted) limitReached(wanted)
+  }
 
   return (
     <div className={className}>
       <div
         className={cn(
-          'relative rounded-2xl border bg-bk-surface transition-[box-shadow,border-color] focus-within:shadow-bk-card',
+          'relative rounded-2xl border bg-bk-surface shadow-bk-card transition-[box-shadow,border-color] focus-within:shadow-bk-pop',
           dragging ? 'border-bk-fg shadow-bk-card' : 'border-bk-field',
           disabled && 'opacity-60',
         )}
@@ -211,7 +239,7 @@ export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, 
       >
         {dragging && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-bk-surface/90 text-[14px] font-bold motion-safe:animate-in motion-safe:fade-in-0">
-            Drop photos to add them ({MAX_POST_IMAGES - photos.length} left)
+            Drop photos to add them ({Math.max(0, maxPhotos - photos.length)} left)
           </div>
         )}
         <label htmlFor="idea-input" className="sr-only">{w.Noun} idea</label>
@@ -231,13 +259,13 @@ export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, 
 
         {photos.length > 0 && (
           <div className="px-4 pt-2.5">
-            <ul className="flex flex-wrap gap-3" aria-label={`Photos for this post, ${photos.length} of ${MAX_POST_IMAGES}`}>
+            <ul className="flex flex-wrap gap-3" aria-label={`Photos for this post, ${photos.length} of ${maxPhotos}`}>
               {photos.map(photo => <PhotoTile key={photo.key} photo={photo} onRemove={() => remove(photo.key)} />)}
             </ul>
             <p className="mt-2 text-[11.5px] text-bk-muted" aria-live="polite">
               {failed ? <span className="font-semibold text-[#C2412F] dark:text-[#F0826F]">Remove the photos that could not be uploaded to continue.</span>
                 : uploading ? 'Reading your photos…'
-                : `Each photo is used once, on the slide it fits. ${photos.length} of ${MAX_POST_IMAGES}.`}
+                : `Each photo is used once, on the slide it fits. ${photos.length} of ${maxPhotos}.`}
             </p>
           </div>
         )}
@@ -257,14 +285,14 @@ export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, 
             />
             <button
               type="button"
-              onClick={() => picker.current?.click()}
-              disabled={disabled || full}
-              title={full ? `A post can use up to ${MAX_POST_IMAGES} photos` : 'JPEG, PNG or WebP. You can also drop or paste photos.'}
+              onClick={() => (full ? limitReached(photos.length + 1) : picker.current?.click())}
+              disabled={disabled || (full && !upgradable)}
+              title={full ? `A post on this plan can use up to ${maxPhotos} photos` : 'JPEG, PNG or WebP. You can also drop or paste photos.'}
               className={appButton('quiet', 'sm', 'px-2.5 font-semibold')}
             >
               <ImagePlus className="size-4" />
               Add photos
-              {photos.length > 0 && <span className="tabular-nums text-bk-muted">{photos.length}/{MAX_POST_IMAGES}</span>}
+              {photos.length > 0 && <span className="tabular-nums text-bk-muted">{photos.length}/{maxPhotos}</span>}
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -279,6 +307,8 @@ export function IdeaComposer({ brandContext, brandId, disabled, busy, hasIdeas, 
           </div>
         </div>
       </div>
+
+      {photoLimit && <UpgradeNotice error={photoLimit} compact className="mt-2.5" />}
 
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <span className="text-[12.5px] text-bk-muted">Try:</span>

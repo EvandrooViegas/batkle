@@ -10,7 +10,12 @@ const size = async src => { const { width, height } = await sharp(Buffer.from(sr
 test('removes colored flat backgrounds and generates contrasting opaque and transparent variants', async () => {
   const input = await sharp(Buffer.from('<svg width="80" height="40"><rect width="80" height="40" fill="red"/><rect x="20" y="10" width="40" height="20" fill="blue"/></svg>')).png().toBuffer()
   const variants = await createLogoVariants(input)
-  assert.equal(Object.keys(variants).length, 10)
+  // Ten versions and measurements, plus how much would vanish on dark and on light grounds. A saturated blue mark
+  // has no colourless outer shapes, so it gets no reversed or darkened version.
+  assert.equal(Object.keys(variants).length, 13)
+  assert.equal(variants.version, 2)
+  assert.equal(variants.reversedTransparent, undefined)
+  assert.equal(variants.darkenedTransparent, undefined)
   // The red background is removed and every variant is cropped to the 40×20 blue mark.
   assert.deepEqual({ ...variants.bounds }, { x: 0, y: 0, width: 1, height: 1 })
   assert.equal(variants.imageAspect, 2)

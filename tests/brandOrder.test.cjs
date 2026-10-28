@@ -19,7 +19,7 @@ function fakeDb(docs) {
   }
 }
 
-const flowsModule = db => new Function('cache', 'connectToMongo', 'ensureMinimumBrandDesigns', 'currentUserId', load('lib/data/flows.ts') + ';return {getFlows,lastUsedAt}')(f => f, async () => db, x => x, async () => 'user_1')
+const flowsModule = (db, shared = []) => new Function('cache', 'connectToMongo', 'ensureMinimumBrandDesigns', 'currentUserId', 'brandRole', 'sharedBrands', load('lib/data/flows.ts') + ';return {getFlows,lastUsedAt}')(f => f, async () => db, x => x, async () => 'user_1', async () => null, async () => shared)
 
 test('brands are listed most recently used first, so /app opens the last one used', async () => {
   const db = fakeDb([
@@ -32,6 +32,17 @@ test('brands are listed most recently used first, so /app opens the last one use
   assert.deepEqual(flows.map(f => f.id), ['opened-today', 'opened-yesterday', 'edited-last-week', 'old'])
   // Timestamps are only used for ordering; the client never receives them.
   for (const flow of flows) for (const key of ['_id', 'lastOpenedAt', 'updatedAt', 'createdAt']) assert.equal(key in flow, false)
+})
+
+test('brands shared with the account join the list, ordered by when this person last opened them', async () => {
+  const db = fakeDb([{ id: 'mine', lastOpenedAt: new Date('2026-10-08') }])
+  const shared = [
+    { id: 'theirs', lastOpenedAt: new Date('2026-10-09'), shared: { role: 'editor', owner: 'Ana' } },
+    { id: 'unfinished', lastOpenedAt: new Date('2026-10-10'), onboarding: { step: 'review' }, shared: { role: 'admin', owner: 'Ana' } },
+  ]
+  const flows = await flowsModule(db, shared).getFlows()
+  assert.deepEqual(flows.map(f => f.id), ['theirs', 'mine'], 'a brand still in its owner’s onboarding is left out')
+  assert.deepEqual(flows[0].shared, { role: 'editor', owner: 'Ana' })
 })
 
 test('a brand without any timestamp sorts last instead of breaking the order', () => {

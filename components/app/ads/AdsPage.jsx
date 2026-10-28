@@ -15,6 +15,7 @@ import { appField } from '../field'
 import { usePopup } from '../popup'
 import { Notice, PageHeader, SegmentedTabs, appButton, pageInner, pageShell, panelClass } from '../ui'
 import AdPreview from './AdPreview'
+import { useBrandAccess } from '../AppShell'
 
 const MAX = 600
 const ADS_UPGRADE = { code: 'upgrade_required', billing: { feature: 'adDesigns', requiredPlan: 'business' }, message: 'Facebook and Instagram ads are part of Business.' }
@@ -88,7 +89,7 @@ function CopyButton({ value, children, size = 'sm', variant = 'quiet', className
 }
 
 /** Counts against Meta's limits: the hard limit, and (in amber, explained on hover) where Meta starts cutting. */
-function Count({ value, visible, max }) {
+function Count({ value = '', visible, max }) {
   const over = value.length > max, cut = visible && value.length > visible
   return <span title={cut && !over ? `The Facebook feed shows about the first ${visible} characters` : undefined} className={cn('shrink-0 text-[11.5px] tabular-nums', over ? 'font-bold text-[#C2412F]' : cut ? 'text-[#9A6B00] dark:text-[#F2C14E]' : 'text-bk-muted')}>{value.length}/{max}</span>
 }
@@ -274,6 +275,8 @@ function AdList({ ads, selectedId, building, showingBuild, onOpen, onShowBuild, 
 
 /** The text that goes into Ads Manager, editable within Meta's limits; the preview beside it follows what is picked. */
 function CopyEditor({ draft, setDraft, version, setVersion, headline, setHeadline, onSave, saving, dirty, className = '' }) {
+  // Someone who can only view the brand reads and copies the text; changing it is for editors.
+  const { canEdit } = useBrandAccess()
   const primary = draft.primaryText[version] || ''
   const firstLine = primary.split('\n')[0]
   const setPrimary = value => setDraft({ ...draft, primaryText: draft.primaryText.map((t, i) => (i === version ? value : t)) })
@@ -284,14 +287,14 @@ function CopyEditor({ draft, setDraft, version, setVersion, headline, setHeadlin
           <h3 id="ad-text-title" className="font-bk-display text-[17px] font-bold tracking-[-0.02em]">Text for Ads Manager</h3>
           <p className="mt-0.5 text-[13px] text-bk-muted">Three versions to test against each other.</p>
         </div>
-        {dirty && <button type="button" onClick={onSave} disabled={saving} className={appButton('primary', 'sm')}>{saving && <Loader2 className="size-3.5 animate-spin" />}Save changes</button>}
+        {dirty && canEdit && <button type="button" onClick={onSave} disabled={saving} className={appButton('primary', 'sm')}>{saving && <Loader2 className="size-3.5 animate-spin" />}Save changes</button>}
       </div>
 
       <div className="mt-5">
         <p className={label}>Primary text</p>
         <SegmentedTabs className="mt-2 w-fit" label="Primary text version" value={version} onChange={setVersion} items={draft.primaryText.map((_, i) => [i, AD_ANGLES[i]?.label || `Version ${i + 1}`])} />
         <div className="mt-2 rounded-xl border border-bk-field bg-bk-surface focus-within:border-bk-fg">
-          <textarea aria-label="Primary text" rows={6} value={primary} onChange={e => setPrimary(e.target.value)} className="block w-full resize-y rounded-xl bg-transparent px-3.5 py-3 text-[14px] leading-relaxed outline-none" />
+          <textarea aria-label="Primary text" rows={6} value={primary} onChange={e => setPrimary(e.target.value)} readOnly={!canEdit} className="block w-full resize-y rounded-xl bg-transparent px-3.5 py-3 text-[14px] leading-relaxed outline-none" />
           <div className="flex items-center justify-between gap-2 border-t border-bk-line px-3.5 py-1.5">
             <span className={cn('text-[11.5px]', firstLine.length > AD_TEXT_LIMITS.primaryText ? 'font-bold text-[#9A6B00] dark:text-[#F2C14E]' : 'text-bk-muted')}>
               {firstLine.length > AD_TEXT_LIMITS.primaryText ? `The first line is cut after ${AD_TEXT_LIMITS.primaryText} characters` : `The first ${AD_TEXT_LIMITS.primaryText} characters show before “See more”`}
@@ -307,7 +310,7 @@ function CopyEditor({ draft, setDraft, version, setVersion, headline, setHeadlin
           {draft.headlines.map((h, i) => (
             <li key={i} className={cn('flex items-center gap-2.5 px-3 py-1', headline === i && 'bg-bk-butter/10')}>
               <input type="radio" name="ad-headline" aria-label={`Preview headline ${i + 1}`} checked={headline === i} onChange={() => setHeadline(i)} className="accent-current" />
-              <input aria-label={`Headline ${i + 1}`} value={h} onChange={e => setDraft({ ...draft, headlines: draft.headlines.map((t, j) => (j === i ? e.target.value : t)) })} className="h-9 min-w-0 flex-1 bg-transparent text-[14px] font-semibold outline-none" />
+              <input aria-label={`Headline ${i + 1}`} value={h} readOnly={!canEdit} onChange={e => setDraft({ ...draft, headlines: draft.headlines.map((t, j) => (j === i ? e.target.value : t)) })} className="h-9 min-w-0 flex-1 bg-transparent text-[14px] font-semibold outline-none" />
               <Count value={h} visible={AD_TEXT_LIMITS.headlineVisible} max={AD_TEXT_LIMITS.headline} />
               <CopyButton value={h} />
             </li>
@@ -319,14 +322,14 @@ function CopyEditor({ draft, setDraft, version, setVersion, headline, setHeadlin
         <div>
           <p className={label}>Description</p>
           <div className="mt-2 flex items-center gap-2 rounded-xl border border-bk-field px-3 py-0.5 focus-within:border-bk-fg">
-            <input aria-label="Description" value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none" />
+            <input aria-label="Description" value={draft.description} readOnly={!canEdit} onChange={e => setDraft({ ...draft, description: e.target.value })} className="h-9 min-w-0 flex-1 bg-transparent text-[14px] outline-none" />
             <Count value={draft.description} max={AD_TEXT_LIMITS.description} />
             <CopyButton value={draft.description} />
           </div>
         </div>
         <div>
           <p className={label}>Button</p>
-          <select aria-label="Button" value={draft.cta} onChange={e => setDraft({ ...draft, cta: e.target.value })} className={appField('mt-2 h-10 text-[14px]')}>{META_CTAS.map(c => <option key={c} value={c}>{c}</option>)}</select>
+          <select aria-label="Button" value={draft.cta} disabled={!canEdit} onChange={e => setDraft({ ...draft, cta: e.target.value })} className={appField('mt-2 h-10 text-[14px]')}>{META_CTAS.map(c => <option key={c} value={c}>{c}</option>)}</select>
         </div>
       </div>
     </section>
@@ -341,6 +344,7 @@ function AdWorkspace({ ad, brand, website, draft, setDraft, view, setView, versi
   const size = ad.canvases.find(c => c.placement === view.placement) || ad.canvases[0]
   const placement = size?.placement
   const feed = placement === 'feed-portrait' || placement === 'feed-square'
+  const { canEdit } = useBrandAccess()
   return (
     <article id="ad-workspace" aria-labelledby="ad-title" className={cn(panelClass, 'scroll-mt-6 overflow-hidden motion-safe:animate-bk-page')}>
       <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-bk-line p-5 sm:px-6">
@@ -350,9 +354,9 @@ function AdWorkspace({ ad, brand, website, draft, setDraft, view, setView, versi
           {ad.creative?.headline && <p className="mt-1 line-clamp-1 text-[13px] text-bk-muted">On the image: <span className="italic">“{ad.creative.headline}”</span></p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" disabled={!!busy} onClick={onDownload} className={appButton('primary', 'md')}>{busy === 'zip' ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}Download all</button>
+          <button type="button" disabled={!!busy || !ad.canvases.length} onClick={onDownload} className={appButton('primary', 'md')}>{busy === 'zip' ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}Download all</button>
           <CopyButton value={adText(ad, draft)} variant="outline" size="md">Copy text</CopyButton>
-          <button type="button" onClick={onDelete} aria-label="Delete ad" title="Delete ad" className={appButton('outline', 'md', 'w-9 px-0')}><Trash2 className="size-4" /></button>
+          {canEdit && <button type="button" onClick={onDelete} aria-label="Delete ad" title="Delete ad" className={appButton('outline', 'md', 'w-9 px-0')}><Trash2 className="size-4" /></button>}
         </div>
       </header>
       {(error || ad.failed?.length > 0) && (
@@ -371,13 +375,18 @@ function AdWorkspace({ ad, brand, website, draft, setDraft, view, setView, versi
             </div>
             <p className="mt-2 text-[12px] text-bk-muted">{placementById(placement)?.where}.</p>
             <div className="mt-4 flex justify-center">
-              <div className={cn('w-full', placement === 'story' ? 'max-w-[260px]' : 'max-w-[380px]')}>
-                <AdPreview placement={placement} network={view.network} safe={view.safe} brand={brand} canvas={size?.canvas}
-                  primary={draft.primaryText[version] || ''} headline={draft.headlines[headline] || ''} description={draft.description} cta={draft.cta} link={ad.brief?.url || website} />
-              </div>
+              {size?.canvas ? (
+                <div className={cn('w-full', placement === 'story' ? 'max-w-[260px]' : 'max-w-[380px]')}>
+                  <AdPreview placement={placement} network={view.network} safe={view.safe} brand={brand} canvas={size.canvas}
+                    primary={draft.primaryText[version] || ''} headline={draft.headlines[headline] || ''} description={draft.description} cta={draft.cta} link={ad.brief?.url || website} />
+                </div>
+              ) : (
+                // Its images were deleted (from the Gallery or the editor): the text is still here to copy.
+                <p className="max-w-[280px] rounded-xl border border-dashed border-bk-field px-5 py-8 text-center text-[13px] leading-relaxed text-bk-muted">This ad’s images were deleted. Its text is still here; make the ad again for new images.</p>
+              )}
             </div>
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-              {size && <Link href={`/editor/${size.canvasId}`} className={appButton('outline', 'sm')}><PencilLine className="size-3.5" />Edit image</Link>}
+              {size && canEdit && <Link href={`/editor/${size.canvasId}`} className={appButton('outline', 'sm')}><PencilLine className="size-3.5" />Edit image</Link>}
               {size && <button type="button" disabled={!!busy} onClick={() => onDownloadSize(size)} className={appButton('outline', 'sm')}>{busy === 'png' ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}This size</button>}
               {placement === 'story' && (
                 <label className="flex cursor-pointer items-center gap-2 text-[12.5px] font-semibold text-bk-fg/80">
@@ -401,6 +410,7 @@ function AdWorkspace({ ad, brand, website, draft, setDraft, view, setView, versi
 export default function AdsPage({ flowId, brandName, brandLogo = '', website = '', brandContext = null }) {
   const popup = usePopup()
   const { data: billing } = useBilling()
+  const { canEdit, owner } = useBrandAccess()
   const [ads, setAds] = useState(null), [loadError, setLoadError] = useState('')
   const [selectedId, setSelectedId] = useState(null)
   // `mode`: what the workspace shows: an ad ('ad'), a new ad's brief ('new') or the ad being made ('building').
@@ -433,11 +443,12 @@ export default function AdsPage({ flowId, brandName, brandLogo = '', website = '
   // A fresh draft of the text for each ad, so edits never leak between ads.
   useEffect(() => {
     if (!ad) { setDraft(null); return }
-    setDraft({ ...ad.copy, primaryText: [...ad.copy.primaryText], headlines: [...ad.copy.headlines] })
+    // Every field the editor shows, even on an ad saved without one.
+    setDraft({ ...ad.copy, description: ad.copy?.description || '', cta: ad.copy?.cta || 'Learn More', primaryText: [...(ad.copy?.primaryText || [])], headlines: [...(ad.copy?.headlines || [])] })
     setVersion(0); setHeadline(0); setError(null)
     if (!ad.canvases.some(c => c.placement === view.placement)) setView(v => ({ ...v, placement: ad.canvases[0]?.placement || 'feed-portrait' }))
   }, [ad?.id]) // eslint-disable-line react-hooks/exhaustive-deps
-  const dirty = Boolean(ad && draft && JSON.stringify(draft) !== JSON.stringify(ad.copy))
+  const dirty = Boolean(ad && draft && ['primaryText', 'headlines', 'description', 'cta'].some(k => JSON.stringify(draft[k]) !== JSON.stringify(ad.copy?.[k] ?? (k === 'description' ? '' : k === 'cta' ? 'Learn More' : []))))
 
   // Leaving an ad with unsaved text asks first.
   const leave = async () => !dirty || mode !== 'ad' || popup.confirm({ title: 'Discard your changes?', description: 'The edits to this ad’s text are not saved.', confirmLabel: 'Discard' })
@@ -505,7 +516,7 @@ export default function AdsPage({ flowId, brandName, brandLogo = '', website = '
       <div className={pageInner}>
         <PageHeader
           eyebrow={`${brandName} · Ads`} title="Ads" description="Facebook and Instagram ads in your brand’s design, ready for Ads Manager."
-          actions={allowed && listed && showing !== 'new' ? <button type="button" onClick={() => show(() => setMode('new'))} className={appButton('primary', 'md')}><Plus className="size-4" />New ad</button> : null}
+          actions={allowed && canEdit && listed && showing !== 'new' ? <button type="button" onClick={() => show(() => setMode('new'))} className={appButton('primary', 'md')}><Plus className="size-4" />New ad</button> : null}
         />
 
         {allowed === false && <UpgradeNotice error={ADS_UPGRADE} className="mt-6" />}
@@ -523,13 +534,15 @@ export default function AdsPage({ flowId, brandName, brandLogo = '', website = '
                 onOpen={open} onShowBuild={() => show(() => setMode('building'))} />
             )}
             <div id="ads-workspace" className="min-w-0 scroll-mt-6">
-              {showing === 'building' ? <BuildProgress building={building} /> : showing === 'new' ? (
+              {showing === 'building' ? <BuildProgress building={building} /> : showing === 'new' && !canEdit ? (
+                <Notice>No ads yet. Ask {owner} for the Editor role to make ads for this brand.</Notice>
+              ) : showing === 'new' ? (
                 <NewAdForm brand={brandContext} value={brief} onChange={setBrief} onCreate={create} error={createError} creditsLeft={creditsLeft} waiting={Boolean(building)}
                   onCancel={ad ? () => { setCreateError(null); setMode(building ? 'building' : 'ad') } : null} />
               ) : (
                 <AdWorkspace
                   ad={ad} brand={brand} website={website} draft={draft} setDraft={setDraft} view={view} setView={setView}
-                  version={Math.min(version, draft.primaryText.length - 1)} setVersion={setVersion} headline={Math.min(headline, draft.headlines.length - 1)} setHeadline={setHeadline}
+                  version={Math.max(0, Math.min(version, draft.primaryText.length - 1))} setVersion={setVersion} headline={Math.max(0, Math.min(headline, draft.headlines.length - 1))} setHeadline={setHeadline}
                   dirty={dirty} saving={saving} onSave={saveCopy} busy={busy} error={error}
                   onDownload={() => run('zip', () => downloadZip(ad, draft))}
                   onDownloadSize={s => run('png', async () => save(await renderPng(s.canvasId), `${fileName(ad.creative?.headline)}-${ratioName(s.placement)}.png`))}

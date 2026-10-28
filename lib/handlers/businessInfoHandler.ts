@@ -11,7 +11,7 @@ import { requireBrandSlot } from '@/lib/billing/account'
  * Researches a website into a brand profile: updates `flowId` (the API route checked it is the caller's) or creates a
  * brand owned by `ownerId`. Research for a new brand needs a free brand slot on the plan, checked before the research
  * (which takes a minute), unless it replaces a brand left unfinished in onboarding (`replaces`). Researching a brand
- * the person already has again is never limited.
+ * the person already has again is never limited, and with `preview` it only returns the result.
  */
 export async function handleExtractBusinessInfo(body: any, db: any, request: Request, ownerId: string) {
   try {
@@ -44,6 +44,16 @@ export async function handleExtractBusinessInfo(body: any, db: any, request: Req
       catch (error: any) { businessInfo.logoVariantsError = error.message }
     }
     const profile = businessInfo
+    // Reading the website again for a brand the person has (`preview`) changes nothing yet: the brand page shows what
+    // would change, the person picks the chapters to update, and saving the profile stores them.
+    if (existing && body.preview === true) {
+      const brandContext = withMinimumBrandDesigns({
+        ...existing.brandContext, ...profile,
+        logoVariants: profile.logoVariants || null,
+        colors: profile.designSystem?.colors || [], fonts: profile.designSystem?.fonts || [],
+      })
+      return corsify(NextResponse.json({ preview: true, pagesAnalyzed: profile.pagesAnalyzed, logoVariantsError: profile.logoVariantsError, brandContext }))
+    }
     const flowId = existing?.id || randomUUID()
     const brandContext = await persistInlineImages(db, withMinimumBrandDesigns({
       ...existing?.brandContext, ...profile,

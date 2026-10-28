@@ -6,7 +6,7 @@ const { stripTypeScriptTypes } = require('node:module')
 const load = file => stripTypeScriptTypes(fs.readFileSync(file, 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, ''))
 
 const plans = new Function(load('lib/billing/plans.ts') +
-  ';return { PLANS, PLAN_IDS, PAID_PLAN_IDS, TRIAL, CREDIT_PACK, NEWSLETTER_DISCOUNT, SLIDES_PER_POST, CONTACT, approxPosts, formatBytes, formatPrice, isComingSoon, pricingRows }')()
+  ';return { PLANS, PLAN_IDS, PAID_PLAN_IDS, TRIAL, CREDIT_PACK, NEWSLETTER_DISCOUNT, SLIDES_PER_POST, CONTACT, approxPosts, formatPrice, isComingSoon, pricingRows }')()
 
 const PRICING_EXPORTS = 'freeMonths, yearlySavingLabel, monthlyEquivalent, priceParts, priceText, planHighlights, planCta, pricingFaqAnswer, creditFaqAnswer, pricingIntro, creditPackNote, trialNote, newsletterTitle, newsletterBlurb, newsletterConsent, newsletterOutcome'
 
@@ -43,18 +43,19 @@ test('the yearly switch says how many months are free', () => {
 test('plan cards list the lines that differ between plans', () => {
   const free = text.planHighlights(PLANS.free)
   assert.deepEqual(free.map(line => line.text), [
-    '1 brand', '30 credits a month (≈ 7 posts)', 'Standard AI images', 'Up to 20 of your own images', 'No schedule calendar or reminders',
-    'Batkle’s designs; browse the ones members make', 'Facebook and Instagram ads',
+    '1 brand', '30 credits a month (≈ 7 posts)', 'Standard AI images', 'Up to 4 of your photos in each post', 'No schedule calendar or reminders',
+    'Batkle’s designs; browse the ones members make', 'Posts in the voice of your own posts', 'Facebook and Instagram ads',
   ])
-  assert.deepEqual(free.map(line => line.included), [true, true, true, true, false, true, false])
+  assert.deepEqual(free.map(line => line.included), [true, true, true, true, false, true, false, false])
   // Text reminders are "Coming soon", so the cards promise no number of texts.
   assert.deepEqual(text.planHighlights(PLANS.pro).map(line => line.text), [
-    '2 brands', '150 credits a month (≈ 37 posts)', 'High-quality AI images', '2 GB for your own images',
-    'Schedule calendar and email reminders', 'Create and share your own designs', 'Facebook and Instagram ads',
+    '2 brands', '150 credits a month (≈ 37 posts)', 'High-quality AI images', 'Up to 8 of your photos in each post',
+    'Schedule calendar and email reminders', 'Create and share your own designs', 'Posts in the voice of your own posts', 'Facebook and Instagram ads',
   ])
-  assert.equal(text.planHighlights(PLANS.pro)[6].included, false, 'ads are part of Business')
+  assert.equal(text.planHighlights(PLANS.pro)[6].included, true, 'the voice of your own posts is part of Pro')
+  assert.equal(text.planHighlights(PLANS.pro)[7].included, false, 'ads are part of Business')
   const business = text.planHighlights(PLANS.business)
-  assert.equal(business[3].text, '10 GB for your own images')
+  assert.equal(business[3].text, 'Up to 10 of your photos in each post')
   assert.equal(business[4].text, 'Schedule calendar and email reminders')
   assert.ok(business.every(line => line.included))
 

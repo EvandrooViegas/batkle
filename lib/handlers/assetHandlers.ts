@@ -1,16 +1,16 @@
 /**
- * Asset handlers — upload, local AI analysis, list, delete.
+ * The brand gallery — its saved AI cutouts: list, read, describe, delete. Nothing is uploaded to the gallery; people add
+ * their own photos to a post in Posts & stories (postImageHandler.ts, which uses the storage helpers here).
  */
 
 import { NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import sharp from 'sharp'
-import { corsify, getBaseUrl } from '@/lib/services/middleware'
-import { analyseImageBuffer } from '@/lib/services/visionAnalysis'
+import { corsify } from '@/lib/services/middleware'
 import { indexAssetDescription } from '@/lib/services/assetDescription'
 import { compactImage } from '@/lib/services/imageStorage'
-import { DIRECT_UPLOAD_MAX_BYTES, saveUpload, withDirectUpload } from '@/lib/services/uploadStore'
-import { requireUploadRoom } from '@/lib/billing/account'
+import { saveUpload } from '@/lib/services/uploadStore'
+import { isGalleryCutout } from '@/lib/services/generatedAssetLibrary'
 
 // ─── thumbnail ────────────────────────────────────────────────────────────────
 
@@ -21,12 +21,6 @@ async function makeThumbnail(buf: Buffer): Promise<Buffer> {
     .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 80 })
     .toBuffer()
-}
-
-function calcOrientation(w: number, h: number): string {
-  if (w > h) return 'landscape'
-  if (h > w) return 'portrait'
-  return 'square'
 }
 
 /** Splits a base64 data URL without regex (regex on multi-MB strings blows the call stack). */
@@ -42,8 +36,8 @@ export function parseDataUrl(data: string): { mime_type: string; buf: Buffer } |
 }
 
 /**
- * Saves an image (compacted) and a 400 px JPEG thumbnail; returns their URLs and the stored type. With an owner, the
- * image is one of the person's own and counts against their plan; its thumbnail is theirs too but never counts.
+ * Saves an image (compacted) and a 400 px JPEG thumbnail; returns their URLs and the stored type. With an owner, both
+ * are recorded as theirs, and the image as one of the person's own (`userUpload: true`).
  */
 export async function storeImageBytes(db: any, buf: Buffer, mime_type: string, baseUrl: string, ownerId?: string | null) {
   const uploadId = uuidv4()
@@ -56,10 +50,9 @@ export async function storeImageBytes(db: any, buf: Buffer, mime_type: string, b
 }
 
 /**
- * Gives back the space a deleted image took in its owner's allowance: its uploads stop counting (`userUpload: false`)
- * and are marked `removedAt`. The bytes are kept, because posts made with the image link to it directly and would
- * lose it otherwise; the cost is that storage keeps images nobody can see in the gallery any more. Only the person's
- * own uploads (those with an owner) change: website imports, AI images and cut-outs are shared and never counted.
+ * Marks a deleted image's uploads as no longer in use: `userUpload: false` and `removedAt`. The bytes are kept, because
+ * posts made with the image link to it directly and would lose it otherwise. Only the person's own uploads (those with
+ * an owner) change: AI images and cutouts belong to nobody.
  */
 export async function releaseUploads(db: any, asset: { url?: unknown; thumbnail_url?: unknown } | null) {
   const ids = [asset?.url, asset?.thumbnail_url].map(url => typeof url === 'string' ? url.match(/\/api\/uploads\/([^/?#]+)/)?.[1] : undefined).filter(Boolean)
@@ -73,125 +66,17 @@ export function newAssetId() {
 
 // ─── route handlers ───────────────────────────────────────────────────────────
 
-/**
- * A gallery upload: one of the person's own images, refused with 402 limit_reached when their plan has no room. The
- * image comes inside the request as a data URL, or was uploaded to R2 first (`upload`, from POST /api/uploads/sign).
- */
-export async function handleUploadAsset(db: any, body: any, request: Request, userId?: string | null) {
-  if (body?.upload !== undefined) {
-    return withDirectUpload(db, { id: body.upload, ownerId: userId, purpose: 'gallery', brandId: body.brand_id }, image => storeAsset(db, body, request, userId, image.bytes, image.contentType, DIRECT_UPLOAD_MAX_BYTES))
-  }
-  const { data } = body
-
-  if (!data || typeof data !== 'string' || !data.startsWith('data:')) {
-    return corsify(NextResponse.json({ error: 'data must be a base64 data URL' }, { status: 400 }))
-  }
-  const parsed = parseDataUrl(data)
-  if (!parsed) {
-    return corsify(NextResponse.json({ error: 'Invalid data URL' }, { status: 400 }))
-  }
-  return storeAsset(db, body, request, userId, parsed.buf, parsed.mime_type, 10 * 1024 * 1024)
-}
-
-/** The gallery pipeline, however the image arrived. */
-async function storeAsset(db: any, body: any, request: Request, userId: string | null | undefined, buf: Buffer, mime_type: string, maxBytes: number) {
-  const { filename, brand_id } = body
-  if (!brand_id) {
-    return corsify(NextResponse.json({ error: 'brand_id is required' }, { status: 400 }))
-  }
-  if (body.description != null && (typeof body.description !== 'string' || body.description.length > 2000)) {
-    return corsify(NextResponse.json({ error: 'Description must be text with at most 2000 characters' }, { status: 400 }))
-  }
-
-  if (buf.length > maxBytes) {
-    return corsify(NextResponse.json({ error: `Image too large (max ${Math.round(maxBytes / 1024 / 1024)}MB)` }, { status: 413 }))
-  }
-
-  let width = 0, height = 0
-  try {
-    const meta = await sharp(buf).metadata()
-    // Phone photos are stored as taken; EXIF orientations 5–8 show them turned, with their sides swapped.
-    const turned = (meta.orientation || 1) >= 5
-    width  = (turned ? meta.height : meta.width)  ?? 0
-    height = (turned ? meta.width : meta.height) ?? 0
-  } catch {
-    return corsify(NextResponse.json({ error: 'Could not read image metadata' }, { status: 400 }))
-  }
-
-  // Before any AI call or storage; a billing error passes through to the route, which answers 402 with its code.
-  if (userId) await requireUploadRoom(db, userId, buf.length)
-  const descriptionData=await indexAssetDescription(body.description??'')
-  const assetId     = newAssetId()
-  const orientation = calcOrientation(width, height)
-  const now         = new Date()
-  const { url, thumbnail_url, mime_type: storedType } = await storeImageBytes(db, buf, mime_type, getBaseUrl(request), userId)
-
-  const assetDoc: any = {
-    id: assetId,
-    ...descriptionData,
-    brand_id,
-    url,
-    thumbnail_url,
-    filename:    filename || 'image',
-    mime_type:   storedType,
-    width,
-    height,
-    orientation,
-    tags:        [],
-    embedding:   [],
-    status:      'processing',
-    usage_count: 0,
-    last_used_at: null,
-    created_at:  now,
-    updated_at:  now,
-  }
-
-  await db.collection('assets').insertOne(assetDoc)
-
-  // Async analysis — does not block the HTTP response
-  ;(async () => {
-    try {
-      const analysis = await analyseImageBuffer(buf, mime_type)
-
-      console.log('\n========== ASSET PROCESSED ==========')
-      console.log(JSON.stringify({
-        id:          assetId,
-        filename:    filename || 'image',
-        mime_type,
-        width,
-        height,
-        orientation,
-        tags:        analysis.tags,
-      }, null, 2))
-      console.log('======================================\n')
-
-      await db.collection('assets').updateOne(
-        { id: assetId },
-        { $set: { tags: analysis.tags, status: 'ready', updated_at: new Date() } },
-      )
-    } catch (err: any) {
-      console.error('[asset] Analysis failed:', err?.message ?? err)
-      await db.collection('assets').updateOne(
-        { id: assetId },
-        { $set: { status: 'failed', updated_at: new Date() } },
-      )
-    }
-  })()
-
-  const { _id, ...rest } = assetDoc
-  return corsify(NextResponse.json(rest))
-}
-
+/** The brand's gallery: its good AI cutouts (isGalleryCutout), newest first. */
 export async function handleListAssets(db: any, brand_id: string) {
   if (!brand_id) {
     return corsify(NextResponse.json({ error: 'brand_id is required' }, { status: 400 }))
   }
   const list = await db.collection('assets')
-    .find({ brand_id })
+    .find({ brand_id, source: 'ai_generated' })
     .sort({ created_at: -1 })
     .limit(500)
     .toArray()
-  return corsify(NextResponse.json(list.map(({ _id, ...rest }: any) => rest)))
+  return corsify(NextResponse.json(list.filter(isGalleryCutout).map(({ _id, ...rest }: any) => rest)))
 }
 
 export async function handleGetAsset(db: any, id: string) {
@@ -212,7 +97,9 @@ export async function handleUpdateAsset(db: any, id: string, body: any) {
     const { _id, ...unchanged } = asset
     return corsify(NextResponse.json(unchanged))
   }
-  const data = await indexAssetDescription(body.description)
+  const data: any = await indexAssetDescription(body.description)
+  // A cutout is matched to new slides by its subject (in English), so the owner's words become that subject.
+  if (asset.source === 'ai_generated' && data.description) data.subject_description = data.search_description || data.description
   await db.collection('assets').updateOne(filter, { $set: { ...data, updated_at: new Date() } })
   const { _id, ...updated } = await db.collection('assets').findOne(filter)
   return corsify(NextResponse.json(updated))

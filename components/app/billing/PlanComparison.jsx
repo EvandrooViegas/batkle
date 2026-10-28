@@ -14,7 +14,7 @@ export default function PlanComparison({ current = null, className = '' }) {
   // `relative` keeps the cells' screen-reader text (absolutely positioned) inside this scroller: without it, that text
   // is placed against the page and makes the whole page scroll sideways on phones.
   return (
-    <div className={cn('relative overflow-x-auto rounded-2xl border border-bk-line bg-bk-surface', className)}>
+    <div className={cn('relative overflow-x-auto rounded-2xl bg-bk-surface shadow-bk-card', className)}>
       <table className="w-full min-w-[580px] border-collapse text-left text-[13px] leading-snug">
         <caption className="sr-only">What each plan includes</caption>
         <thead>

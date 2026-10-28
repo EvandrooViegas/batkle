@@ -50,26 +50,18 @@ test('turning happens in memory only: an upright image is passed on untouched, a
   assert.equal(await uprightImage(junk), junk, 'unreadable bytes are left for the renderer to report')
 })
 
-test('gallery and post uploads keep the photo byte for byte, with upright sizes and an upright thumbnail', async () => {
+test('post photos keep the photo byte for byte, with upright sizes and an upright thumbnail', async () => {
   const storage = loadStorage({ r2: true })
   const h = loadUploadHandlers({ storage })
   const db = memoryDb({ flows: [{ id: 'k', ownerId: 'user_1' }] })
-  const jpeg = await phonePhoto()
-  const data = `data:image/jpeg;base64,${jpeg.toString('base64')}`
-  const gallery = await h.handleUploadAsset(db, { data, filename: 'phone.jpg', brand_id: 'brand_k' }, { headers: { get: () => null } }, 'user_1')
-  assert.deepEqual([gallery.body.width, gallery.body.height, gallery.body.orientation], [50, 100, 'portrait'])
   const record = id => db.rows('uploads').find(row => row.id === id.split('/').pop())
-  assert.ok(storage.bucket.objects.get(record(gallery.body.url).key).bytes.equals(jpeg), 'the original keeps its bytes and its EXIF orientation')
-  const thumbnail = storage.bucket.objects.get(record(gallery.body.thumbnail_url).key).bytes
-  const thumbMeta = await sharp(thumbnail).metadata()
-  assert.deepEqual([thumbMeta.width, thumbMeta.height], [50, 100])
-  assert.equal(await colour(thumbnail, 10, 50), 'blue')
-
-  // A post photo (at least 300 px a side) the same way.
+  // A post photo needs at least 300 px a side.
   const big = await phonePhoto(480, 320)
   const post = await h.handleUploadPostImage(db, { data: `data:image/jpeg;base64,${big.toString('base64')}`, filename: 'phone.jpg', brand_id: 'brand_k' }, 'user_1')
   assert.deepEqual([post.body.width, post.body.height, post.body.orientation], [320, 480, 'portrait'])
-  assert.ok(storage.bucket.objects.get(record(post.body.url).key).bytes.equals(big))
-  const postThumb = await sharp(storage.bucket.objects.get(record(post.body.thumbnail_url).key).bytes).metadata()
-  assert.ok(postThumb.height > postThumb.width, 'its thumbnail is upright too')
+  assert.ok(storage.bucket.objects.get(record(post.body.url).key).bytes.equals(big), 'the original keeps its bytes and its EXIF orientation')
+  const thumbnail = storage.bucket.objects.get(record(post.body.thumbnail_url).key).bytes
+  const thumbMeta = await sharp(thumbnail).metadata()
+  assert.ok(thumbMeta.height > thumbMeta.width, 'its thumbnail is upright too')
+  assert.equal(await colour(thumbnail, 20, Math.round(thumbMeta.height / 2)), 'blue')
 })

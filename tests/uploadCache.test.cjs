@@ -13,8 +13,8 @@ class FakeResponse {
   constructor(body, init = {}) { this.body = body; this.status = init.status || 200; this.headers = init.headers || {} }
   static json(body, init = {}) { return new FakeResponse(body, init) }
 }
-const handlers = loadUpload => new Function('NextResponse', 'uuidv4', 'corsify', 'getBaseUrl', 'MAX_IMAGE_SIZE', 'compactImage', 'loadUpload', 'saveUpload', 'requireUploadRoom', 'console',
-  load('lib/handlers/uploadHandlers.ts') + ';return {handleGetUpload}')(FakeResponse, () => 'id', x => x, () => '', 6e6, async (b, t) => ({ bytes: b, contentType: t }), loadUpload, async () => {}, async () => {}, { error() {} })
+const handlers = loadUpload => new Function('NextResponse', 'uuidv4', 'corsify', 'getBaseUrl', 'MAX_IMAGE_SIZE', 'compactImage', 'loadUpload', 'saveUpload', 'console',
+  load('lib/handlers/uploadHandlers.ts') + ';return {handleGetUpload}')(FakeResponse, () => 'id', x => x, () => '', 6e6, async (b, t) => ({ bytes: b, contentType: t }), loadUpload, async () => {}, { error() {} })
 const { handleGetUpload } = handlers(cache.loadUpload)
 
 function fakeDb(docs) {

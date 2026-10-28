@@ -201,7 +201,7 @@ function PhoneSetup({ phone, consentText, onVerified, onRemoved, onUpgrade }) {
   )
 
   return (
-    <div className="rounded-xl border border-bk-line bg-bk-alt/50 p-3.5">
+    <div className="rounded-xl bg-bk-alt/50 p-3.5">
       <p role="status" aria-live="polite" className="sr-only">{status}</p>
 
       {phone && !editing && !sentTo && (
@@ -434,7 +434,9 @@ export default function NotificationSettings() {
           )}
         </Row>
 
-        <fieldset className="px-4 py-4 sm:px-5" disabled={!anyReminders || saving === 'lead'}>
+        {/* The divider sits on this wrapper: on a fieldset the browser draws the legend across its top border. */}
+        <div className="px-4 py-4 sm:px-5">
+        <fieldset disabled={!anyReminders || saving === 'lead'}>
           <legend className="text-[14.5px] font-bold">When reminders arrive</legend>
           <div className="mt-2.5 flex flex-wrap gap-2">
             {[[0, 'When the post is due'], [60, '1 hour before']].map(([minutes, label]) => {
@@ -463,6 +465,7 @@ export default function NotificationSettings() {
             })}
           </div>
         </fieldset>
+        </div>
       </div>
     </section>
   )

@@ -4,12 +4,15 @@ const fs = require('node:fs')
 const { stripTypeScriptTypes } = require('node:module')
 
 // `userId` is the signed-in account (null when signed out); brands belong to the account in their `ownerId`.
-function loadDataAccess(db, ensureMinimumBrandDesigns, userId = 'user_1') {
+// `parts` is each account's part in brand-a, as lib/teams.ts brandRole answers it (none: it is not theirs).
+const parts = { user_1: { role: 'owner', ownerId: 'user_1' }, user_3: { role: 'editor', ownerId: 'user_1' } }
+function loadDataAccess(db, ensureMinimumBrandDesigns, userId = 'user_1', shared = []) {
   const source = stripTypeScriptTypes(fs.readFileSync('lib/data/flows.ts', 'utf8')
     .replace(/^import .*$/gm, '').replace(/export /g, ''))
-  return new Function('cache', 'connectToMongo', 'ensureMinimumBrandDesigns', 'currentUserId',
+  const brandRole = async (_db, user, id) => (id === 'brand-a' && parts[user] ? { flowId: id, ...parts[user] } : null)
+  return new Function('cache', 'connectToMongo', 'ensureMinimumBrandDesigns', 'currentUserId', 'brandRole', 'sharedBrands',
     source + '; return { getFlows, getFlow }')(
-    fn => fn, async () => db, ensureMinimumBrandDesigns, async () => userId)
+    fn => fn, async () => db, ensureMinimumBrandDesigns, async () => userId, brandRole, async () => shared)
 }
 
 test('flow selector reads only summaries without initializing every brand', async () => {
@@ -37,7 +40,7 @@ test('selected brand keeps its full profile and initialized designs; missing bra
     initialized++
     return { ...selected, brandContext: { ...selected.brandContext, designs: [{ id: 'starter' }] } }
   })
-  assert.deepEqual(await getFlow('brand-a'), { id: flow.id, brandContext: { ...flow.brandContext, designs: [{ id: 'starter' }] } })
+  assert.deepEqual(await getFlow('brand-a'), { id: flow.id, brandContext: { ...flow.brandContext, designs: [{ id: 'starter' }] }, access: { role: 'owner', ownerId: 'user_1', owner: '' } })
   assert.equal(await getFlow('missing'), null)
   assert.equal(initialized, 1)
 })
@@ -47,6 +50,12 @@ test('a brand owned by another account reads as missing, and signed-out visitors
   const db = { collection: () => ({ findOne: async ({ id, ownerId }) => id === flow.id && ownerId === flow.ownerId ? flow : null }) }
   const other = loadDataAccess(db, async (_, selected) => selected, 'user_2')
   assert.equal(await other.getFlow('brand-a'), null)
+
+  // Shared with an editor: the owner's brand, with the role and the owner's name.
+  const users = { findOne: async ({ id }) => (id === 'user_1' ? { name: 'Ana Silva', email: 'ana@x.pt' } : null) }
+  const sharedDb = { collection: name => (name === 'users' ? users : { findOne: async ({ id, ownerId }) => id === flow.id && ownerId === flow.ownerId ? flow : null }) }
+  const editor = loadDataAccess(sharedDb, async (_, selected) => selected, 'user_3')
+  assert.deepEqual((await editor.getFlow('brand-a')).access, { role: 'editor', ownerId: 'user_1', owner: 'Ana Silva' })
 
   const untouched = { collection: () => assert.fail('Signed-out requests must not query brands') }
   const signedOut = loadDataAccess(untouched, () => assert.fail('Signed-out requests must not load brands'), null)

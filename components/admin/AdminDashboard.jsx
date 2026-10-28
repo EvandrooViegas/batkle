@@ -82,7 +82,7 @@ function Change({ now, before }) {
 /** label · value rows in a bordered list, as the Credits card on API & usage. */
 function List({ rows }) {
   return (
-    <ul className="divide-y divide-bk-line rounded-xl border border-bk-line">
+    <ul className="divide-y divide-bk-line rounded-xl bg-bk-surface shadow-bk-card">
       {rows.map(([label, value, note]) => (
         <li key={label} className="flex items-baseline justify-between gap-3 px-3.5 py-2.5 text-[13px]">
           <span className="min-w-0"><span className="font-semibold">{label}</span>{note && <span className="block text-[12px] text-bk-muted">{note}</span>}</span>
@@ -194,7 +194,7 @@ function LinkBuilder() {
         {field('campaign', 'Campaign', 'launch-october')}
         {field('content', 'Ad or variant', 'video-a')}
       </div>
-      <div className="mt-4 flex items-center gap-2 rounded-xl border border-bk-line bg-bk-alt px-3 py-2">
+      <div className="mt-4 flex items-center gap-2 rounded-xl bg-bk-alt px-3 py-2">
         <code className="min-w-0 flex-1 truncate text-[12.5px]">{link}</code>
         <button type="button" disabled={!link} onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {} }} className={appButton('outline', 'xs', 'shrink-0')}>
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}{copied ? 'Copied' : 'Copy'}

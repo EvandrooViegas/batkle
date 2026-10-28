@@ -6,7 +6,7 @@ import { compactBrand } from '@/lib/services/ai/requestBudget'
 import { loadGenerationBrandContext, EXTRACTED_CONTEXT_RULES } from '@/lib/services/generationBrandContext'
 import { postLanguage, languageIssues, modernPortuguese } from '@/lib/services/contentLanguage'
 import { inventedFigures } from '@/lib/services/copyFacts'
-import { brandSubjects, mentionsSubject } from '@/lib/services/contentAngles'
+import { aiTells, brandSubjects, mentionsSubject, resultClaims } from '@/lib/services/contentAngles'
 import { persistInlineImages } from '@/lib/services/persistInlineImages'
 import { ensureBrandLogoVariants } from '@/lib/services/brandLogoVariants'
 import { chooseBrandFamily, renderGlobalPost } from '@/lib/designs/global/generation'
@@ -132,7 +132,7 @@ Read every line and rewrite each one that fails a check:
 5. Headlines: each a complete phrase that makes sense alone under the image, its point in the first ${AD_TEXT_LIMITS.headlineVisible} characters; together they differ in angle (outcome, offer, proof, reader or place, objection), not just in words. Best first.
 6. Primary texts: the first line makes the right reader stop; no line ends with an invitation to "learn more" or "find out" (the button does that); the three open differently.
 7. The image hook is readable in one second and works without the text around the ad; every line on the image is a complete phrase on its own ("Studio Lume já tem" is not: say what it has).
-8. Never marketing filler: discover, unlock, elevate, transform, boost, don't miss, learn more; descubra, saiba mais, transforme, eleve, potencie, impulsione, alavanque, não perca, solicite já.
+8. Never marketing filler or machine-sounding turns: discover, unlock, elevate, transform, boost, don't miss, learn more, "turns X into Y", "the result:", "imagine", "in minutes", "not just X"; descubra, saiba mais, transforme, eleve, potencie, impulsione, alavanque, não perca, solicite já, "transforma X em Y", "o resultado?", "imagine", "em minutos", "não é apenas".
 9. Claims: a named client or project proves only what the profile says was done for it; remove any result claimed for it (more bookings, more sales, more traffic) that the profile does not state, and say what was done instead.
 Keep what already passes. Never add facts, figures, prices, discounts, deadlines, guarantees or "free" offers that the profile or the brief do not state.
 
@@ -223,6 +223,10 @@ export function adCopyIssues(ad: any, languageRules: any, factSource: string, as
   const readerText = [...versions, ...headlines, ad?.description, ad?.creative?.headline, ad?.creative?.supportingText, ad?.creative?.label, imageCta].map(t => lines(t)).filter(Boolean)
   const filler = [...new Set(readerText.join('\n').match(FILLER) || [])]
   if (filler.length) issues.push(`it uses marketing filler (${filler.slice(0, 4).join(', ')}); say the concrete thing instead`)
+  const tells = aiTells(readerText).filter(t => !filler.some(f => f.toLowerCase() === t))
+  if (tells.length) issues.push(`it sounds machine-written (${tells.join(', ')}); say it plainly, the way the business would to a customer`)
+  const claims = resultClaims(readerText, factSource)
+  if (claims.length) issues.push(`it claims results the brand profile does not state (${claims.join(', ')}); say what was done instead`)
   const mixed = languageIssues(readerText, languageRules)
   if (mixed.length) issues.push(`language: ${mixed.join('; ')}`)
   const invented = inventedFigures(readerText, factSource)

@@ -1,4 +1,5 @@
 import Groq from 'groq-sdk'
+import { ownPostsVoice } from '@/lib/services/brandPosts'
 /** Shared queue with independent credential cooldowns and immediate quota failover. */
 const stateKey=Symbol.for('kand.groq.key-pool.v1')
 const root=globalThis as any
@@ -21,7 +22,10 @@ export function tooLarge(error:any,model?:string) {
  const detail=match?` (this request needed about ${requestedTokens} input tokens; the limit is ${limitTokens} per minute)`:''
  return Object.assign(new Error(`The request is larger than your Groq plan allows for ${model||'this model'}${detail}. Use fewer or smaller inputs, choose a model with a higher limit, or upgrade the Groq plan.`),{status:413,limitTokens,requestedTokens,cause:error})
 }
-export async function budgetedCompletion(groq:any,request:any,backups?:any[],operation='completion') {
+// A cooldown of a few seconds (Groq's per-minute token limit, which the free tier reaches with one or two calls) is
+// waited out once instead of failing the post, story or ad; a longer one (a daily quota) still fails at once.
+const SHORT_WAIT=20
+export async function budgetedCompletion(groq:any,request:any,backups?:any[],operation='completion',patient=true):Promise<any> {
  const run=async()=>{
   const keys=groqKeys()
   const clients=[groq,...(backups||keys.filter(key=>key!==groq.apiKey).map(key=>{
@@ -51,7 +55,14 @@ export async function budgetedCompletion(groq:any,request:any,backups?:any[],ope
   const wait=Math.max(1,Math.ceil((Math.min(...unique.map(c=>state.cooldowns.get(identify(c))||Date.now()))-Date.now())/1000))
   throw Object.assign(new Error('All configured AI keys are cooling down. Retry in '+wait+' seconds.'),{status:429,headers:{'retry-after':String(wait)}})
  }
- const work=state.tail.then(run,run);state.tail=work.catch(()=>{});return work
+ const work=state.tail.then(run,run);state.tail=work.catch(()=>{})
+ if(!patient||operation==='models')return work
+ return work.catch(async(error:any)=>{
+  const wait=Number(error?.headers?.['retry-after'])
+  if(error?.status!==429||!(wait>0&&wait<=SHORT_WAIT))throw error
+  await new Promise(resolve=>setTimeout(resolve,wait*1000+250))
+  return budgetedCompletion(groq,request,backups,operation,false)
+ })
 }
 // The model catalog rarely changes; listing it per request spent rate-limited calls on every generation.
 const MODEL_CACHE_MS=10*60*1000
@@ -63,13 +74,29 @@ export function budgetedModels(groq:any) {
  value.catch(()=>{if(state.models?.value===value)state.models=null})
  return value
 }
-export function compactBrand(brand:any) {
+/**
+ * The brand profile as prompts send it, each field cut to a length. With `budget` (characters of JSON), for a request
+ * that must fit a smaller AI plan (see writeCopy), the research pages are left out and every other field but the name is
+ * shortened by the same share until the whole fits.
+ */
+export function compactBrand(brand:any,budget?:number) {
  const out:any={}
  const limits:Record<string,number>={about:6500,description:1200,services:3500,projects:5000,targetAudience:1800,tone:1000,suggestedCtas:1500,differentiators:1800,contentTopics:2000}
  for(const key of ['name','about','description','industry','services','products','projects','audience','targetAudience','values','tone','language','languageVariant','profileLanguage','positioning','differentiators','suggestedCtas','contentTopics']) {
   const value=brand?.[key]
   if(value!=null)out[key]=(typeof value==='string'?value:JSON.stringify(value)).slice(0,limits[key]||450)
  }
- if(Array.isArray(brand?.researchSources))out.researchSources=brand.researchSources.slice(0,5).map((page:any)=>({url:String(page.url||'').slice(0,500),title:String(page.title||'').slice(0,200)}))
+ // How the brand writes in its own posts, while its switch on the Brand profile is on (see EXTRACTED_CONTEXT_RULES).
+ const voice=ownPostsVoice(brand)
+ if(voice)out.voiceFromOwnPosts=voice
+ if(Array.isArray(brand?.researchSources)&&!budget)out.researchSources=brand.researchSources.slice(0,5).map((page:any)=>({url:String(page.url||'').slice(0,500),title:String(page.title||'').slice(0,200)}))
+ const size=JSON.stringify(out).length
+ if(budget&&size>budget){
+  // The keys and quotes stay, so only the text shrinks: by the share of it that fits in what they leave.
+  const keys=Object.keys(out).filter(key=>key!=='name'&&typeof out[key]==='string')
+  const text=keys.reduce((n,key)=>n+out[key].length,0)
+  const share=Math.max(0,budget-(size-text))/text
+  for(const key of keys)out[key]=out[key].slice(0,Math.floor(out[key].length*share))
+ }
  return out
 }

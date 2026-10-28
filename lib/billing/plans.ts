@@ -10,7 +10,7 @@ export type PlanId = 'free' | 'pro' | 'business'
 export type Interval = 'month' | 'year'
 export type ImageQuality = 'standard' | 'high'
 /** Plan features that are switched on or off, as `requireFeature` checks them. */
-export type Feature = 'scheduling' | 'emailReminders' | 'textReminders' | 'customDesigns' | 'adDesigns'
+export type Feature = 'scheduling' | 'emailReminders' | 'textReminders' | 'customDesigns' | 'adDesigns' | 'postVoice'
 
 export interface Plan {
   id: PlanId
@@ -23,8 +23,8 @@ export interface Plan {
   /** Credits each month. One credit is one image: a single post is 1, a carousel 1 per slide. */
   credits: number
   imageQuality: ImageQuality
-  /** The person's own images: a number of images, or a total size in bytes. */
-  uploads: { maxImages?: number; maxBytes?: number }
+  /** The person's own photos they can add to one post or story (Posts & stories → Add photos). */
+  photosPerPost: number
   scheduling: boolean
   emailReminders: boolean
   /** Text-message reminders each month; 0 when the plan has none. */
@@ -33,32 +33,32 @@ export interface Plan {
   customDesigns: boolean
   /** Meta (Facebook and Instagram) ads: copy within Meta's limits and the creative in each ad size. */
   adDesigns: boolean
+  /** New posts, stories and ads written in the voice of the brand's own published posts (Brand profile → Your posts). */
+  postVoice: boolean
   /** Days of free trial a new subscriber gets; 0 for none. */
   trialDays: number
   popular?: boolean
 }
 
-const GB = 1024 ** 3
-
 export const PLANS: Record<PlanId, Plan> = {
   free: {
     id: 'free', name: 'Free', tagline: 'Trying Batkle out',
     price: { month: 0, year: 0 },
-    brands: 1, credits: 30, imageQuality: 'standard', uploads: { maxImages: 20 },
-    scheduling: false, emailReminders: false, textReminders: 0, customDesigns: false, adDesigns: false, trialDays: 0,
+    brands: 1, credits: 30, imageQuality: 'standard', photosPerPost: 4,
+    scheduling: false, emailReminders: false, textReminders: 0, customDesigns: false, adDesigns: false, postVoice: false, trialDays: 0,
   },
   pro: {
     id: 'pro', name: 'Pro', tagline: 'One business posting regularly',
     price: { month: 34.99, year: 349.9 },
-    brands: 2, credits: 150, imageQuality: 'high', uploads: { maxBytes: 2 * GB },
-    scheduling: true, emailReminders: true, textReminders: 30, customDesigns: true, adDesigns: false, trialDays: 7,
+    brands: 2, credits: 150, imageQuality: 'high', photosPerPost: 8,
+    scheduling: true, emailReminders: true, textReminders: 30, customDesigns: true, adDesigns: false, postVoice: true, trialDays: 7,
     popular: true,
   },
   business: {
     id: 'business', name: 'Business', tagline: 'Several brands or a lot of content',
     price: { month: 79.99, year: 799.9 },
-    brands: 5, credits: 500, imageQuality: 'high', uploads: { maxBytes: 10 * GB },
-    scheduling: true, emailReminders: true, textReminders: 100, customDesigns: true, adDesigns: true, trialDays: 7,
+    brands: 5, credits: 500, imageQuality: 'high', photosPerPost: 10,
+    scheduling: true, emailReminders: true, textReminders: 100, customDesigns: true, adDesigns: true, postVoice: true, trialDays: 7,
   },
 }
 
@@ -89,6 +89,9 @@ export const NEWSLETTER_DISCOUNT = { percent: 20 }
 
 /** "≈ X posts" assumes this many slides (credits) per post. */
 export const SLIDES_PER_POST = 4
+
+/** The most photos any plan adds to a post; a post made on a larger plan keeps its photos after a downgrade. */
+export const MAX_PHOTOS_PER_POST = Math.max(...PLAN_IDS.map(id => PLANS[id].photosPerPost))
 
 /** The plans that need a sales conversation instead of a checkout. */
 export const CONTACT = { brandsOver: PLANS.business.brands, label: `Need more than ${PLANS.business.brands} brands? Contact us.` }
@@ -135,21 +138,13 @@ export function cheapestPlanForBrands(count: number): Plan | null {
   return PLAN_IDS.map(id => PLANS[id]).find(plan => plan.brands >= count) || null
 }
 
-export function formatBytes(bytes: number): string {
-  if (bytes >= GB) return `${Number((bytes / GB).toFixed(1))} GB`
-  if (bytes >= 1024 ** 2) return `${Number((bytes / 1024 ** 2).toFixed(1))} MB`
-  return `${Math.max(0, Math.round(bytes / 1024))} KB`
+/** The cheapest plan that adds at least this many photos to a post. */
+export function cheapestPlanForPhotos(count: number): Plan | null {
+  return PLAN_IDS.map(id => PLANS[id]).find(plan => plan.photosPerPost >= count) || null
 }
 
 export function formatPrice(dollars: number): string {
   return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`
-}
-
-/** The uploads allowance as words: "Up to 20 images" or "2 GB". */
-export function uploadsLabel(plan: Plan): string {
-  if (plan.uploads.maxImages != null) return `Up to ${plan.uploads.maxImages} images`
-  if (plan.uploads.maxBytes != null) return formatBytes(plan.uploads.maxBytes)
-  return 'Unlimited'
 }
 
 export interface PricingRow {
@@ -169,7 +164,7 @@ export function pricingRows(): PricingRow[] {
     { label: 'Credits per month (1 credit = 1 image)', values: each(p => `${p.credits} (≈ ${approxPosts(p.credits)} posts)`) },
     { label: 'AI image quality', values: each(p => (p.imageQuality === 'high' ? 'High' : 'Standard')) },
     { label: 'Choose carousel length', values: each(() => true) },
-    { label: 'Upload your own images', values: each(uploadsLabel) },
+    { label: 'Your own photos in each post', values: each(p => `Up to ${p.photosPerPost}`) },
     { label: 'Download slides and copy caption', values: each(() => true) },
     { label: 'Schedule calendar', values: each(p => p.scheduling) },
     { label: 'Email reminders', values: each(p => p.emailReminders) },
@@ -178,6 +173,7 @@ export function pricingRows(): PricingRow[] {
       : { label: 'Text reminders', values: each(p => (p.textReminders ? `${p.textReminders} a month` : false)) },
     { label: 'Create and share your own designs', values: each(p => p.customDesigns) },
     { label: 'Designs published by other members', values: each(p => (p.customDesigns ? true : 'Browse only')) },
+    { label: 'Posts in the voice of your own posts', values: each(p => p.postVoice) },
     { label: 'Facebook and Instagram ads', values: each(p => p.adDesigns) },
   ]
 }

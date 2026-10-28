@@ -155,7 +155,7 @@ export type Metrics = ReturnType<typeof summarizeMetrics>
 export async function loadMetrics(db: any, { days = 30, now = new Date() } = {}) {
   const since = new Date(now.getTime() - 2 * days * DAY)
   const read = (name: string, query: any, fields: string[]) => db.collection(name).find(query, { projection: Object.fromEntries([['_id', 0], ...fields.map(f => [f, 1])]) }).limit(200_000).toArray()
-  const [users, billing, canvases, ads, charges, visits, designs, teams, members, aiImages, flows] = await Promise.all([
+  const [users, billing, canvases, ads, charges, visits, designs, members, aiImages, flows] = await Promise.all([
     read('users', {}, ['id', 'email', 'name', 'createdAt', 'onboardedAt', 'attribution']),
     read('billingAccounts', {}, ['id', 'plan', 'status', 'interval', 'trialUsed', 'trialEnd', 'updatedAt']),
     read('canvases', { createdAt: { $gte: since } }, ['ownerId', 'createdAt', 'ad', 'globalDesignEditor']),
@@ -163,10 +163,11 @@ export async function loadMetrics(db: any, { days = 30, now = new Date() } = {})
     read('creditCharges', { createdAt: { $gte: since } }, ['ownerId', 'credits', 'status', 'createdAt']),
     read('visits', { at: { $gte: since } }, ['at', 'visitorId', 'channel', 'source', 'medium', 'campaign', 'referrer']),
     read('globalDesignFamilies', {}, ['ownerId', 'status', 'visibility', 'deletedAt']),
-    read('teams', {}, ['ownerId']),
-    read('teamMembers', {}, ['status']),
+    read('brandMembers', {}, ['status', 'flowId', 'ownerId']),
     read('assets', { source: 'ai_generated', created_at: { $gte: since } }, ['brand_id', 'created_at']),
     read('flows', {}, ['id', 'ownerId']),
   ])
+  // A team is a brand someone shares: one per brand with at least one person in it.
+  const teams = [...new Map(members.filter((m: any) => m.status === 'active').map((m: any) => [m.flowId, { ownerId: m.ownerId }])).values()]
   return summarizeMetrics({ users, billing, canvases, ads, charges, visits, designs, teams, members, aiImages, flows }, { days, now, admins: adminEmails() })
 }

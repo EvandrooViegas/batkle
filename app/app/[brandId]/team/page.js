@@ -1,11 +1,13 @@
-import { requireOnboardedAccount } from '@/lib/auth'
+import { notFound } from 'next/navigation'
+import { getFlow } from '@/lib/data/flows'
 import TeamPage from '@/components/app/team/TeamPage'
 
 export const metadata = { title: 'Team · Batkle' }
 
-/** The account's team, inside the studio: the same team whichever brand is open. */
+/** The open brand's team: who works on it and with which role. */
 export default async function Team({ params }) {
   const { brandId } = await params
-  const account = await requireOnboardedAccount(`/app/${encodeURIComponent(brandId)}/team`)
-  return <TeamPage account={{ name: account.name, email: account.email }} />
+  const flow = await getFlow(brandId)
+  if (!flow) notFound()
+  return <TeamPage flowId={flow.id} brandName={flow.brandContext?.name || flow.name || 'This brand'} />
 }

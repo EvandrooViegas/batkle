@@ -7,6 +7,7 @@ import { WEEK_STARTS_ON, calendarMonth, calendarTime, slotOnDay } from '@/lib/cl
 import { cn } from '@/lib/utils'
 import { Popup } from '../popup'
 import { appButton, panelClass } from '../ui'
+import { useBrandAccess } from '../AppShell'
 import { PostThumb, ThumbSkeleton } from '../creation/PostThumb'
 import UpgradeNotice from '../billing/UpgradeNotice'
 
@@ -78,19 +79,22 @@ function PostChip({ item, formats, onOpen, large = false, withDay = false }) {
   )
 }
 
-/** A post waiting for a time: its first slide, topic and a Schedule button. */
+/** A post waiting for a time: its first slide, topic and a Schedule button (for someone who can change the brand). */
 function ReadyPost({ entry, canvas, onSchedule }) {
+  const { canEdit } = useBrandAccess()
   const topic = entry.topic || 'Untitled post'
   return (
-    <li className="flex min-w-0 items-center gap-3 rounded-xl border border-bk-line bg-bk-surface p-2 pr-2.5">
+    <li className="flex min-w-0 items-center gap-3 rounded-xl bg-bk-surface shadow-bk-card p-2 pr-2.5">
       <div className="w-9 shrink-0">{canvas ? <PostThumb canvas={canvas} /> : <ThumbSkeleton className="bg-bk-chip" />}</div>
       <div className="min-w-0 flex-1">
         <p className="line-clamp-2 text-[13.5px] font-bold leading-snug">{topic}</p>
         <p className="text-[12px] text-bk-muted">{entry.format === 'carousel' ? `Carousel · ${entry.slides} slides` : 'Single post'}</p>
       </div>
-      <button type="button" onClick={onSchedule} aria-label={`Schedule: ${topic}`} className={appButton('primary', 'xs')}>
-        <CalendarClock aria-hidden="true" className="size-3.5" />Schedule
-      </button>
+      {canEdit && (
+        <button type="button" onClick={onSchedule} aria-label={`Schedule: ${topic}`} className={appButton('primary', 'xs')}>
+          <CalendarClock aria-hidden="true" className="size-3.5" />Schedule
+        </button>
+      )}
     </li>
   )
 }
@@ -180,6 +184,7 @@ function Agenda({ grid, formats, monthLabel, onOpenDay, onOpenPost }) {
 
 /** What a day opens: its posts, then the ready posts to schedule on it (or why that can't be done). */
 function DayDetails({ day, now, formats, ready, canvases, gate, flowId, onOpenPost, onPick }) {
+  const { canEdit } = useBrandAccess()
   const slot = day.isPast ? null : slotOnDay(day.date, now)
   return (
     <div className="space-y-5">
@@ -190,6 +195,8 @@ function DayDetails({ day, now, formats, ready, canvases, gate, flowId, onOpenPo
       )}
       {day.isPast ? (
         <p className="text-[13.5px] text-bk-muted">This day has passed, so nothing new can be scheduled on it.</p>
+      ) : !canEdit ? (
+        !day.entries.length && <p className="text-[13.5px] text-bk-muted">Nothing is scheduled on this day.</p>
       ) : gate ? (
         <UpgradeNotice error={gate} />
       ) : (

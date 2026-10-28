@@ -30,6 +30,38 @@ test('measures left-aligned copy, a separate accent rule, coloured words, and ig
   assert.equal(coloured.coloredText, true)
 })
 
+// Dark "letters" set straight on a colour: bars with word gaps, like the words above without their own fill.
+const ink = (x, y, widths, h = 56) => { let cx = x; return widths.map(w => { const r = `<rect x="${cx}" y="${y}" width="${w}" height="${h}" fill="#141414"/>`; cx += w + 24; return r }).join('') }
+// Like the PRUMO reference: a grey "photo", a yellow block holding a two-line headline, a second block with the body.
+const panelled = `<rect width="1080" height="700" fill="#7a7a7a"/><rect y="700" width="1080" height="650" fill="#4a4a4a"/>
+  <rect x="0" y="700" width="760" height="330" fill="#e8b830"/>${ink(90, 760, [180, 60, 150, 90, 110])}${ink(90, 880, [70, 230, 120, 60])}
+  <rect x="40" y="1020" width="935" height="300" fill="#e8b830"/>${ink(100, 1080, [210, 260], 34)}${ink(100, 1160, [90, 140, 70, 190, 60], 24)}${ink(100, 1210, [120, 80, 160], 24)}`
+
+test('a headline on a solid colour panel is measured as a panel, and its dark copy is not coloured copy', async () => {
+  const m = await measureReference(await image(panelled))
+  assert.ok(m.panel, 'the yellow blocks are a panel')
+  // The two blocks touch, so they read as one panel from the left edge (x 0) to the body block's right edge (975 px).
+  assert.ok(m.panel.x < .02 && m.panel.y > .5 && m.panel.y < .54 && Math.abs(m.panel.width - .9) < .02, JSON.stringify(m.panel))
+  assert.equal(m.box, null, 'a filled panel is not an outlined box')
+  assert.equal(m.coloredText, false, 'the yellow around the letters is the panel, not coloured words')
+})
+
+test('a word highlight hugging one line is not a panel', async () => {
+  // One line of dark letters with a tight yellow highlight behind its last words, like a "background" emphasis.
+  const m = await measureReference(await image(`<rect width="1080" height="1350" fill="#ffffff"/>${ink(110, 500, [200, 160, 140], 110)}<rect x="100" y="700" width="700" height="140" fill="#ffdd55"/>${ink(110, 712, [230, 120, 260], 116)}`))
+  assert.equal(m.panel, null, JSON.stringify(m.panel))
+})
+
+test('a measured panel gives the study a solid headline panel and puts callout copy in cards', () => {
+  const study = { familyRules: [], variantRules: [], avoid: [], grammar: { emphasis: 'background', headline: { frame: 'none' }, containers: { style: 'none', radius: 'small', fill: 'accent', use: ['callout', 'label'] }, decorations: [], references: [{ composition: 'split', align: 'left', imagePos: 'full', image: true }] } }
+  const fixed = applyReferenceMetrics(study, [{ align: 'left', box: null, panel: { x: 0, y: .52, width: 1, height: .46 }, rules: 0, coloredText: false, lines: [] }])
+  assert.equal(fixed.grammar.headline.frame, 'solid')
+  assert.equal(fixed.grammar.references[0].frame, true)
+  assert.equal(fixed.grammar.containers.style, 'card')
+  assert.equal(fixed.grammar.emphasis, 'none', 'no words are set in colour')
+  assert.ok(fixed.familyRules.some(r => /solid panel/.test(r)))
+})
+
 test('measurements correct the study: alignment, a headline box on the boxed reference only, no invented emphasis or rules', () => {
   const study = {
     composition: 'The text is always left-aligned and anchored to the bottom edge.', typography: 'Heavy condensed headline.', hierarchy: 'Headline, subtitle.', decorative: 'A thin accent rule.',

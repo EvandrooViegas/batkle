@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Coins, CreditCard, ExternalLink, Loader2, Sparkles } from 'lucide-react'
-import { CONTACT, CREDIT_PACK, PAID_PLAN_IDS, PLANS, SLIDES_PER_POST, TRIAL, approxPosts, formatBytes, formatPrice, isComingSoon, isInterval, isPaidPlanId } from '@/lib/billing/plans'
+import { CONTACT, CREDIT_PACK, PAID_PLAN_IDS, PLANS, SLIDES_PER_POST, TRIAL, approxPosts, formatPrice, isComingSoon, isInterval, isPaidPlanId } from '@/lib/billing/plans'
 import { contactHref } from '@/lib/client/billing'
 import { cn } from '@/lib/utils'
 import PlanComparison from '../billing/PlanComparison'
@@ -31,7 +31,7 @@ function highlights(plan) {
     plural(plan.brands, 'brand'),
     `${plan.credits} credits a month (≈ ${plural(approxPosts(plan.credits), 'post')})`,
     plan.imageQuality === 'high' ? 'High-quality AI images' : 'Standard AI images',
-    plan.uploads.maxBytes != null ? `${formatBytes(plan.uploads.maxBytes)} for your own images` : `Up to ${plan.uploads.maxImages} of your own images`,
+    `Up to ${plan.photosPerPost} of your photos in each post`,
     plan.scheduling && 'Schedule calendar and email reminders',
     plan.textReminders > 0 && !TEXTS_SOON && `${plural(plan.textReminders, 'text reminder')} a month`,
   ].filter(Boolean)
@@ -105,7 +105,7 @@ function PlanCard({ plan, period, summary, picked, disabled, busy, onChoose }) {
   const current = label === 'Current plan'
   const featured = picked || (!summary.hasSubscription && plan.popular)
   return (
-    <li id={`plan-${plan.id}`} className={cn(panelClass, 'flex scroll-mt-24 flex-col p-5 transition-shadow', picked ? 'ring-2 ring-bk-fg ring-offset-2 ring-offset-bk-alt' : featured && 'border-bk-fg/40')}>
+    <li id={`plan-${plan.id}`} className={cn(panelClass, 'flex scroll-mt-24 flex-col p-5 transition-shadow', picked ? 'ring-2 ring-bk-fg ring-offset-2 ring-offset-bk-alt' : featured && 'ring-1 ring-bk-fg/40')}>
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-bk-display text-[19px] font-bold tracking-[-0.02em]">{plan.name}</h3>
         {picked ? <span className="rounded-full bg-bk-fg px-2 py-0.5 text-[11px] font-bold text-bk-bg">Your pick</span>
@@ -149,12 +149,7 @@ function UsageTile({ title, value, note, meter }) {
 }
 
 function Usage({ summary }) {
-  const { texts, brands, uploads } = summary
-  const images = uploads.maxImages != null
-    ? { value: `${uploads.images} of ${uploads.maxImages}`, meter: { value: uploads.images, max: uploads.maxImages, label: 'Your images' }, note: 'Images you upload yourself.' }
-    : uploads.maxBytes != null
-      ? { value: `${formatBytes(uploads.bytes)} of ${formatBytes(uploads.maxBytes)}`, meter: { value: uploads.bytes, max: uploads.maxBytes, label: 'Space for your images' }, note: `${plural(uploads.images, 'image')} you uploaded.` }
-      : { value: plural(uploads.images, 'image'), note: 'Images you upload yourself.' }
+  const { texts, brands, photosPerPost } = summary
   return (
     <div className={cn('mt-3 grid gap-3', TEXTS_SOON ? 'sm:grid-cols-2' : 'sm:grid-cols-3')}>
       {!TEXTS_SOON && (
@@ -171,7 +166,7 @@ function Usage({ summary }) {
         meter={{ value: brands.used, max: brands.max, label: 'Brands used' }}
         note={brands.used > brands.max ? 'More than your plan includes: they all keep working, but you can’t add another.' : null}
       />
-      <UsageTile title="Your images" {...images} />
+      <UsageTile title="Your photos" value={`Up to ${photosPerPost} in each post`} note="Add them when you write an idea in Posts & stories." />
     </div>
   )
 }

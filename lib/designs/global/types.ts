@@ -81,6 +81,9 @@ export const grammarSchema = z.object({
     // A rectangle drawn around the whole headline: a border only, or a filled panel the headline sits on.
     frame: oneOf(['none', 'outline', 'solid'] as const, 'none'),
   }).catch({ scale: 'large', weight: 'bold', case: 'none', tracking: 'normal', leading: 'tight', fill: 'solid', gradient: HEADLINE_GRADIENT, frame: 'none' }),
+  // How a filled headline panel is drawn: a thin dark outline around it (and around cards), and a second block offset
+  // behind it, solid or outline only. Absent on older studies: it is then read from the study's prose (see familyGrammar).
+  panel: z.object({ outline: flag, offset: oneOf(['none', 'block', 'outline'] as const, 'none') }).optional().catch(undefined),
   body: z.object({ scale: oneOf(['small', 'medium', 'large'] as const, 'medium') }).catch({ scale: 'medium' }),
   emphasis: oneOf(['none', 'color', 'background', 'underline'] as const, 'color'),
   alignment: someOf(['left', 'center', 'right'] as const, ['left']),

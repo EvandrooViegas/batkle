@@ -8,20 +8,25 @@ import { ScheduleLine, approvalAction } from '../schedule/ScheduleStatus'
 import { StageBar } from './StageBar'
 import { SlideCarousel } from './SlideCarousel'
 import { editorHref } from './PostThumb'
-import { useSurfaceWords } from './surface'
+import { wordsFor } from './surface'
+import { PostRating } from './PostRating'
+import { useBrandAccess } from '../AppShell'
 
 const PHASE_LABEL = { building: 'Building now', ready: 'Post ready', failed: 'Needs attention', idea: 'New idea' }
 
 /**
  * The idea the user is working on: live build progress, its slides, and the next actions. A ready post leads with
- * its approval step (`approval`: { state, entry }, see scheduleState): approve it, then schedule it.
+ * its approval step (`approval`: { state, entry }, see scheduleState): approve it, then schedule it. A built post can be
+ * liked or disliked (`rating`, `onRate`), which shapes the next ones. Someone who can only view the brand sees the
+ * post, its progress and its slides, without the actions.
  */
-export function FeaturedPost({ idea, status, approval, onApproval, onPreview, onBuild, onRetry, onRebuild, onNewVersion, limit = null, className = '' }) {
-  const w = useSurfaceWords()
+export function FeaturedPost({ idea, status, approval, onApproval, onPreview, onBuild, onRetry, onRebuild, onNewVersion, rating = null, onRate, limit = null, className = '' }) {
+  const w = wordsFor(idea)
   const { phase, canvas, steps, error, slides } = status
   const building = phase === 'building'
+  const { canEdit } = useBrandAccess()
   const href = editorHref(canvas)
-  const action = phase === 'ready' && approval ? approvalAction(approval.state) : null
+  const action = canEdit && phase === 'ready' && approval ? approvalAction(approval.state) : null
   // Until a post is scheduled, approving or scheduling it is the next step; after that, editing is.
   const approvalFirst = action && ['unapproved', 'changed', 'approved'].includes(approval.state)
   const expected = slides || status.copy?.slides?.length || (idea.format === 'carousel' ? 5 : 1)
@@ -52,13 +57,13 @@ export function FeaturedPost({ idea, status, approval, onApproval, onPreview, on
           : error && <p className="mt-3 line-clamp-3 text-[13px] text-[#F0826F]">{error}</p>)}
 
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          {phase === 'idea' && (
+          {phase === 'idea' && canEdit && (
             <button type="button" onClick={onBuild} className={appButton('primary', 'md')}>Generate {w.noun}</button>
           )}
-          {phase === 'failed' && !limit && (
+          {phase === 'failed' && !limit && canEdit && (
             <button type="button" onClick={onRetry} className={appButton('primary', 'md')}><RefreshCw className="size-3.5" />Retry</button>
           )}
-          {phase === 'failed' && href && (
+          {phase === 'failed' && href && canEdit && (
             <a href={href} target="_blank" rel="noopener noreferrer" className={appButton('onDark', 'md')}>Open last {w.noun}</a>
           )}
           {approvalFirst && (
@@ -68,13 +73,13 @@ export function FeaturedPost({ idea, status, approval, onApproval, onPreview, on
           )}
           {(phase === 'ready' || phase === 'building') && (
             href
-              ? <a href={href} target="_blank" rel="noopener noreferrer" className={appButton(approvalFirst ? 'onDark' : 'primary', 'md')}>Open in editor</a>
+              ? canEdit && <a href={href} target="_blank" rel="noopener noreferrer" className={appButton(approvalFirst ? 'onDark' : 'primary', 'md')}>Open in editor</a>
               : <span className={appButton('primary', 'md', 'pointer-events-none opacity-80')}><Loader2 className="size-3.5 animate-spin" />Building…</span>
           )}
           {action && !approvalFirst && (
             <button type="button" onClick={onApproval} className={appButton('onDark', 'md')}><CalendarClock className="size-4" />{action.label}</button>
           )}
-          {status.copy && (phase === 'ready' || (building && canvas)) && (
+          {canEdit && status.copy && (phase === 'ready' || (building && canvas)) && (
             <button
               type="button"
               onClick={onRebuild}
@@ -85,7 +90,7 @@ export function FeaturedPost({ idea, status, approval, onApproval, onPreview, on
               Rebuild design · keep copy
             </button>
           )}
-          {canvas && (
+          {canvas && canEdit && (
             <button
               type="button"
               onClick={onNewVersion}
@@ -96,6 +101,12 @@ export function FeaturedPost({ idea, status, approval, onApproval, onPreview, on
             </button>
           )}
         </div>
+        {phase === 'ready' && canvas && onRate && canEdit && (
+          <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-white/10 pt-4">
+            <PostRating value={rating} onRate={onRate} noun={w.noun} tone="dark" />
+            <p className="text-[12.5px] text-bk-cream/65">{rating ? (rating.rating === 'like' ? `You liked this ${w.noun}. Batkle makes more like it.` : `You disliked this ${w.noun}. Batkle steers away from it.`) : `Like or dislike this ${w.noun}: Batkle learns what to make next.`}</p>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-center bg-[#0C0B10] px-3 py-5 sm:px-5">

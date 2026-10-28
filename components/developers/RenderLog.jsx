@@ -78,7 +78,7 @@ function RenderRow({ render, onApprove, onDelete, origin }) {
           <a href={url} target="_blank" rel="noreferrer" className={appButton('primary', 'md')}><ExternalLink className="size-4" />Open</a>
         </>}
       >
-        <img src={`/api/rendered/${render.id}`} alt="Rendered post" className="w-full rounded-xl border border-bk-line" />
+        <img src={`/api/rendered/${render.id}`} alt="Rendered post" className="w-full rounded-xl bg-bk-surface shadow-bk-card" />
       </Popup>
     </li>
   )

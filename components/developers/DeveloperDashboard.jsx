@@ -141,7 +141,7 @@ function CreditsCard({ data }) {
   ]
   return (
     <Card title="Credits" description="Every image the API renders costs one credit. Failed requests are refunded.">
-      <ul className="divide-y divide-bk-line rounded-xl border border-bk-line">
+      <ul className="divide-y divide-bk-line rounded-xl bg-bk-surface shadow-bk-card">
         {costs.map(([label, cost, note]) => (
           <li key={label} className="flex items-baseline justify-between gap-3 px-3.5 py-2.5 text-[13px]">
             <span><span className="font-semibold">{label}</span><span className="block text-[12px] text-bk-muted">{note}</span></span>

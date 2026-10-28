@@ -96,7 +96,10 @@ export async function handleUpdateFlow(db: any, flowId: string, body: any, owner
       const existing=current?.brandContext?.designs||[]
       const incoming=(body.brandContext.designs||[]).filter((d:any)=>d.source!=='global')
       const designs=[...existing,...incoming.filter((d:any)=>!existing.some((e:any)=>e.id===d.id))]
-      body={...body,brandContext:withMinimumBrandDesigns({...body.brandContext,designs})}
+      // The brand's own posts are saved by POST /api/brand-posts only, so a tab opened before a change cannot undo it.
+      const {postExamples:_sent,...sent}=body.brandContext
+      const postExamples=current?.brandContext?.postExamples
+      body={...body,brandContext:withMinimumBrandDesigns({...sent,designs,...(postExamples?{postExamples}:{})})}
     }
     const result = await db.collection('flows').findOneAndUpdate(
       { id: flowId, ownerId },

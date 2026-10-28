@@ -180,8 +180,8 @@ function loadStorage({ r2 = false, bucket = fakeR2(), env = r2 ? { ...R2_ENV } :
 /** The real saveUpload without R2: bytes go into the fake database as a BSON Binary, as in production without R2. */
 const saveUpload = (...args) => loadStorage().uploadStore.saveUpload(...args)
 
-/** The real plans and billing account code (requireUploadRoom, uploadUsage, billingErrorBody), for a memoryDb. */
-const loadBilling = () => new Function('randomUUID', source('lib/billing/plans.ts') + source('lib/billing/account.ts') + ';return { requireUploadRoom, uploadUsage, billingErrorBody, PLANS }')(randomUUID)
+/** The real plans and billing account code (billingErrorBody, PLANS), for a memoryDb. */
+const loadBilling = () => new Function('randomUUID', source('lib/billing/plans.ts') + source('lib/billing/account.ts') + ';return { billingErrorBody, PLANS }')(randomUUID)
 
 /** NextResponse as the handlers use it: a body, a status and plain headers. */
 class FakeResponse {
@@ -189,21 +189,24 @@ class FakeResponse {
   static json(body, init = {}) { return new FakeResponse(body, init) }
 }
 
+/** The real gallery test: AI cutouts only, and only good ones (lib/services/generatedAssetLibrary.ts). */
+const isGalleryCutout = new Function('createHash', source('lib/services/generatedAssetLibrary.ts') + ';return isGalleryCutout')(require('node:crypto').createHash)
+
 /**
- * The three upload handlers (editor, gallery, post photos), the sign handler and the two delete handlers, wired to
- * `storage` (loadStorage) and the given plan check. Vision and description calls are replaced; images are kept as sent.
+ * The two upload handlers (editor, post photos), the sign handler, the gallery's list and delete handlers and the post
+ * photo delete handler, wired to `storage` (loadStorage). Vision calls are replaced; images are kept as sent.
  */
-function loadUploadHandlers({ storage = loadStorage(), requireUploadRoom = async () => {}, compactImage = keepImage } = {}) {
+function loadUploadHandlers({ storage = loadStorage(), compactImage = keepImage } = {}) {
   const store = storage.uploadStore, quiet = { log() {}, warn() {}, error() {} }
-  const editor = new Function('NextResponse', 'uuidv4', 'corsify', 'getBaseUrl', 'MAX_IMAGE_SIZE', 'compactImage', 'loadUpload', 'DIRECT_UPLOAD_MAX_BYTES', 'DIRECT_UPLOAD_TYPES', 'UPLOAD_PURPOSES', 'createPendingUpload', 'saveUpload', 'withDirectUpload', 'r2Configured', 'requireUploadRoom', 'console',
+  const editor = new Function('NextResponse', 'uuidv4', 'corsify', 'getBaseUrl', 'MAX_IMAGE_SIZE', 'compactImage', 'loadUpload', 'DIRECT_UPLOAD_MAX_BYTES', 'DIRECT_UPLOAD_TYPES', 'UPLOAD_PURPOSES', 'createPendingUpload', 'saveUpload', 'withDirectUpload', 'r2Configured', 'console',
     source('lib/handlers/uploadHandlers.ts') + ';return { handleUploadImage, handleSignUpload, handleGetUpload }')(
-    FakeResponse, randomUUID, x => x, () => 'https://batkle.test', 6 * 1024 * 1024, compactImage, storage.uploadCache.loadUpload, store.DIRECT_UPLOAD_MAX_BYTES, store.DIRECT_UPLOAD_TYPES, store.UPLOAD_PURPOSES, store.createPendingUpload, store.saveUpload, store.withDirectUpload, storage.objectStore.r2Configured, requireUploadRoom, quiet)
-  const gallery = new Function('NextResponse', 'uuidv4', 'sharp', 'corsify', 'getBaseUrl', 'analyseImageBuffer', 'indexAssetDescription', 'compactImage', 'DIRECT_UPLOAD_MAX_BYTES', 'saveUpload', 'withDirectUpload', 'requireUploadRoom', 'console',
-    source('lib/handlers/assetHandlers.ts') + ';return { handleUploadAsset, handleDeleteAsset, parseDataUrl, storeImageBytes, newAssetId, releaseUploads }')(
-    FakeResponse, randomUUID, sharp, x => x, () => 'https://batkle.test', async () => ({ tags: ['photo'] }), async description => ({ description }), compactImage, store.DIRECT_UPLOAD_MAX_BYTES, store.saveUpload, store.withDirectUpload, requireUploadRoom, quiet)
-  const post = new Function('NextResponse', 'sharp', 'corsify', 'parseDataUrl', 'storeImageBytes', 'newAssetId', 'releaseUploads', 'describePostImage', 'POST_IMAGE_SOURCE', 'requireUploadRoom', 'DIRECT_UPLOAD_MAX_BYTES', 'withDirectUpload', 'console',
+    FakeResponse, randomUUID, x => x, () => 'https://batkle.test', 6 * 1024 * 1024, compactImage, storage.uploadCache.loadUpload, store.DIRECT_UPLOAD_MAX_BYTES, store.DIRECT_UPLOAD_TYPES, store.UPLOAD_PURPOSES, store.createPendingUpload, store.saveUpload, store.withDirectUpload, storage.objectStore.r2Configured, quiet)
+  const gallery = new Function('NextResponse', 'uuidv4', 'sharp', 'corsify', 'indexAssetDescription', 'compactImage', 'saveUpload', 'isGalleryCutout', 'console',
+    source('lib/handlers/assetHandlers.ts') + ';return { handleListAssets, handleDeleteAsset, parseDataUrl, storeImageBytes, newAssetId, releaseUploads }')(
+    FakeResponse, randomUUID, sharp, x => x, async description => ({ description }), compactImage, store.saveUpload, isGalleryCutout, quiet)
+  const post = new Function('NextResponse', 'sharp', 'corsify', 'parseDataUrl', 'storeImageBytes', 'newAssetId', 'releaseUploads', 'describePostImage', 'POST_IMAGE_SOURCE', 'DIRECT_UPLOAD_MAX_BYTES', 'withDirectUpload', 'console',
     source('lib/handlers/postImageHandler.ts') + ';return { handleUploadPostImage, handleDeletePostImage }')(
-    FakeResponse, sharp, x => x, gallery.parseDataUrl, gallery.storeImageBytes, gallery.newAssetId, gallery.releaseUploads, async () => ({ description: 'A shop front.', tags: ['shop'] }), 'post_upload', requireUploadRoom, store.DIRECT_UPLOAD_MAX_BYTES, store.withDirectUpload, quiet)
+    FakeResponse, sharp, x => x, gallery.parseDataUrl, gallery.storeImageBytes, gallery.newAssetId, gallery.releaseUploads, async () => ({ description: 'A shop front.', tags: ['shop'] }), 'post_upload', store.DIRECT_UPLOAD_MAX_BYTES, store.withDirectUpload, quiet)
   return { ...editor, ...gallery, ...post }
 }
 

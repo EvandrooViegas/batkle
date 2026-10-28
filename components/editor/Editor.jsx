@@ -2217,7 +2217,7 @@ export default function Editor() {
               </LayerMenu>
 
               <div className="pointer-events-none absolute bottom-3 right-3 z-10">
-                <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border border-bk-line bg-bk-surface/95 p-1 shadow-bk-card backdrop-blur">
+                <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl bg-bk-surface/95 p-1 shadow-bk-card backdrop-blur">
                   <IconButton label={snapping ? 'Snapping on: layers line up with each other and the slide' : 'Snapping off'} side="top" className="size-7" active={snapping} onClick={toggleSnapping}><Magnet /></IconButton>
                   <span className="mx-0.5 h-4 w-px bg-bk-line" />
                   <IconButton label={`Zoom out (${mod}−)`} side="top" className="size-7" onClick={() => zoomBy(0.8)}><Minus /></IconButton>

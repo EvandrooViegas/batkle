@@ -7,9 +7,10 @@ import { randomUUID } from 'node:crypto'
 import { loadGenerationBrandContext, EXTRACTED_CONTEXT_RULES } from '@/lib/services/generationBrandContext'
 import { postLanguage, languageIssues } from '@/lib/services/contentLanguage'
 import { inventedFigures } from '@/lib/services/copyFacts'
-import { chooseAngle, ideaHistory, topicSimilarity, ideaOutline, outlineIssue, recurringSubjects, mentionsSubject, lengthOf, type CarouselLength } from '@/lib/services/contentAngles'
+import { chooseAngle, ideaHistory, topicSimilarity, ideaOutline, outlineIssue, recurringSubjects, mentionsSubject, lengthOf, HOOK_SHAPES, hookChoiceBlock, hookRepeats, hookSubjectIssue, callsOutReader, aiTells, type CarouselLength } from '@/lib/services/contentAngles'
 import { readIdeaRequest, ideaRequestBlock, formatRule, finalFormat, readSlideCount, slideCountRule, fitOutline, readLanguageChoice, IDEA_REQUEST_RULE, type FormatChoice } from '@/lib/services/ideaRequest'
 import { postImageIds, prepareIdeaImages, postImagesBlock } from '@/lib/services/postImages'
+import { feedbackBlock } from '@/lib/services/postFeedback'
 
 const SYSTEM_PROMPT = `You are an expert Instagram content strategist.
 
@@ -62,15 +63,24 @@ For every idea, return the following fields:
 
 "format": "single" for one visual, "carousel" for multiple slides. Use "carousel" when the topic requires explanation, steps, lists, comparisons, storytelling, or multiple pieces of information. Use "single" when one strong message suffices.
 
-"topic": The specific subject of the post. Must be specific enough that another AI can write the complete post without guessing.
+"topic": The specific subject of the post, for ONE kind of reader. Must be specific enough that another AI can write the complete post without guessing. Never a subject for several industries or customer types at once ("for construction, fintech and local service brands").
 
-"hook": The headline that makes the right reader stop: 5-14 words, concise and direct, so the target audience knows in one second that the post is for them and everyone else scrolls on. It names who the post is for, or a moment they live, a mistake they make or a belief they hold, with one concrete detail (a real action, place, word or month) rather than abstractions. Shapes that work: call out the reader and their situation ("Landlords who heard about the leak from the tenant downstairs"), a scene they know ("POV: the kitchen renovation was meant to take three weeks. It's month four."), correcting a belief ("A bigger website is not a better website."), naming the struggle and siding with the reader ("No time to cook on weeknights? Makes sense."), the costly mistake ("The most expensive renovation mistake: choosing the tiles before the plan."), or a specific promise the post delivers. These examples come from other businesses and only show the shape: never reuse their words; write the hook in the output language about this brand. It is never a title or label ("Our methodology", "About us") and never clickbait: the post must deliver what it promises.
+"hook": The headline on the post: 5-14 words that make the right reader stop AND keep reading. Two tests, both required:
+  1. Clear on its own: someone who sees only the hook, scrolling past, knows what the post is about (the service, the product, the problem it solves or the result) without reading the caption. "Your feed repeats the same post style three days straight." fails: it never says what is offered or explained. Put the subject in the hook.
+  2. A reason to read on: a benefit they want, a problem they recognise, a surprising fact, a mistake to avoid, or a promise the slides keep.
+  Choose the way in that fits the topic best (see HOW TO OPEN), on one concrete detail (a real action, place, object, number from the profile or month) rather than abstractions. It sounds like a person who does this work talking, not like an advert: no slogans, no rhetorical "Want to…?", no "turn X into Y". Write it in the output language about this brand. It is never a title or label ("Our methodology", "About us") and never clickbait: the post must deliver what it promises.
+
+"hookOptions": Three different candidate hooks for this idea, each a different way in. "hook" is the strongest of them: the one that best passes both tests.
+
+"hookShape": The id of the way the hook opens (scene, belief, mistake, question, result, story, contrast or callout).
+
+"hookSubject": In 3-8 words, what someone who reads only the hook understands the post is about (for example "a free roof inspection in Porto"). It must be in the hook's own words; if it is not, rewrite the hook.
 
 "coreMessage": The ONE main idea the audience should understand after seeing the post. 1-3 sentences. Do not write the full post here.
 
 "outline": For a carousel, the plan of every slide in order: one short line per slide saying what that slide covers (not its final wording). The first line is the cover hook, the last is the closing slide (the takeaway that answers the hook, plus the reader's next step in a few words, such as sending a message, saving or sharing), and every line in between is ONE point on the same topic that moves the story forward, so the whole carousel stays on one subject. The number of lines comes from the material: 3-4 for one sharp insight, 5-6 for an explanation, 7-10 for a process, checklist or story. Never pad to a fixed count. For a single post, return an empty array.
 
-"targetAudience": Who this specific post is for, in the reader's own terms and situation (for example "shop owners who post on Instagram when they find the time"), specific enough that the hook can speak to them directly.
+"targetAudience": The ONE kind of reader this post is for, in their own terms and situation (for example "shop owners who post on Instagram when they find the time"), never a list of industries or customer types. It guides the words and the details; the hook does not have to name them.
 
 "visualDirection": How the content could be visually communicated. Describe the visual approach type, not exact positions or dimensions.
 
@@ -135,7 +145,10 @@ const IDEA_JSON_SHAPE = `Return exactly this JSON structure:
       "objective": "Educate potential clients about an important problem",
       "format": "carousel",
       "topic": "Specific topic of the post",
-      "hook": "Headline that tells the target reader at once the post is for them",
+      "hookOptions": ["A first way in", "A second, different way in", "A third"],
+      "hook": "The strongest option: says what the post is about and gives a reason to read on",
+      "hookShape": "scene",
+      "hookSubject": "What the hook alone tells the reader the post is about",
       "coreMessage": "The main idea the audience should understand",
       "outline": ["Cover: the hook", "One point on the same topic", "The next point", "Closing: the takeaway that answers the hook, and the next step"],
       "targetAudience": "Specific audience for this post",
@@ -165,10 +178,16 @@ export async function handleGenerateContentIdeas(body: any, db: any) {
 
     const brandJson = JSON.stringify(compactBrand(brandContext))
     // History is the saved flow's ideas plus whatever the open page sends, so repetition is judged on everything.
-    let saved: any[] = []
+    // The owner's likes and dislikes of recent posts come with it (lib/services/postFeedback.ts).
+    let saved: any[] = [], ratings: any[] = []
     if (brandContext.id && db) {
-      try { saved = (await db.collection('flows').findOne({ id: brandContext.id }, { projection: { 'creationState.ideas': 1 } }))?.creationState?.ideas || [] } catch {}
+      try {
+        const flow = await db.collection('flows').findOne({ id: brandContext.id }, { projection: { 'creationState.ideas': 1, postFeedback: 1 } })
+        saved = flow?.creationState?.ideas || []
+        ratings = flow?.postFeedback || []
+      } catch {}
     }
+    const rated = feedbackBlock(ratings, 'ideas')
     const history = ideaHistory(body.existingIdeas, saved, body.existingTopics)
     // Settings chosen in the composer for this post; each falls back to Auto (the brand's language, the content's length).
     const languageChoice = readLanguageChoice(body.language)
@@ -205,6 +224,8 @@ ${slideCount ? lengthLine : length && formatChoice !== 'single' ? `- Length if i
       ? buildRequestPrompt(brandJson, request, formatChoice, formatReason) + (lengthLine ? `\n${lengthLine}` : '')
       : buildUserPrompt(brandJson) + angleBlock
         + (previous ? `\nPREVIOUS IDEAS (the new idea must cover a clearly different subject and angle, not a rewording):\n${previous}\n` : ''))
+      + `\n${hookChoiceBlock(history)}\n`
+      + (rated ? `\n${rated}\n` : '')
       + avoidBlock
       + asideBlock
       + (images.length ? `\n${postImagesBlock(images)}\n` : '')
@@ -292,6 +313,10 @@ ${slideCount ? lengthLine : length && formatChoice !== 'single' ? `- Length if i
       const repeated=avoid.filter(subject=>mentionsSubject([idea.topic,idea.hook,idea.coreMessage,...outline].join(' \n '),subject))
       if(repeated.length)problems.push(`it mentions ${repeated.join(', ')}, which the brand's recent ideas already centred on; build it on other details from the brand information`)
       const offAngle=aside.filter(subject=>mentionsSubject([idea.topic,idea.hook].join(' \n '),subject))
+      // How it opens is the model's choice; only an opening that repeats a recent post's is sent back.
+      problems.push(...hookRepeats(String(idea.hook||''),history),...hookSubjectIssue(String(idea.hook||''),String(idea.hookSubject||'')))
+      const tells=aiTells([idea.topic,idea.hook,idea.coreMessage])
+      if(tells.length)problems.push(`it sounds machine-written (${tells.join(', ')}); say it plainly, the way someone who does the work would`)
       if(offAngle.length)problems.push(`its topic or hook is about ${offAngle.join(', ')}, but the angle is "${angle!.facet.label}"; keep the topic and hook on the angle and leave ${offAngle.join(', ')} to a detail at most`)
       if(!problems.length||attempt===1){ if(problems.length)console.warn('[content-ideas] accepted after retry with:',problems.join('; ')); break }
       feedback=problems.join('; ')
@@ -310,7 +335,7 @@ ${slideCount ? lengthLine : length && formatChoice !== 'single' ? `- Length if i
     // `avoid` travels with the brief, so the copywriter leaves the same subjects out of the post, and `aside` keeps
     // the post's headlines off the terms the idea is not about. The composer's
     // slide count and language travel with it too, so rebuilds keep them.
-    return corsify(NextResponse.json({ideas:[{...brief,id:ideaId,format:ideaFormat,...(outline.length?{outline}:{}),...(slideCount&&ideaFormat==='carousel'?{slideCount}:{}),...(languageChoice?{languageChoice}:{}),...(angle?{angle:{pillar:angle.pillar,facet:angle.facet.label,kind:angle.facet.kind}}:{}),...(avoid.length?{avoid}:{}),...(aside.length?{aside}:{}),...(request?{userRequest:request}:{}),...(images.length?{images:images.map(({ref,...image})=>image)}:{})}]}))
+    return corsify(NextResponse.json({ideas:[{...brief,id:ideaId,format:ideaFormat,hookShape:HOOK_SHAPES.some(shape=>shape.id===brief.hookShape)?brief.hookShape:callsOutReader(String(brief.hook||''))?'callout':undefined,...(outline.length?{outline}:{}),...(slideCount&&ideaFormat==='carousel'?{slideCount}:{}),...(languageChoice?{languageChoice}:{}),...(angle?{angle:{pillar:angle.pillar,facet:angle.facet.label,kind:angle.facet.kind}}:{}),...(avoid.length?{avoid}:{}),...(aside.length?{aside}:{}),...(request?{userRequest:request}:{}),...(images.length?{images:images.map(({ref,...image})=>image)}:{})}]}))
   } catch (error: any) {
     console.error('Content ideas generation error:', error)
     return corsify(

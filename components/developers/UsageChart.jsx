@@ -114,7 +114,7 @@ export default function UsageChart({ series, field = 'credits', title = 'Credits
 
       <details className="mt-4 text-[13px]">
         <summary className="cursor-pointer select-none font-semibold text-bk-muted hover:text-bk-fg">Show as a table</summary>
-        <div className="mt-2 max-h-72 overflow-auto rounded-xl border border-bk-line">
+        <div className="mt-2 max-h-72 overflow-auto rounded-xl bg-bk-surface shadow-bk-card">
           <table className="w-full text-left text-[12.5px]">
             <thead className="sticky top-0 bg-bk-surface text-bk-muted">
               <tr><th className="px-3 py-2 font-semibold">Day</th>{columns.map(c => <th key={c.key} className="px-3 py-2 text-right font-semibold">{c.label}</th>)}</tr>

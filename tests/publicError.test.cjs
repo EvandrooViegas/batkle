@@ -2,9 +2,9 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const { stripTypeScriptTypes } = require('node:module')
-const { publicMessage, BUSY_MESSAGE, UNAVAILABLE_MESSAGE, FAILED_MESSAGE, COPY_FAILED_MESSAGE } = new Function(
+const { publicMessage, BUSY_MESSAGE, UNAVAILABLE_MESSAGE, FAILED_MESSAGE, COPY_FAILED_MESSAGE, TOO_LARGE_MESSAGE } = new Function(
   stripTypeScriptTypes(fs.readFileSync('lib/services/publicError.ts', 'utf8').replace(/export /g, ''))
-  + ';return {publicMessage,BUSY_MESSAGE,UNAVAILABLE_MESSAGE,FAILED_MESSAGE,COPY_FAILED_MESSAGE}',
+  + ';return {publicMessage,BUSY_MESSAGE,UNAVAILABLE_MESSAGE,FAILED_MESSAGE,COPY_FAILED_MESSAGE,TOO_LARGE_MESSAGE}',
 )()
 
 test('provider accounts, keys and billing never reach people', () => {
@@ -57,4 +57,10 @@ test('messages written for people pass unchanged', () => {
     'Each reference must be under 6 MB.',
     'Your changes could not be saved',
   ]) assert.equal(publicMessage(message, 400), message)
+})
+
+test('a request larger than the AI plan takes at once says so, without naming the provider', () => {
+  const message = 'The request is larger than your Groq plan allows for openai/gpt-oss-120b (this request needed about 10993 input tokens; the limit is 8000 per minute). Use fewer or smaller inputs, choose a model with a higher limit, or upgrade the Groq plan.'
+  assert.equal(publicMessage(message, 413), TOO_LARGE_MESSAGE)
+  assert.ok(!/groq/i.test(TOO_LARGE_MESSAGE))
 })

@@ -10,8 +10,8 @@ import { forgetUpload, storedBytes } from './uploadCache'
  * before. Images keep their address either way (/api/uploads/<id>, /api/rendered/<id>), and posts store those
  * addresses, so where the bytes live never shows.
  *
- * Every upload record has `size` (stored bytes). The person's own images also have `ownerId` and `userUpload: true`,
- * which is what their plan's uploads allowance counts (uploadUsage in lib/billing/account.ts).
+ * Every upload record has `size` (stored bytes). The person's own images also have `ownerId` and `userUpload: true`
+ * (photos added to a post and images added in the editor); plans set no limit on them.
  */
 
 export interface NewUpload {
@@ -20,7 +20,7 @@ export interface NewUpload {
   contentType: string
   /** The account the image belongs to. */
   ownerId?: string | null
-  /** True for the person's own images, which count against their plan. */
+  /** True for the person's own images. */
   userUpload?: boolean
   purpose?: string
   [field: string]: unknown
@@ -109,13 +109,12 @@ export async function deleteRender(db: any, id: string) {
 
 // ─── Direct uploads: browser → R2, past the host's 4.5 MB limit on requests ─────────────────────────────────────
 
-export type UploadPurpose = 'gallery' | 'post-image' | 'editor'
-export const UPLOAD_PURPOSES: UploadPurpose[] = ['gallery', 'post-image', 'editor']
+export type UploadPurpose = 'post-image' | 'editor'
+export const UPLOAD_PURPOSES: UploadPurpose[] = ['post-image', 'editor']
 /** The largest image the browser may send straight to R2. */
 export const DIRECT_UPLOAD_MAX_BYTES = 25 * 1024 * 1024
 /** Image types each kind of upload takes. Post photos are photographs only. */
 export const DIRECT_UPLOAD_TYPES: Record<UploadPurpose, string[]> = {
-  gallery: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'],
   editor: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'],
   'post-image': ['image/jpeg', 'image/png', 'image/webp'],
 }
@@ -138,7 +137,7 @@ function ensurePendingIndexes(db: any) {
 
 /**
  * Starts a direct upload: records who may use it, for what and until when, and answers a presigned PUT for
- * incoming/<id>. The caller has already checked the type, the size and the plan's room.
+ * incoming/<id>. The caller has already checked the type and the size.
  */
 export async function createPendingUpload(db: any, pending: { ownerId: string; purpose: UploadPurpose; brand_id?: string | null; contentType: string; size: number }) {
   await ensurePendingIndexes(db)

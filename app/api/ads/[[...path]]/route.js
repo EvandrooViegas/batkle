@@ -4,6 +4,7 @@ import { requireUserId } from '@/lib/auth'
 import { publicMessage } from '@/lib/services/publicError'
 import { billingErrorBody } from '@/lib/billing/account'
 import { handleBuildAd, handleDeleteAd, handleListAds, handlePlanAd, handleUpdateAdCopy } from '@/lib/handlers/adHandlers'
+import { requireBrandAccess, sharedLimitAnswer } from '@/lib/teams'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,14 +23,36 @@ export const maxDuration = 120
 async function handle(request, { params }) {
   const path = params?.path || []
   const method = request.method
+  // In a brand shared with the account, ads are the brand owner's and made on the owner's plan and credits; a plan
+  // limit met there says whose plan it is (sharedLimitAnswer).
+  const acting = {}
+  return sharedLimitAnswer(acting.db, await route(request, path, method, acting), acting.ownerId)
+}
+
+async function route(request, path, method, acting) {
   try {
     const userId = await requireUserId()
     const db = await connectToMongo()
-    if (!path.length && method === 'GET') return await handleListAds(db, userId, new URL(request.url).searchParams.get('flowId'))
-    if (path[0] === 'plan' && method === 'POST') return await handlePlanAd(db, userId, await request.json())
-    if (path[0] === 'build' && method === 'POST') return await handleBuildAd(db, userId, await request.json())
-    if (path.length === 1 && method === 'PATCH') return await handleUpdateAdCopy(db, userId, path[0], await request.json())
-    if (path.length === 1 && method === 'DELETE') return await handleDeleteAd(db, userId, path[0])
+    const brandOwner = async (flowId, need) => {
+      const owner = (await requireBrandAccess(db, userId, [flowId], need)) || userId
+      if (owner !== userId) Object.assign(acting, { db, ownerId: owner })
+      return owner
+    }
+    const adOwner = async id => {
+      const ad = await db.collection('ads').findOne({ id }, { projection: { _id: 0, ownerId: 1, flowId: 1 } })
+      return ad && ad.ownerId !== userId && (await brandOwner(ad.flowId, 'editor')) === ad.ownerId ? ad.ownerId : userId
+    }
+    if (!path.length && method === 'GET') {
+      const flowId = new URL(request.url).searchParams.get('flowId')
+      return await handleListAds(db, await brandOwner(flowId, 'viewer'), flowId)
+    }
+    if ((path[0] === 'plan' || path[0] === 'build') && method === 'POST') {
+      const body = await request.json()
+      const owner = await brandOwner(body?.flowId, 'editor')
+      return await (path[0] === 'plan' ? handlePlanAd(db, owner, body) : handleBuildAd(db, owner, body))
+    }
+    if (path.length === 1 && method === 'PATCH') return await handleUpdateAdCopy(db, await adOwner(path[0]), path[0], await request.json())
+    if (path.length === 1 && method === 'DELETE') return await handleDeleteAd(db, await adOwner(path[0]), path[0])
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   } catch (error) {
     // Plan limits keep their code, so the page can offer the upgrade.

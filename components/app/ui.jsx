@@ -42,8 +42,18 @@ export const displayClass = 'font-bk-display font-bold tracking-[-0.04em]'
 export const pageShell = 'px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pt-8'
 export const pageInner = 'mx-auto max-w-[1160px]'
 
-/** A white card on the app background. */
-export const panelClass = 'rounded-2xl border border-bk-line bg-bk-surface'
+/**
+ * A raised surface: white on the app background (lifted in dark mode) with Batkle's card shadow, which in dark mode
+ * also draws a faint highlight along the inner top edge. The page you are on in the sidebar, its cards and the
+ * Brand profile's sections all use it.
+ */
+export const raisedClass = 'bg-bk-surface shadow-bk-card'
+
+/**
+ * A card on the app background: the raised surface with rounded corners. No hairline border: every card, box and the
+ * sidebar share the card shadow's edge, so containers look the same across the app.
+ */
+export const panelClass = 'rounded-2xl bg-bk-surface shadow-bk-card'
 
 /** Title block of a brand page: eyebrow, heading, optional lead and actions on the right. */
 export function PageHeader({ eyebrow, title, description, actions, className = '' }) {
@@ -86,7 +96,7 @@ export function SegmentedTabs({ items, value, onChange, label, className = '' })
 /** A short status line: info, warning or error. */
 export function Notice({ tone = 'info', className = '', children }) {
   const tones = {
-    info: 'border-bk-line bg-bk-surface text-bk-fg/85',
+    info: 'border-transparent bg-bk-surface text-bk-fg/85 shadow-bk-card',
     warning: 'border-[#F2A900]/40 bg-[#F2A900]/[0.08] text-bk-fg',
     error: 'border-[#C2412F]/30 bg-[#C2412F]/[0.06] text-[#8F2D20] dark:text-[#F0826F]',
     success: 'border-[#1F7A5A]/25 bg-[#1F7A5A]/[0.07] text-[#17583F] dark:text-[#4CC79A]',

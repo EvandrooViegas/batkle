@@ -4,7 +4,7 @@ const {stripTypeScriptTypes} = require('node:module')
 const source = stripTypeScriptTypes(require('node:fs').readFileSync('lib/handlers/copywritingHandler.ts','utf8').replace(/^import .*$/gm,'').replace(/export /g,''))
 const valid = {format:'single',headline:'Supported headline',caption:'Supported caption'}
 const strategyLoad = p => stripTypeScriptTypes(require('node:fs').readFileSync(p,'utf8').replace(/^import .*$/gm,'').replace(/export /g,''))
-const strategy = new Function(strategyLoad('lib/services/contentLanguage.ts') + strategyLoad('lib/services/copyFacts.ts') + strategyLoad('lib/services/contentAngles.ts') + ';return {postLanguage,contentLanguage,languageIssues,copyTexts,withModernSpelling,inventedFigures,mentionsSubject}')()
+const strategy = new Function(strategyLoad('lib/services/contentLanguage.ts') + strategyLoad('lib/services/copyFacts.ts') + strategyLoad('lib/services/contentAngles.ts') + strategyLoad('lib/services/postFeedback.ts') + ';return {postLanguage,contentLanguage,languageIssues,copyTexts,withModernSpelling,inventedFigures,mentionsSubject,hookIssues,aiTells,resultClaims,unbackedPromises,cutMachinePhrases,feedbackBlock,loadPostFeedback}')()
 function setup(outputs, catalog = ['canopylabs/orpheus-v1-english','llama-3.3-70b-versatile'], idea = {format:'single'}) {
  const requests=[]
  const run = new Function('Groq','process','loadGenerationBrandContext','EXTRACTED_CONTEXT_RULES','compactBrand','budgetedModels','budgetedCompletion','NextResponse','corsify','cleanCopy','retrySeconds',...Object.keys(strategy),source+';return handleGenerateCopywriting')(
@@ -161,4 +161,14 @@ test('a closing headline that repeats the call to action at its end keeps only t
   assert.equal(withoutTrailingCta('Reative o seu Instagram hoje'), 'Reative o seu Instagram hoje')
   assert.equal(withoutTrailingCta('Pronto – fale connosco'), 'Pronto – fale connosco')
   assert.equal(withoutTrailingCta('Fale connosco sobre o seu projeto'), 'Fale connosco sobre o seu projeto')
+})
+
+test('a machine phrase that can be cut cleanly is cut in code, so it costs no retry', async () => {
+ const written = { format: 'single', headline: 'Translations lose your tone', subheadline: 'Copy', body: 'Most brands translate from English. The result is clunky wording that sounds borrowed.', cta: 'Try Batkle', caption: 'Writing in a second language shows. Want to see it in action? Batkle writes in European Portuguese from your site.' }
+ const { run, requests } = setup([written])
+ const result = await run()
+ assert.equal(result.status, 200)
+ assert.equal(requests.length, 1, 'no retry for a phrase cut in code')
+ assert.equal(result.body.body, 'Most brands translate from English. Clunky wording that sounds borrowed.')
+ assert.equal(result.body.caption, 'Writing in a second language shows. Batkle writes in European Portuguese from your site.')
 })

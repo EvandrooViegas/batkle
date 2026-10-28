@@ -4,11 +4,17 @@ import { loadAccount, requireUserId } from '@/lib/auth'
 import { getBillingSummary, loadBilling } from '@/lib/billing/account'
 import { CREDIT_PACK, NEWSLETTER_DISCOUNT, PLANS, PLAN_IDS, TRIAL } from '@/lib/billing/plans'
 import { billingErrorResponse, createCheckoutSession, createPortalSession, paymentsConfigured, readPurchase } from '@/lib/billing/stripe'
+import { brandRole } from '@/lib/teams'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const noStore = { 'Cache-Control': 'no-store' }
+
+async function ownerName(db, userId) {
+  const user = await db.collection('users').findOne({ id: userId }, { projection: { _id: 0, name: 1, email: 1 } })
+  return user?.name || String(user?.email || '').split('@')[0] || 'The brand’s owner'
+}
 
 /**
  * The signed-in account's plan and payments:
@@ -29,7 +35,14 @@ async function handle(request, { params }) {
     const db = await connectToMongo()
 
     if (!path.length && method === 'GET') {
-      const summary = await getBillingSummary(db, userId)
+      // Inside a brand shared with the account (?flowId=), posts are made on the brand owner's plan and credits: the
+      // summary is the owner's, without their admin rights, with `sharedBy` naming them. Paying stays the account's own.
+      const flowId = new URL(request.url).searchParams.get('flowId')
+      const access = flowId ? await brandRole(db, userId, flowId) : null
+      const shared = access && access.role !== 'owner'
+      const summary = shared
+        ? { ...(await getBillingSummary(db, access.ownerId)), admin: false, sharedBy: await ownerName(db, access.ownerId), role: access.role }
+        : await getBillingSummary(db, userId)
       const account = await loadBilling(db, userId)
       const configured = paymentsConfigured()
       return NextResponse.json({
