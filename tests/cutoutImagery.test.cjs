@@ -79,6 +79,21 @@ test('a photo slot filled with a generated cutout is composed as a cutout, and a
   assert.match(missing.validation.warnings.join(' '), /no fitting image was available \(quota\)/)
 })
 
+test('a last slide whose image could not be made ends on the closing arrangement, without a blank frame', () => {
+  const forest = family(FOREST_IMAGERY)
+  const pictured = { ...copy, slides: copy.slides.map((s, i, all) => i === all.length - 1 ? { ...s, design: { composition: 'stacked', image: { subject: 'handshake over a desk' } } } : s) }
+  const layout = generation.globalLayoutPlan(forest, 'global-forest', pictured)
+  assert.equal(layout.slots.at(-1).needs_visual, true, 'the writer gave the closing slide a subject, so an image was planned')
+  // Both AI providers drew only the backdrop and no stock photo matched (assetResolverHandler).
+  const resolved = { slots: layout.slots.map((s, i) => ({ slot_id: s.slot_id, treatment: s.treatment, resolvedAsset: i === layout.slots.length - 1 || !s.needs_visual ? null : { url: `/api/uploads/gen-${s.slot_id}`, width: 1024, height: 1536, subject: { url: `/api/uploads/cut-${s.slot_id}`, width: 600, height: 900 } }, warning: i === layout.slots.length - 1 ? 'fal: the image showed no subject; Pollinations: the image showed no subject' : null })) }
+  const post = generation.renderGlobalPost(forest, brand, pictured, resolved, { id: 'global-forest' }, crypto.randomUUID)
+  const last = post.pages.at(-1)
+  assert.equal(last.globalComposition, 'closing')
+  assert.equal(last.nodes.some(n => n.type === 'image' && n.designRole === 'image'), false)
+  assert.equal(last.nodes.some(n => /placeholder/.test(n.designRole || '')), false)
+  assert.ok(last.nodes.some(n => n.designRole === 'cta'), 'it still signs off with its call to action')
+})
+
 const photoHelpers = load('lib/services/postImages.ts', ['loadPostImages', 'postImageIds', 'uploadPlanningBlock', 'assignUploads', 'ideaForCopy'], { hydrateBrandFamilies: async () => [], familyImagery: study.familyImagery })
 const { isGalleryCutout } = load('lib/services/generatedAssetLibrary.ts', ['isGalleryCutout'], { createHash: crypto.createHash })
 /** A saved AI cutout as the gallery keeps it. */

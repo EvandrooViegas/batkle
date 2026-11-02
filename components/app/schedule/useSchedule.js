@@ -65,6 +65,17 @@ export function useSchedule(flowId) {
     return entry
   }, [])
 
+  /** Gives a scheduled post another time at once (a drag on the calendar), and puts it back when that can't be saved. */
+  const move = useCallback(async (entry, scheduledAt) => {
+    put({ ...entry, scheduledAt })
+    try {
+      return await update(entry.id, { scheduledAt })
+    } catch (error) {
+      put(entry)
+      throw error
+    }
+  }, [update])
+
   const remove = useCallback(async id => {
     await readJson(await fetch(`/api/schedule/${id}`, { method: 'DELETE' }), 'The post could not be removed. Please try again.')
     setEntries(list => list.filter(e => e.id !== id))
@@ -72,5 +83,5 @@ export function useSchedule(flowId) {
 
   const byIdea = useMemo(() => new Map(entries.map(e => [e.ideaId, e])), [entries])
 
-  return { entries, loaded, loadError, byIdea, approve, update, remove, reload: load }
+  return { entries, loaded, loadError, byIdea, approve, update, move, remove, reload: load }
 }

@@ -88,7 +88,11 @@ export function planSlides(family: GlobalDesignFamily, copy: any): SlidePlan[] {
     const frequencyWants = choice === 'on' ? !listy : { every: true, most: index === 0 || (!last && !listy), some: index % 2 === 0 && !last, rare: index === 0, never: false }[g.imagery.frequency]
     // A photo the user attached always shows on its slide, as a photograph, even when images are switched off.
     const upload = hasImagery && !!slide?.design?.image?.upload
-    let wantImage = upload || (choice !== 'off' && hasImagery && (choice === 'on' ? frequencyWants : proposed ? proposed === 'image-led' || proposed === 'split' || (proposed === 'stacked' && (slide?.design?.image ? true : frequencyWants)) : slide?.design?.image === null ? g.imagery.frequency === 'every' : frequencyWants))
+    // The writer leaves the closing slide without an image subject when its call to action stands on its own. It stays
+    // a text slide even when images were asked for: an AI cutout with nothing named to draw comes back as a bare
+    // backdrop, a blank box. Photo-led studies still get a stock photograph there.
+    const noSubject = last && !upload && slide?.design?.image === null && !photoLed
+    let wantImage = !noSubject && (upload || (choice !== 'off' && hasImagery && (choice === 'on' ? frequencyWants : proposed ? proposed === 'image-led' || proposed === 'split' || (proposed === 'stacked' && (slide?.design?.image ? true : frequencyWants)) : slide?.design?.image === null ? g.imagery.frequency === 'every' : frequencyWants)))
     const pool = (image: boolean) => g.compositions.filter(c => image ? IMAGE_CAPABLE.includes(c) : TEXT_ONLY.includes(c))
     if (wantImage && !pool(true).length) wantImage = false
     // The references' own arrangements come first: list slides follow the list reference, the closing beat the last
@@ -100,14 +104,14 @@ export function planSlides(family: GlobalDesignFamily, copy: any): SlidePlan[] {
       : listy && refs.some(r => r.composition === 'list') ? refs.find(r => r.composition === 'list')
       : last && refs.length > 1 ? refs[refs.length - 1]
       : (() => { const rest = refs.filter((r, i) => i > 0 && r.composition !== 'list'); return rest.length ? rest[(index - 1) % rest.length] : refs[index % refs.length] })()
-    const observedFits = !!observed && g.compositions.includes(observed.composition) && (observed.composition !== 'list' || listy) && (!IMAGE_ONLY.includes(observed.composition) || (hasImagery && observed.image && (choice !== 'off' || upload)))
+    const observedFits = !!observed && g.compositions.includes(observed.composition) && (observed.composition !== 'list' || listy) && (!IMAGE_ONLY.includes(observed.composition) || (hasImagery && observed.image && (choice !== 'off' || upload) && !noSubject))
     let composition: Composition
     // Three or more items read better as a designed list (markers, cards) than as a sentence, whatever was proposed.
     if (listItems(slide).length >= 3 && !upload) { composition = 'list'; wantImage = false }
     else if (proposed && (wantImage ? IMAGE_CAPABLE : TEXT_ONLY).includes(proposed)) composition = proposed
     else if (!proposed && observedFits) {
       composition = observed!.composition
-      wantImage = hasImagery && IMAGE_CAPABLE.includes(composition) && (upload || (choice !== 'off' && (observed!.image || choice === 'on')))
+      wantImage = hasImagery && IMAGE_CAPABLE.includes(composition) && (upload || (choice !== 'off' && !noSubject && (observed!.image || choice === 'on')))
     } else {
       const options = pool(wantImage)
       const prefer = (...wanted: Composition[]) => wanted.find(c => options.includes(c))

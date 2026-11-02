@@ -12,8 +12,8 @@ function inZone(zone, run) {
 }
 
 const source = fs.readFileSync('lib/client/schedule.js', 'utf8').replace(/^export /gm, '')
-const schedule = new Function(source + ';return { WEEK_STARTS_ON, dayKey, calendarTime, defaultScheduleView, calendarMonth, slotOnDay, scheduleState, toInputs }')()
-const { calendarMonth, dayKey, slotOnDay } = schedule
+const schedule = new Function(source + ';return { WEEK_STARTS_ON, dayKey, calendarTime, defaultScheduleView, calendarMonth, slotOnDay, moveToDay, scheduleState, toInputs }')()
+const { calendarMonth, dayKey, slotOnDay, moveToDay } = schedule
 
 const keys = month => month.weeks.flat().map(d => d.key)
 const inMonth = month => month.weeks.flat().filter(d => d.inMonth)
@@ -201,6 +201,21 @@ test('a day picked on the calendar starts at 10:00, or at the next sensible hour
   assert.deepEqual(at(slotOnDay(new Date(2026, 9, 25), new Date(2026, 9, 20))), { date: '2026-10-25', time: '10:00' })
   assert.equal(slotOnDay(new Date(2026, 9, 25), new Date(2026, 9, 20)), '2026-10-25T10:00:00.000Z')
   assert.equal(slotOnDay(new Date(2026, 2, 29), new Date(2026, 2, 20)), '2026-03-29T09:00:00.000Z')
+})
+
+test('a scheduled post dragged to another day keeps its time of day, unless that is too soon', () => {
+  const at = iso => schedule.toInputs(iso)
+  const now = new Date(2026, 9, 15, 14, 20)
+  const from = new Date(2026, 9, 17, 18, 45).toISOString()
+  assert.deepEqual(at(moveToDay(new Date(2026, 9, 22), from, now)), { date: '2026-10-22', time: '18:45' })
+  // Today, the time still ahead is kept; one already gone (or under half an hour away) takes today's slot.
+  assert.deepEqual(at(moveToDay(new Date(2026, 9, 15), from, now)), { date: '2026-10-15', time: '18:45' })
+  assert.deepEqual(at(moveToDay(new Date(2026, 9, 15), new Date(2026, 9, 17, 9, 0), now)), { date: '2026-10-15', time: '15:00' })
+  assert.deepEqual(at(moveToDay(new Date(2026, 9, 15), new Date(2026, 9, 17, 14, 40), now)), { date: '2026-10-15', time: '15:00' })
+  // A post that is due (its time has passed) moves to the same time on a later day.
+  assert.deepEqual(at(moveToDay(new Date(2026, 9, 16), new Date(2026, 9, 14, 9, 30), now)), { date: '2026-10-16', time: '09:30' })
+  // Across the clock change the wall time stays.
+  assert.deepEqual(at(moveToDay(new Date(2026, 9, 26), new Date(2026, 9, 20, 18, 0), now)), { date: '2026-10-26', time: '18:00' })
 })
 
 test('day keys are local dates and empty for anything that is not a time', () => {

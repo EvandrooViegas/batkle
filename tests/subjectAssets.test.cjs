@@ -5,7 +5,7 @@ const vm = require('node:vm')
 const sharp = require('sharp')
 const { stripTypeScriptTypes } = require('node:module')
 const source = fs.readFileSync(require('node:path').join(__dirname, '../lib/services/subjectAssets.ts'), 'utf8').replace(/^import .*$/gm, '').replace(/export /g, '')
-const service = vm.runInNewContext(stripTypeScriptTypes(source) + '\n({hydrateSubjectCrops,validateSubject,createSubject,prepareSubjectAssets,cleanSubjectMask,restoreSubjectSurfaces,removeStudioBackground})', {
+const service = vm.runInNewContext(stripTypeScriptTypes(source) + '\n({hydrateSubjectCrops,validateSubject,createSubject,prepareSubjectAssets,cleanSubjectMask,restoreSubjectSurfaces,removeStudioBackground,isEmptyBackdrop})', {
   require, sharp, Buffer, Blob, Uint8Array, URL, console,
   createHash: require('node:crypto').createHash,
   downloadLogo: async () => { throw new Error('offline fixture') },
@@ -116,4 +116,15 @@ test('a complete parcel edge does not compete with the long cropped van edge',as
  const result=await service.validateSubject(png)
  assert.equal(result.cropEdges.right,true)
  assert.equal(result.cropEdges.left,false)
+})
+
+test('a studio shot of the bare backdrop counts as empty; a subject, even a pale one, does not', async () => {
+  const shot = body => sharp(Buffer.from(`<svg width="400" height="300"><defs><linearGradient id="g" x2="1" y2="1"><stop offset="0" stop-color="#e6e6e8"/><stop offset="1" stop-color="#dcdce0"/></linearGradient></defs><rect width="400" height="300" fill="url(#g)"/>${body}</svg>`)).jpeg().toBuffer()
+  // What fal and Pollinations returned for a closing slide with nothing named to draw: the backdrop, faintly shaded.
+  assert.equal(await service.isEmptyBackdrop(await shot('')), true)
+  // A subject far too small to see on the slide is as good as none.
+  assert.equal(await service.isEmptyBackdrop(await shot('<rect x="196" y="146" width="7" height="7" fill="#222"/>')), true)
+  assert.equal(await service.isEmptyBackdrop(await shot('<rect x="110" y="40" width="180" height="220" fill="#7a4b2a"/>')), false)
+  // A white clock on the pale backdrop stands out only by its rim and hands.
+  assert.equal(await service.isEmptyBackdrop(await shot('<circle cx="200" cy="150" r="80" fill="#eeeeee" stroke="#333" stroke-width="5"/><path d="M200 150V90M200 150h45" stroke="#333" stroke-width="5"/>')), false)
 })

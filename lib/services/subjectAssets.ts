@@ -150,6 +150,36 @@ export async function removeStudioBackground(input: Buffer): Promise<Buffer | nu
   return sharp(data, { raw: { width, height, channels: 4 } }).png().toBuffer()
 }
 
+// Below this share of the picture standing out from its backdrop, a studio shot has no subject, or one too small to
+// see (one is asked to fill about three quarters of the frame). White objects on the pale backdrop stand out only by
+// their outlines and measure from about 2.5%, so the line is well under that.
+const EMPTY_SHARE = .01
+
+/**
+ * The share of a picture that stands out from its backdrop (the median colour of its border), measured small. A
+ * studio shot from a model without transparency comes back as the bare backdrop when the prompt names nothing it can
+ * draw; that picture has almost nothing standing out.
+ */
+export async function standingShare(input: Buffer): Promise<number> {
+  const { data, info } = await sharp(input, { limitInputPixels: 16000000 }).resize(160, 160, { fit: 'inside' }).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+  const { width, height } = info, count = width * height
+  const border: number[] = []
+  for (let x = 0; x < width; x++) { border.push(x, (height-1)*width+x) }
+  for (let y = 1; y < height-1; y++) { border.push(y*width, y*width+width-1) }
+  const background = [0,1,2].map(c => {
+    const values = border.map(i => data[i*3+c]).sort((a,b) => a-b)
+    return values[Math.floor(values.length/2)]
+  })
+  let standing = 0
+  for (let i = 0; i < count; i++) if (Math.hypot(data[i*3]-background[0], data[i*3+1]-background[1], data[i*3+2]-background[2]) >= 38) standing++
+  return standing / count
+}
+
+/** True for a picture with no subject on it: the bare backdrop (see standingShare). */
+export async function isEmptyBackdrop(input: Buffer): Promise<boolean> {
+  return await standingShare(input) < EMPTY_SHARE
+}
+
 /** Retain soft hair edges; reject degenerate masks and trim only transparent margins. */
 export async function validateSubject(png: Buffer): Promise<{ png: Buffer; width: number; height: number; cropEdges: {left:boolean;right:boolean;bottom:boolean;top:boolean} } | null> {
   const { data, info } = await sharp(png, { limitInputPixels: 16000000 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true })

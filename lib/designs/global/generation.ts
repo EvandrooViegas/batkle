@@ -132,7 +132,9 @@ export function renderGlobalPost(family: GlobalDesignFamily, brand: any, copy: a
     // A slide shows only its own CTA; the post-level CTA belongs to the caption, not to every last slide.
     const content = { ...slide, cta: slide.cta || '' }
     // No image could be found or generated: the slide keeps the study's typography instead of failing the whole post.
-    const textOnly = (['statement', 'closing', 'backdrop-type', 'stacked'] as const).find(c => (grammar.compositions as string[]).includes(c)) || 'statement'
+    // The last slide takes the study's closing arrangement first, so the post still ends on its sign-off.
+    const last = slides.length > 1 && index === slides.length - 1
+    const textOnly = ((last ? ['closing', 'statement', 'backdrop-type', 'stacked'] : ['statement', 'closing', 'backdrop-type', 'stacked']) as const).find(c => (grammar.compositions as string[]).includes(c)) || 'statement'
     // A fill cutout is optional: without its image the slide is simply the text layout it already was.
     const fill = !!slot.plan.fill
     if (slot.needs_visual && !image && !fill) notes.push(`${slides.length > 1 ? `Slide ${index + 1}: ` : ''}no fitting image was available${resolved?.warning ? ` (${resolved.warning})` : ''}, so it was composed without imagery.`)

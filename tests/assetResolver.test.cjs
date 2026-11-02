@@ -5,11 +5,15 @@ const vm = require('node:vm')
 const { stripTypeScriptTypes } = require('node:module')
 const source = fs.readFileSync(require('node:path').join(__dirname, '../lib/handlers/assetResolverHandler.ts'), 'utf8')
   .replace(/^import .*$/gm, '').replace(/export /g, '')
+// The real check for a generated picture of the bare backdrop (lib/services/subjectAssets.ts).
+const { isEmptyBackdrop } = vm.runInNewContext(stripTypeScriptTypes(fs.readFileSync(require('node:path').join(__dirname, '../lib/services/subjectAssets.ts'), 'utf8').replace(/^import .*$/gm, '').replace(/export /g, '')) + '\n({ isEmptyBackdrop })', { sharp: require('sharp'), Buffer, console })
+// What fal and Pollinations return: a subject on a plain light grey studio backdrop, or (`bare`) the backdrop alone.
+const studioShot = (bare = false) => require('sharp')(Buffer.from(`<svg width="64" height="64"><rect width="64" height="64" fill="#dddddd"/>${bare ? '' : '<rect x="16" y="12" width="32" height="40" fill="#333333"/>'}</svg>`)).png().toBuffer()
 function engine(fetch, generation, env = {}) {
   const library=new Function('createHash',stripTypeScriptTypes(fs.readFileSync('lib/services/generatedAssetLibrary.ts','utf8').replace(/^import .*$/gm,'').replace(/export /g,''))+';return {findGeneratedAsset,saveGeneratedAsset,isGalleryCutout}')(require('node:crypto').createHash)
   return vm.runInNewContext(stripTypeScriptTypes(source) + (generation ? '\ngenerateImage = generation;\n' : '') + '\n({ searchUnsplash, searchStock, resolveSlot, buildGenerationBrief, generateImageOpenAI })', {
     hasWatermarkMetadata: new Function(stripTypeScriptTypes(fs.readFileSync('lib/handlers/assetPlannerHandler.ts','utf8').replace(/^import .*$/gm,'').replace(/export /g,''))+';return hasWatermarkMetadata')(),
-    ...library,fetch, generation, console, URL, Buffer, Uint8Array, AbortSignal, sharp: require('sharp'), process: {env}, Math: Object.assign(Object.create(Math), { random: () => 0 }),
+    ...library,fetch, generation, console, URL, Buffer, Uint8Array, AbortSignal, sharp: require('sharp'), isEmptyBackdrop, process: {env}, Math: Object.assign(Object.create(Math), { random: () => 0 }),
   })
 }
 const photo = id => ({ id, urls: { regular: `https://images.example/${id}` } })
@@ -297,7 +301,7 @@ test('when AI generation fails, a stock photo of the same subject is used to be 
 })
 
 test('when OpenAI fails, fal then Pollinations draw the subject on a studio backdrop before stock is used',async()=>{
- const png=await require('sharp')({create:{width:64,height:64,channels:3,background:'#dddddd'}}).png().toBuffer()
+ const png=await studioShot()
  const calls=[]
  const fetch=async(url,options={})=>{
   calls.push(String(url).replace(/\?.*/,''))
@@ -313,8 +317,30 @@ test('when OpenAI fails, fal then Pollinations draw the subject on a studio back
  assert.match(result.warning,/no credits left; fal: HTTP 403 \(no balance left\); generated with Pollinations instead/)
 })
 
+test('a generated picture of the bare backdrop is not used: the next provider, then stock, is tried instead',async()=>{
+ const [bare,subject]=await Promise.all([studioShot(true),studioShot()])
+ const request={...slot,slot_id:'a',needs_visual:true,preferred_source:'ai_generated',treatment:'isolated_subject',subject_description:'Choose one concrete visual subject that directly explains this slide: Transform drafts fast',frame_aspect:1.4}
+ const image=bytes=>new Response(bytes,{status:200,headers:{'content-type':'image/png'}})
+ const fal='https://fal.run/fal-ai/flux/schnell'
+ const route=pollinations=>async url=>{
+  url=String(url)
+  if(url===fal)return new Response(JSON.stringify({images:[{url:'https://fal.media/out.png',width:1024,height:768}]}),{status:200,headers:{'content-type':'application/json'}})
+  if(url==='https://fal.media/out.png')return image(bare)
+  if(url.startsWith('https://gen.pollinations.ai/image/'))return image(pollinations)
+  if(url.includes('unsplash'))return {ok:true,json:async()=>({results:[photo('stock-hands')]})}
+  throw Error('unexpected '+url)
+ }
+ const env={FAL_KEY:'fal-test',POLLINATIONS_API_KEY:'poll-test',UNSPLASH_ACCESS_KEY:'stock'}
+ const next=await engine(route(subject),null,env).resolveSlot(null,request,null,'key',null,new Set(),'standard')
+ assert.equal(next.source,'ai_generated');assert.match(next.resolvedAsset.url,/^data:image\/png;base64,/)
+ assert.equal(next.warning,'fal: the image showed no subject')
+ const stock=await engine(route(bare),null,env).resolveSlot(null,request,null,'key',null,new Set(),'standard')
+ assert.equal(stock.resolvedAsset.url,'https://images.example/stock-hands','a stock photo of the subject, cut out later')
+ assert.match(stock.warning,/fal: the image showed no subject; Pollinations: the image showed no subject; used a stock photo cut out locally instead/)
+})
+
 test('standard quality (Free) never calls OpenAI: fal draws the subject and no fallback warning is given',async()=>{
- const png=await require('sharp')({create:{width:64,height:64,channels:3,background:'#dddddd'}}).png().toBuffer()
+ const png=await studioShot()
  const calls=[]
  const fetch=async(url)=>{
   calls.push(String(url).replace(/\?.*/,''))

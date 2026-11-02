@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, BellRing, CalendarClock, CalendarDays, Copy, Download, Info, List, Loader2, Share2, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { PLATFORMS, defaultScheduleView, groupSchedule, scheduleState } from '@/lib/client/schedule'
+import { PLATFORMS, defaultScheduleView, formatWhen, groupSchedule, scheduleState } from '@/lib/client/schedule'
 import { cn } from '@/lib/utils'
 import { usePopup } from '../popup'
 import { EmptyState, Notice, PageHeader, SegmentedTabs, appButton, pageInner, pageShell, panelClass } from '../ui'
@@ -273,6 +273,14 @@ export default function SchedulePage({ flowId, brandName = 'Your brand' }) {
   // Opens the schedule dialog; it has no trigger, so it is told where focus goes back to.
   const edit = (entry, at = null, returnFocus = document.activeElement) => setEditing({ id: entry.id, at, returnFocus })
 
+  // A scheduled post dragged to another day on the calendar. Undo puts it back while its old time is still ahead.
+  const move = (entry, at) => run(entry, 'move', async () => {
+    const moved = await schedule.move(entry, at)
+    const before = entry.scheduledAt
+    const undo = () => schedule.move(moved, before).then(() => toast.success(`Moved back to ${formatWhen(before)}`), error => toast.error(error.message))
+    toast.success(`Moved to ${formatWhen(at)}`, before && Date.parse(before) > Date.now() ? { action: { label: 'Undo', onClick: undo } } : undefined)
+  })
+
   // A list row, or as a `card`, the same post with the same actions in the calendar's post popup.
   const row = (entry, card = false) => (
     <ScheduleRow
@@ -380,6 +388,7 @@ export default function SchedulePage({ flowId, brandName = 'Your brand' }) {
               flowId={flowId}
               renderPost={entry => row(entry, true)}
               onSchedule={edit}
+              onMove={move}
             />
           </div>
         ) : (

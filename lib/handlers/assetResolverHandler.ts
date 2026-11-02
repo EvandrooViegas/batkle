@@ -29,7 +29,7 @@ import { findGeneratedAsset, isGalleryCutout, saveGeneratedAsset } from '@/lib/s
  */
 
 import sharp from 'sharp'
-import { prepareSubjectAssets } from '@/lib/services/subjectAssets'
+import { isEmptyBackdrop, prepareSubjectAssets } from '@/lib/services/subjectAssets'
 import { NextResponse } from 'next/server'
 import { corsify } from '@/lib/services/middleware'
 import type { AssetPlan, VisualSlot } from './assetPlannerHandler'
@@ -279,13 +279,20 @@ async function generateImagePollinations(prompt: string, aspect?: number): Promi
   return requestGeneratedImage('Pollinations', 'https://gen.pollinations.ai/image/'+encodeURIComponent(prompt)+`?model=flux&width=${width}&height=${height}&nologo=true&seed=`+Math.floor(Math.random()*2147483647), {method:'GET',headers:{Authorization:'Bearer '+key}},prompt,{width,height})
 }
 
-/** fal, then Pollinations: the subject on a studio backdrop, cut out locally afterwards. Throws with every reason. */
+/**
+ * fal, then Pollinations: the subject on a studio backdrop, cut out locally afterwards. Throws with every reason.
+ * A picture of the bare backdrop (the model drew no subject) counts as a failure: framed on a slide it is a blank box.
+ */
 async function generateFallbackImage(slot: VisualSlot, aspect?: number): Promise<{ asset: ResolvedAsset; provider: string; skipped: string[] }> {
   const prompt = studioPrompt(slot), reasons: string[] = []
   // Providers without a key are skipped silently; only real failures are reported.
   const providers = ([['fal', 'FAL_KEY', generateImageFal], ['Pollinations', 'POLLINATIONS_API_KEY', generateImagePollinations]] as const).filter(([, key]) => process.env[key]?.trim())
   for (const [provider, , run] of providers) {
-    try { return { asset: await run(prompt, aspect), provider, skipped: [...reasons] } } catch (error) { reasons.push((error as Error).message) }
+    try {
+      const asset = await run(prompt, aspect)
+      if (await isEmptyBackdrop(Buffer.from(asset.url.slice(asset.url.indexOf(',') + 1), 'base64'))) throw new Error(`${provider}: the image showed no subject`)
+      return { asset, provider, skipped: [...reasons] }
+    } catch (error) { reasons.push((error as Error).message) }
   }
   throw new Error(reasons.join('; '))
 }

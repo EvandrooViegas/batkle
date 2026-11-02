@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { CalendarClock, ChevronLeft, ChevronRight, CircleAlert, Plus, Send } from 'lucide-react'
-import { WEEK_STARTS_ON, calendarMonth, calendarTime, slotOnDay } from '@/lib/client/schedule'
+import { WEEK_STARTS_ON, calendarMonth, calendarTime, dayKey, moveToDay, slotOnDay } from '@/lib/client/schedule'
 import { cn } from '@/lib/utils'
 import { Popup } from '../popup'
 import { appButton, panelClass } from '../ui'
@@ -79,12 +79,16 @@ function PostChip({ item, formats, onOpen, large = false, withDay = false }) {
   )
 }
 
-/** A post waiting for a time: its first slide, topic and a Schedule button (for someone who can change the brand). */
-function ReadyPost({ entry, canvas, onSchedule }) {
+/**
+ * A post waiting for a time: its first slide, topic and a Schedule button (for someone who can change the brand).
+ * Beside the calendar it can also be dragged onto a day (`drag`, see ScheduleCalendar).
+ */
+function ReadyPost({ entry, canvas, onSchedule, drag }) {
   const { canEdit } = useBrandAccess()
   const topic = entry.topic || 'Untitled post'
+  const source = drag?.source(entry) || {}
   return (
-    <li className="flex min-w-0 items-center gap-3 rounded-xl bg-bk-surface shadow-bk-card p-2 pr-2.5">
+    <li {...source} className={cn('flex min-w-0 items-center gap-3 rounded-xl bg-bk-surface shadow-bk-card p-2 pr-2.5', source.draggable && 'cursor-grab active:cursor-grabbing', drag?.id === entry.id && 'opacity-50')}>
       <div className="w-9 shrink-0">{canvas ? <PostThumb canvas={canvas} /> : <ThumbSkeleton className="bg-bk-chip" />}</div>
       <div className="min-w-0 flex-1">
         <p className="line-clamp-2 text-[13.5px] font-bold leading-snug">{topic}</p>
@@ -101,14 +105,18 @@ function ReadyPost({ entry, canvas, onSchedule }) {
 
 /**
  * A day of the month grid. The whole cell is a button that opens the day (its posts, and scheduling on it from today
- * on); the post chips sit above it with their own buttons. A past day without posts has nothing to open.
+ * on); the post chips sit above it with their own buttons. A past day without posts has nothing to open. From
+ * today on, a dragged post can be dropped on it (`drag`).
  */
-function DayCell({ day, index, label, formats, onOpenDay, onOpenPost }) {
+function DayCell({ day, index, label, formats, onOpenDay, onOpenPost, drag }) {
   const count = day.entries.length
   const openable = count > 0 || !day.isPast
   const shown = day.entries.slice(0, CHIPS_PER_DAY)
   return (
-    <td className={cn('group relative h-[116px] border-l border-t border-bk-line p-1 align-top first:border-l-0', !day.inMonth && 'bg-bk-alt/70', day.isToday && 'bg-bk-butter/[0.1]')}>
+    <td
+      {...drag.target(day)}
+      className={cn('group relative h-[116px] border-l border-t border-bk-line p-1 align-top first:border-l-0', !day.inMonth && 'bg-bk-alt/70', day.isToday && 'bg-bk-butter/[0.1]', drag.over === day.key && 'bg-bk-butter/[0.18] shadow-[inset_0_0_0_2px_#FFD84D]')}
+    >
       {openable && (
         <button
           type="button"
@@ -129,7 +137,11 @@ function DayCell({ day, index, label, formats, onOpenDay, onOpenPost }) {
         {!openable && <span className="sr-only">{label}</span>}
         {shown.length > 0 && (
           <ul className="flex min-w-0 flex-col gap-0.5">
-            {shown.map(item => <li key={item.entry.id} className="min-w-0"><PostChip item={item} formats={formats} onOpen={onOpenPost} /></li>)}
+            {shown.map(item => (
+              <li key={item.entry.id} {...drag.source(item.entry)} className={cn('min-w-0', drag.id === item.entry.id && 'opacity-50')}>
+                <PostChip item={item} formats={formats} onOpen={onOpenPost} />
+              </li>
+            ))}
           </ul>
         )}
         {count > CHIPS_PER_DAY && (
@@ -239,10 +251,13 @@ function SideSection({ id, title, count, description, className = '', children }
  * ready for a time beside it. A post opens its actions in a popup: `renderPost(entry)` is the list's row for it, and
  * its Edit opens the schedule dialog on top. A day from today on opens the ready posts to schedule on it
  * (`onSchedule(entry, at, returnFocus)` opens the schedule dialog at that time; without `at`, at the usual
- * suggestion), or on plans without scheduling, the upgrade notice (`gate`, from useSchedulingGate).
+ * suggestion), or on plans without scheduling, the upgrade notice (`gate`, from useSchedulingGate). Posts can also
+ * be dragged onto a day: a ready one opens the schedule dialog at that day's slot, a scheduled one moves there at the
+ * same time of day (`onMove(entry, at)`).
  */
-export function ScheduleCalendar({ entries, groups, now, canvases, gate, flowId, renderPost, onSchedule }) {
+export function ScheduleCalendar({ entries, groups, now, canvases, gate, flowId, renderPost, onSchedule, onMove }) {
   const formats = useFormats()
+  const { canEdit } = useBrandAccess()
   const [month, setMonth] = useState(() => { const at = new Date(now); return new Date(at.getFullYear(), at.getMonth(), 1) })
   // Each popup keeps what it shows while it fades out, so it is closed with `open` and not by clearing it.
   const [dayPopup, setDayPopup] = useState({ key: null, open: false })
@@ -288,6 +303,55 @@ export function ScheduleCalendar({ entries, groups, now, canvases, gate, flowId,
   const closePost = () => setPostPopup(current => ({ ...current, open: false }))
   const pick = (entry, at) => { leaveDay(); onSchedule(entry, at, dayOpener.current) }
 
+  // Dragging a post onto a day, for someone who can change the brand: a ready post, or a scheduled one on plans with
+  // scheduling (a ready one dropped on Free opens the dialog, which explains the plan). Days before today take
+  // nothing. The ref holds the post for the drop; the state only dims it, once the browser has taken its picture.
+  const dragged = useRef(null)
+  const [dragId, setDragId] = useState(null)
+  const [dropKey, setDropKey] = useState(null)
+  const movable = entry => canEdit && (entry.status === 'approved' || (entry.status === 'scheduled' && !gate))
+  const endDrag = () => {
+    dragged.current = null
+    setDragId(null)
+    setDropKey(null)
+  }
+  const dropOn = d => {
+    const entry = dragged.current
+    endDrag()
+    if (!entry) return
+    if (entry.status === 'approved') return onSchedule(entry, slotOnDay(d.date, now))
+    const from = calendarTime(entry)
+    if (from !== null && dayKey(from) !== d.key) onMove(entry, moveToDay(d.date, from, now))
+  }
+  const drag = {
+    id: dragId,
+    over: dropKey,
+    source: entry => (!movable(entry) ? {} : {
+      draggable: true,
+      onDragStart: e => {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', entry.topic || 'Untitled post')
+        dragged.current = entry
+        setTimeout(() => { if (dragged.current === entry) setDragId(entry.id) })
+      },
+      onDragEnd: endDrag,
+    }),
+    target: d => (d.isPast ? {} : {
+      onDragOver: e => {
+        if (!dragged.current) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        setDropKey(d.key)
+      },
+      // Leaving for one of the day's own chips or buttons still counts as over the day.
+      onDragLeave: e => { if (!e.currentTarget.contains(e.relatedTarget)) setDropKey(key => (key === d.key ? null : key)) },
+      onDrop: e => {
+        e.preventDefault()
+        dropOn(d)
+      },
+    }),
+  }
+
   // Arrow keys move between days, as in a date picker; Tab still reaches every day and post.
   const moveFocus = e => {
     const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key]
@@ -313,7 +377,7 @@ export function ScheduleCalendar({ entries, groups, now, canvases, gate, flowId,
           <SideSection id="calendar-due" title="Due now" count={groups.due.length} description="Their time has come. Post them, then mark them as posted." className="border-[#F2A900]/40 bg-[#F2A900]/[0.08]">
             <ul className="mt-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-1">
               {groups.due.map(entry => (
-                <li key={entry.id} className="min-w-0">
+                <li key={entry.id} {...drag.source(entry)} className={cn('min-w-0', drag.id === entry.id && 'opacity-50')}>
                   <PostChip item={{ entry, state: 'due', at: calendarTime(entry) }} formats={formats} onOpen={openPost} large withDay />
                 </li>
               ))}
@@ -325,12 +389,18 @@ export function ScheduleCalendar({ entries, groups, now, canvases, gate, flowId,
           title="Ready to schedule"
           count={ready.length}
           className="border-bk-line bg-bk-surface"
-          description={ready.length ? `Approved and waiting for a time.${gate ? '' : ' Pick a day on the calendar, or schedule one here.'}` : null}
+          description={ready.length ? (
+            <>
+              Approved and waiting for a time.
+              {/* Phones get the month as a list (Agenda), which has nothing to drop on. */}
+              {canEdit && !gate && <> <span className="hidden sm:inline">Drag one onto a day, or schedule it here.</span><span className="sm:hidden">Pick a day on the calendar, or schedule one here.</span></>}
+            </>
+          ) : null}
         >
           {ready.length > 0 ? (
             <>
               <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-1">
-                {readyShown.map(entry => <ReadyPost key={entry.id} entry={entry} canvas={canvases[entry.canvasId]} onSchedule={() => onSchedule(entry)} />)}
+                {readyShown.map(entry => <ReadyPost key={entry.id} entry={entry} canvas={canvases[entry.canvasId]} onSchedule={() => onSchedule(entry)} drag={drag} />)}
               </ul>
               {ready.length > READY_SHOWN && (
                 <button type="button" aria-expanded={allReady} onClick={() => setAllReady(value => !value)} className={appButton('quiet', 'xs', 'mt-2')}>
@@ -371,7 +441,7 @@ export function ScheduleCalendar({ entries, groups, now, canvases, gate, flowId,
             <tbody>
               {grid.weeks.map((week, w) => (
                 <tr key={week[0].key}>
-                  {week.map((d, i) => <DayCell key={d.key} day={d} index={w * 7 + i} label={dayLabel(d)} formats={formats} onOpenDay={openDay} onOpenPost={openPost} />)}
+                  {week.map((d, i) => <DayCell key={d.key} day={d} index={w * 7 + i} label={dayLabel(d)} formats={formats} onOpenDay={openDay} onOpenPost={openPost} drag={drag} />)}
                 </tr>
               ))}
             </tbody>

@@ -1,6 +1,6 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { seeds, study, compose } = require('./globalDesigns.test.cjs')
+const { seeds, study, compose, generation } = require('./globalDesigns.test.cjs')
 
 const families = seeds.map(s => study.reconcileStudy(s))
 const brand = { id: 'b', name: 'Brand', colors: ['#14131A', '#FFD84D', '#F6F3EA'], fonts: ['Inter', 'Inter'] }
@@ -46,5 +46,25 @@ test('the closing call to action is the sign-off: larger than on other slides an
     assert.ok(cta(closing).fontSize > cta(middle).fontSize, `${family.id}: the closing call to action is the prominent one`)
     const copyBottom = Math.max(...closing.nodes.filter(n => n.type === 'text' && /headline|body/.test(n.designRole || '')).map(n => n.y + n.height))
     assert.ok(cta(closing).y >= copyBottom, `${family.id}: the call to action comes after the headline and body`)
+  }
+})
+
+test('a closing slide the writer left without an image subject stays a text slide, even with images asked for', () => {
+  // Without a subject, an AI cutout comes back as the bare studio backdrop: a blank box on the last slide.
+  const pictured = { subject: 'hard hat resting on rolled blueprints', queries: ['hard hat blueprints'] }
+  const withImages = last => ({ ...deck('statement', { imageChoice: 'on' }), slides: deck('statement').slides.map((slide, i, all) => ({ ...slide, design: { composition: 'statement', image: i === all.length - 1 ? last : pictured } })) })
+  // The built-in designs are typography-only or photo-led; members' designs are mostly cutout ones like this.
+  const cutouts = family => ({ ...family, study: { ...family.study, imagery: { ...family.study.imagery, mode: 'cutout' }, grammar: { ...family.study.grammar, imagery: { ...family.study.grammar.imagery, frequency: 'most', positions: ['bottom'], cutout: 'always' } } } })
+  const cutoutDesigns = families.filter(f => study.familyImagery(f).mode === 'none' && study.familyGrammar(f).compositions.includes('closing')).map(cutouts)
+  assert.ok(cutoutDesigns.length && cutoutDesigns.every(f => study.familyImagery(f).mode === 'cutout' && !study.familyPhotoLed(f)))
+  for (const family of cutoutDesigns) {
+    const plans = compose.planSlides(family, withImages(null))
+    assert.equal(plans.at(-1).withImage, false, `${family.id}: no image is asked for on the closing slide`)
+    assert.equal(plans.at(-1).composition, 'closing', `${family.id}: it ends on the closing arrangement`)
+    assert.ok(plans.slice(0, -1).some(p => p.withImage), `${family.id}: the other slides still get their images`)
+    const layout = generation.globalLayoutPlan(family, 'design', withImages(null), brand)
+    assert.equal(layout.slots.at(-1).needs_visual, false, `${family.id}: so no image is generated or charged for it`)
+    // A closing slide the writer did give a subject keeps its image when images were asked for.
+    assert.equal(compose.planSlides(family, withImages(pictured)).at(-1).withImage, true, `${family.id}: a pictured closing slide keeps its image`)
   }
 })
