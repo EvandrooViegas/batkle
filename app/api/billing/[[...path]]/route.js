@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { connectToMongo } from '@/lib/services/db/mongo'
 import { loadAccount, requireUserId } from '@/lib/auth'
-import { getBillingSummary, loadBilling } from '@/lib/billing/account'
+import { getBillingSummary, loadBilling, releaseCharge } from '@/lib/billing/account'
 import { CREDIT_PACK, NEWSLETTER_DISCOUNT, PLANS, PLAN_IDS, TRIAL } from '@/lib/billing/plans'
 import { billingErrorResponse, createCheckoutSession, createPortalSession, paymentsConfigured, readPurchase } from '@/lib/billing/stripe'
 import { brandRole } from '@/lib/teams'
@@ -22,6 +22,9 @@ async function ownerName(db, userId) {
  *   POST /api/billing/checkout   { planId, interval } or { credits: true } → { url } (Checkout, or the Billing
  *                                Portal to confirm a change of plan)
  *   POST /api/billing/portal     → { url } of the Billing Portal
+ *   POST /api/billing/release    { chargeRef, flowId? } → { status }: a post or ad that failed gives its credits back
+ *                                ('refunded'; 'settled' when it was made after all). In a brand shared with the
+ *                                account (`flowId`), the charge is the brand owner's.
  */
 async function handle(request, { params }) {
   const path = params?.path || []
@@ -64,6 +67,11 @@ async function handle(request, { params }) {
     }
     if (path.length === 1 && path[0] === 'portal' && method === 'POST') {
       return NextResponse.json(await createPortalSession(db, userId, origin), { headers: noStore })
+    }
+    if (path.length === 1 && path[0] === 'release' && method === 'POST') {
+      const body = await request.json().catch(() => null)
+      const access = typeof body?.flowId === 'string' && body.flowId ? await brandRole(db, userId, body.flowId) : null
+      return NextResponse.json({ status: await releaseCharge(db, access?.ownerId || userId, body?.chargeRef) }, { headers: noStore })
     }
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   } catch (error) {

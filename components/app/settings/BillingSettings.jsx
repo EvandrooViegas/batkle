@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Coins, CreditCard, ExternalLink, Loader2, Sparkles } from 'lucide-react'
+import { Coins, CreditCard, ExternalLink, Loader2 } from 'lucide-react'
 import { CONTACT, CREDIT_PACK, PAID_PLAN_IDS, PLANS, SLIDES_PER_POST, TRIAL, approxPosts, formatPrice, isComingSoon, isInterval, isPaidPlanId } from '@/lib/billing/plans'
 import { contactHref } from '@/lib/client/billing'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import PlanComparison from '../billing/PlanComparison'
 import { announceCreditsChanged, billingRequest, useBilling } from '../billing/useBilling'
@@ -234,6 +235,12 @@ export default function BillingSettings() {
     requestAnimationFrame(() => target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: picked ? 'center' : 'start' }))
   }, [data, picked])
 
+  // The payment is confirmed in one toast: "Updating your plan…" while Stripe catches up, then done.
+  useEffect(() => {
+    if (checkout === 'updating') toast.loading('Payment received, thank you. Updating your plan…', { id: 'checkout' })
+    if (checkout === 'done') toast.success(`Payment received, thank you. You’re all set${summary && summary.plan !== 'free' ? ` on ${summary.planName}` : ''}.`, { id: 'checkout', description: 'If something looks off, refresh in a minute.' })
+  }, [checkout]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Back from checkout: Stripe tells Batkle a moment later, so look again a few times until the change shows.
   const loaded = Boolean(data)
   useEffect(() => {
@@ -286,8 +293,6 @@ export default function BillingSettings() {
     <div className="space-y-10">
       <Section id="plan" title="Plan & billing" description="Your plan, and what each one includes." actions={manage}>
         <div aria-live="polite" className="space-y-3 [&>*:first-child]:mt-4">
-          {checkout === 'updating' && <Notice tone="success" className="flex items-center gap-2"><Loader2 aria-hidden="true" className="size-4 shrink-0 animate-spin" />Payment received, thank you. Updating your plan…</Notice>}
-          {checkout === 'done' && <Notice tone="success">Payment received, thank you. You’re all set{summary && summary.plan !== 'free' ? ` on ${summary.planName}` : ''}. If something looks off, refresh in a minute.</Notice>}
           {checkout === 'cancelled' && <Notice>Checkout cancelled. Nothing was charged.</Notice>}
           {actionError && <Notice tone="error">{actionError}</Notice>}
           {data && !configured && <Notice tone="warning">Payments aren’t set up yet, so plans and credits can’t be bought right now. Please try again later.</Notice>}
@@ -384,7 +389,7 @@ export default function BillingSettings() {
                 </p>
               )}
               <p className="mt-3 flex gap-2 border-t border-bk-line pt-3 text-[12.5px] leading-relaxed text-bk-fg/80">
-                <Sparkles aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-bk-muted" />
+                <Coins aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-bk-muted" />
                 {summary.credits.extra
                   ? `Plus ${plural(summary.credits.extra, 'extra credit')}: they never expire and are used once the month’s credits run out.`
                   : 'Extra credits never expire and are used once the month’s credits run out.'}

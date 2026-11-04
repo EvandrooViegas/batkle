@@ -163,7 +163,7 @@ export async function forgetBrand(db: any, flowId: string) {
 
 // ─── People ──────────────────────────────────────────────────────────────────
 
-const BRAND_FIELDS = { _id: 0, id: 1, ownerId: 1, name: 1, 'brandContext.name': 1, 'brandContext.logo': 1, 'brandContext.logoVariants.originalTransparent': 1, 'brandContext.logoVariants.inkLightness': 1 }
+export const BRAND_FIELDS = { _id: 0, id: 1, ownerId: 1, name: 1, 'brandContext.name': 1, 'brandContext.logo': 1, 'brandContext.logoVariants.originalTransparent': 1, 'brandContext.logoVariants.inkLightness': 1 }
 
 /** A brand as the team pages show it: its name and logo (the same choice of logo file as the brand list). */
 export function brandCard(flow: any) {

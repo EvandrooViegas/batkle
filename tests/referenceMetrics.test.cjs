@@ -95,3 +95,56 @@ test('only slides that follow a boxed reference get the headline box', () => {
   const post = generation.renderGlobalPost(family, { name: 'PRUMO' }, { format: 'carousel', slides: [{ headline: 'Sumol+Compal' }, { headline: 'Montagem de andaimes' }, { headline: 'Fachada' }] }, { slots: [] }, { id: 'global-x' }, crypto.randomUUID)
   assert.deepEqual(post.pages.map(p => p.nodes.some(n => n.designRole === 'headline-frame')), [true, false, false])
 })
+
+// A stand-in photo: blotches of warm tones, softened like a photo out of focus.
+const photo = async () => {
+  let seed = 7
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+  const cells = []
+  for (let y = 0; y < 1350; y += 45) for (let x = 0; x < 1080; x += 45) { const v = Math.round(30 + rand() * 70); cells.push(`<rect x="${x}" y="${y}" width="45" height="45" fill="rgb(${v},${Math.round(v * .8)},${Math.round(v * .65)})"/>`) }
+  return sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350">${cells.join('')}</svg>`)).blur(6).png().toBuffer()
+}
+const over = async (base, body) => sharp(base).composite([{ input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350">${body}</svg>`) }]).png().toBuffer()
+// Bands 15px high every 30px down the top of the slide, like the blinds over the IKACHICA photo.
+const bands = (fill, opacity) => Array.from({ length: 26 }, (_, i) => `<rect y="${i * 30}" width="1080" height="15" fill="${fill}" fill-opacity="${opacity}"/>`).join('')
+const copy = `${words(80, 960, [260, 200, 240])}${words(80, 1040, [300, 220])}`
+
+test('bands over a photo are stripes: coloured bands are measured as coloured, with their strength and thickness', async () => {
+  const base = await photo()
+  const orange = await measureReference(await over(base, bands('#e8541e', .45) + copy))
+  assert.ok(orange.stripes, 'the bands are found')
+  assert.equal(orange.stripes.colored, true)
+  assert.equal(orange.stripes.scale, 'medium')
+  assert.ok(orange.stripes.opacity >= 35 && orange.stripes.opacity <= 85, JSON.stringify(orange.stripes))
+  const white = await measureReference(await over(base, bands('#ffffff', .3) + copy))
+  assert.ok(white.stripes, 'white bands are found too')
+  assert.equal(white.stripes.colored, false, 'white bands over a warm photo are not coloured')
+  assert.equal((await measureReference(await over(base, copy))).stripes, null, 'the photo alone has no stripes')
+})
+
+test('lines of copy and a dot grid are not stripes', async () => {
+  const list = Array.from({ length: 9 }, (_, i) => words(110, 300 + i * 90, [180, 120, 220, 90])).join('')
+  assert.equal((await measureReference(await image(list))).stripes, null)
+  const dots = Array.from({ length: 37 }, (_, r) => Array.from({ length: 30 }, (_, c) => `<circle cx="${18 + c * 36}" cy="${18 + r * 36}" r="8" fill="#e8541e"/>`).join('')).join('')
+  assert.equal((await measureReference(await image(dots))).stripes, null)
+})
+
+test('measured stripes correct the study: coloured bands are accent at their strength, and are added when missed', () => {
+  const base = { familyRules: [], variantRules: [], avoid: [], grammar: { emphasis: 'none', headline: { frame: 'none' }, references: [{ composition: 'image-led', align: 'left' }] } }
+  const metric = stripes => ({ align: null, box: null, panel: null, rules: 0, coloredText: false, lines: [], stripes })
+  const coloured = metric({ scale: 'medium', colored: true, opacity: 54 })
+  // The model saw a faint white "scanline" texture.
+  const read = applyReferenceMetrics({ ...base, grammar: { ...base.grammar, decorations: [{ kind: 'stripes', placement: 'background', scale: 'oversized', opacity: 20, color: 'foreground', frequency: 'every' }] } }, [coloured])
+  assert.deepEqual(read.grammar.decorations, [{ kind: 'stripes', placement: 'background', scale: 'medium', opacity: 54, color: 'accent', frequency: 'every' }])
+  assert.ok(read.familyRules.some(r => /accent colour/.test(r)))
+  // The model missed them.
+  const missed = applyReferenceMetrics({ ...base, grammar: { ...base.grammar, decorations: [{ kind: 'glow' }] } }, [coloured])
+  assert.deepEqual(missed.grammar.decorations.map(d => [d.kind, d.color, d.opacity]), [['glow', undefined, undefined], ['stripes', 'accent', 54]])
+  // Neutral bands keep the model's colour and strength, take the measured thickness, and are not invented.
+  const neutral = metric({ scale: 'small', colored: false, opacity: 15 })
+  const kept = applyReferenceMetrics({ ...base, grammar: { ...base.grammar, decorations: [{ kind: 'stripes', placement: 'background', scale: 'large', opacity: 25, color: 'foreground', frequency: 'every' }] } }, [neutral])
+  assert.deepEqual(kept.grammar.decorations.map(d => [d.scale, d.color, d.opacity]), [['small', 'foreground', 25]])
+  assert.deepEqual(applyReferenceMetrics({ ...base, grammar: { ...base.grammar, decorations: [] } }, [neutral]).grammar.decorations, [])
+  // Stripes on one of three references show on some slides.
+  assert.equal(applyReferenceMetrics({ ...base, grammar: { ...base.grammar, decorations: [] } }, [coloured, metric(null), metric(null)]).grammar.decorations[0].frequency, 'some')
+})

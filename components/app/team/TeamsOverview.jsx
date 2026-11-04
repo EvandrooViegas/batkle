@@ -59,9 +59,7 @@ export default function TeamsOverview() {
   return (
     <>
       <PageHeader eyebrow="Account" title="Teams & invitations" description="Invitations waiting for you, the brands other people share with you, and who works on your own brands." />
-      <p role="status" aria-live="polite" className="sr-only">{teams.status}</p>
       {teams.error && <Notice tone="error" className="mt-6">{teams.error.message}</Notice>}
-      {teams.status && <Notice tone="success" className="mt-6">{teams.status}</Notice>}
 
       {!info ? (
         teams.loadError ? (

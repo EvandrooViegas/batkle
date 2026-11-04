@@ -18,9 +18,13 @@ export interface ReferenceMetrics {
   /** Some copy is set in a saturated (accent) colour. */
   coloredText: boolean
   lines: { left: number; right: number; top: number; bottom: number }[]
+  /** Bands across the whole width repeating down the slide (blinds over a photo): thickness, strength, coloured or not. */
+  stripes?: { scale: 'small' | 'medium' | 'large' | 'oversized'; opacity: number; colored: boolean } | null
 }
 
 const WIDTH = 540
+// A stripe's height for each decoration scale, as compose draws it (share of the slide height).
+const STRIPE_BAR = { small: .006, medium: .01, large: .016, oversized: .024 } as const
 
 export async function measureReference(bytes: Buffer): Promise<ReferenceMetrics> {
   const { data, info } = await sharp(bytes).rotate().resize({ width: WIDTH }).removeAlpha().raw().toBuffer({ resolveWithObject: true })
@@ -206,7 +210,85 @@ export async function measureReference(bytes: Buffer): Promise<ReferenceMetrics>
     }
     return strokes > 40 && colored / strokes > .25
   })
-  return { align, box, panel, rules, coloredText, lines }
+  return { align, box, panel, rules, coloredText, lines, stripes: findStripes(data, lum, W, H, lines) }
+}
+
+/**
+ * Bands across the slide that repeat down it, like blinds over a photo. They are found from their edges: from one row to
+ * the next a band's edge turns most of a stretch of row lighter (or darker) at once, however faint, where a photo's edges
+ * do not line up. Half the width or more must repeat like that (a striped thing in a photo covers less), over a quarter
+ * of the height or more, away from the copy lines (lines of type repeat too). Vision models read coloured bands as a
+ * faint neutral texture, so whether they are coloured, and how strongly, is measured here as well.
+ */
+function findStripes(data: Buffer, lum: Float32Array, W: number, H: number, lines: ReferenceMetrics['lines']): ReferenceMetrics['stripes'] {
+  const SLICES = 6, x0 = Math.round(W * .05), sliceW = Math.floor(W * .9 / SLICES)
+  const win = Math.round(H * .16), maxLag = Math.round(H * .06)
+  // Per column slice and row: the mean colour and lightness, and the share of pixels that get lighter from the row above
+  // to the row below minus the share that get darker.
+  const slices = Array.from({ length: SLICES }, (_, s) => {
+    const colour = new Float32Array(H * 3), light = new Float32Array(H), edges = new Float32Array(H)
+    for (let y = 0; y < H; y++) for (let x = x0 + s * sliceW; x < x0 + (s + 1) * sliceW; x++) {
+      const i = y * W + x
+      for (let c = 0; c < 3; c++) colour[y * 3 + c] += data[i * 3 + c] / sliceW
+      light[y] += lum[i] / sliceW
+      if (y > 0 && y < H - 1) { const d = lum[i + W] - lum[i - W]; if (d > .012) edges[y] += 1 / sliceW; else if (d < -.012) edges[y] -= 1 / sliceW }
+    }
+    return { colour, light, edges }
+  })
+  // The band period: the first lag at which a stretch of edges matches itself strongly, after an opposite-phase dip. Too
+  // weak a signal is a sparse pattern (a dot grid flips only a few pixels per row), not bands.
+  const periodOf = (edges: Float32Array, y0: number) => {
+    let mean = 0, energy = 0
+    for (let y = y0; y < y0 + win; y++) mean += edges[y] / win
+    for (let y = y0; y < y0 + win; y++) energy += (edges[y] - mean) ** 2
+    if (Math.sqrt(energy / win) < .2) return 0
+    const at = (lag: number) => { let sum = 0; for (let y = y0; y + lag < y0 + win; y++) sum += (edges[y] - mean) * (edges[y + lag] - mean); return sum / energy * win / (win - lag) }
+    let low = 1
+    for (let lag = 2; lag <= maxLag; lag++) {
+      const here = at(lag)
+      low = Math.min(low, here)
+      if (lag >= 4 && here > .4 && low < -.2 && here >= at(lag - 1) && here >= at(lag + 1)) return lag
+    }
+    return 0
+  }
+  const found: { y0: number; slice: number; period: number }[] = []
+  for (let y0 = 0; y0 + win <= H; y0 += Math.round(win / 2)) {
+    if (lines.some(l => l.top * H < y0 + win && l.bottom * H > y0)) continue
+    const here = slices.map((s, slice) => ({ y0, slice, period: periodOf(s.edges, y0) })).filter(f => f.period)
+    if (here.length >= SLICES / 2) found.push(...here)
+  }
+  const covered = new Set(found.flatMap(f => Array.from({ length: win }, (_, i) => f.y0 + i)))
+  if (covered.size < H * .25) return null
+
+  // In each banded stretch, rows lighter than the rows half a period away are one phase and darker ones the other. The
+  // stretch reads as coloured bands when its lighter rows are clearly colourful, and clearly more so than the darker
+  // ones (white bands over a warm photo are paler than the photo). Their strength is the lowest opacity that turns the
+  // darker rows into the lighter ones.
+  const chroma = (c: number[]) => Math.max(...c) - Math.min(...c)
+  const parts = found.map(({ y0, slice, period }) => {
+    const { colour, light } = slices[slice], h = Math.max(1, Math.round(period / 2)), phases = [[0, 0, 0, 0], [0, 0, 0, 0]]
+    for (let y = Math.max(h, y0); y < Math.min(H - h, y0 + win); y++) {
+      const d = light[y] - (light[y - h] + light[y + h]) / 2
+      if (Math.abs(d) < .02) continue
+      const p = phases[d > 0 ? 0 : 1]
+      for (let c = 0; c < 3; c++) p[c] += colour[y * 3 + c]
+      p[3]++
+    }
+    if (!phases[0][3] || !phases[1][3]) return null
+    const [lighter, darker] = phases.map(p => p.slice(0, 3).map(v => v / p[3]))
+    let reach = Infinity
+    for (let c = 0; c < 3; c++) { const shift = lighter[c] - darker[c]; if (shift > .5) reach = Math.min(reach, (255 - darker[c]) / shift) }
+    return { weight: Math.abs(lighter.reduce((a, b) => a + b) - darker.reduce((a, b) => a + b)), colored: chroma(lighter) > 45 && chroma(lighter) > chroma(darker) * 1.3, opacity: Number.isFinite(reach) ? 100 / Math.max(1, reach) : 0 }
+  }).filter(Boolean) as { weight: number; colored: boolean; opacity: number }[]
+  // The stripes look like their strongest stretches, so stronger stretches count for more.
+  const total = parts.reduce((sum, p) => sum + p.weight ** 2, 0)
+  const colored = total > 0 && parts.filter(p => p.colored).reduce((sum, p) => sum + p.weight ** 2, 0) >= total / 2
+  // Bands may fade, so the strength is the strongest coloured stretch's. That lowest opacity assumes the brightest colour
+  // of its hue; a brand colour is deeper and needs about a third more to look the same.
+  const opacity = Math.max(0, ...parts.filter(p => p.colored).map(p => p.opacity))
+  const bar = median(found.map(f => f.period)) / 2 / H
+  const scale = (Object.keys(STRIPE_BAR) as (keyof typeof STRIPE_BAR)[]).reduce((best, s) => Math.abs(Math.log(bar / STRIPE_BAR[s])) < Math.abs(Math.log(bar / STRIPE_BAR[best])) ? s : best)
+  return { scale, colored, opacity: Math.round(Math.min(85, Math.max(15, opacity * 1.35))) }
 }
 
 function median(values: number[]) { const s = [...values].sort((a, b) => a - b); return s[Math.floor(s.length / 2)] }
@@ -259,5 +341,20 @@ export function applyReferenceMetrics(study: any, metrics: ReferenceMetrics[]) {
   if (!metrics.some(m => m.coloredText) && (grammar.emphasis === 'color' || grammar.emphasis === 'background')) grammar.emphasis = 'none'
   // A "thin rule" with no measured rule was a box's edges.
   if (!metrics.some(m => m.rules) && Array.isArray(grammar.decorations)) grammar.decorations = grammar.decorations.filter((d: any) => d?.kind !== 'line')
+  // Bands across the slide keep their measured thickness; coloured ones are in the accent colour at their measured
+  // strength (the model calls them a faint neutral texture), and are added when the model missed them.
+  const banded = metrics.map(m => m.stripes).filter(Boolean) as NonNullable<ReferenceMetrics['stripes']>[]
+  if (banded.length && Array.isArray(grammar.decorations)) {
+    const listed = grammar.decorations.find((d: any) => d?.kind === 'stripes'), coloured = banded.filter(s => s.colored)
+    if (listed || coloured.length) {
+      const measured = {
+        placement: 'background', ...listed, kind: 'stripes', scale: banded[0].scale,
+        frequency: banded.length * 2 > metrics.length ? 'every' : 'some',
+        ...(coloured.length ? { color: 'accent', opacity: Math.max(...coloured.map(s => s.opacity)) } : { color: listed.color || 'foreground', opacity: listed.opacity ?? 20 }),
+      }
+      grammar.decorations = listed ? grammar.decorations.map((d: any) => d === listed ? measured : d) : [...grammar.decorations.slice(0, 5), measured]
+      if (coloured.length && rules.familyRules.length < 16 && !rules.familyRules.some((r: string) => /stripe|band|blind|scanline/i.test(r))) rules.familyRules.push('Bands in the accent colour run across the slide, over the photo, fading toward the copy.')
+    }
+  }
   return { ...study, ...prose, ...rules, grammar }
 }

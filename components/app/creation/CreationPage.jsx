@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Sparkles, Trash2 } from 'lucide-react'
+import { Lightbulb, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { filterIdeas } from '@/lib/client/ideaStatus'
 import { scheduleState } from '@/lib/client/schedule'
@@ -193,7 +193,7 @@ export default function CreationPage({ flowId, brandContext: suppliedBrand }) {
 
             {ideas.length === 0 ? (
               <div className="mt-6 rounded-2xl border border-dashed border-bk-field px-6 py-10 text-center motion-safe:animate-bk-page">
-                <Sparkles className="mx-auto size-6 text-bk-muted" aria-hidden="true" />
+                <Lightbulb className="mx-auto size-6 text-bk-muted" aria-hidden="true" />
                 <p className="mt-2.5 font-bk-display text-[17px] font-bold tracking-[-0.02em]">No ideas yet</p>
                 <p className="mx-auto mt-1 max-w-[400px] text-[13.5px] text-bk-muted">{canEdit ? 'Describe a post or story above, or leave it empty and Batkle will suggest one from your brand profile.' : 'Posts and stories made in this brand will show here.'}</p>
               </div>

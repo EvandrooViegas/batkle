@@ -1,6 +1,6 @@
 'use client'
 
-import { Crown, Sparkles } from 'lucide-react'
+import { Crown, Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
  */
 const LOOKS = {
   free: { colors: 'bg-bk-alt text-bk-muted', Icon: null },
-  pro: { colors: 'bg-bk-butter text-bk-ink', Icon: Sparkles },
+  pro: { colors: 'bg-bk-butter text-bk-ink', Icon: Star },
   business: { colors: 'bg-bk-fg text-bk-bg', Icon: Crown },
 }
 

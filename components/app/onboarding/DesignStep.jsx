@@ -1,14 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Check, Loader2, RefreshCw, Search } from 'lucide-react'
-import GlobalDesignPreview, { designAuthor } from '@/components/GlobalDesignPreview'
+import { ArrowLeft, ArrowRight, Loader2, RefreshCw, Search } from 'lucide-react'
+import GlobalDesignPreview from '@/components/GlobalDesignPreview'
+import { DesignCard, DesignMeta, SampleDots } from '../DesignPicker'
 import { cn } from '@/lib/utils'
 import { appButton } from '../ui'
 import { appField } from '../field'
 import { stepEyebrow, stepHeading, stepLead } from './styles'
-
-const SAMPLES = [0, 1, 2, 3]
 
 async function readJson(response, fallback) {
   const data = await response.json().catch(() => ({}))
@@ -42,7 +41,8 @@ export default function DesignStep({ flowId, brand, eyebrow = 'Step 4 of 4 · De
       .then(([published, imported]) => {
         if (!live) return
         const mine = new Map(imported.map(item => [item.family.id, item.family]))
-        setFamilies([...published.filter(f => f.library?.usable !== false).map(f => mine.get(f.id) || f), ...imported.filter(item => !published.some(f => f.id === item.family.id)).map(item => item.family)])
+        // A brand's pinned copy doesn't carry who made the design; the library's listing does.
+        setFamilies([...published.filter(f => f.library?.usable !== false).map(f => (mine.has(f.id) ? { ...mine.get(f.id), library: f.library } : f)),...imported.filter(item => !published.some(f => f.id === item.family.id)).map(item => item.family)])
         setSelected(imported.map(item => item.family.id))
       })
       .catch(e => { if (live) { setLoadError(e.message); setFamilies([]) } })
@@ -128,45 +128,13 @@ export default function DesignStep({ flowId, brand, eyebrow = 'Step 4 of 4 · De
               const sample = samples[family.id] || 0
               return (
                 <li key={family.id} className="min-w-0">
-                  <div className={cn('rounded-2xl border bg-bk-surface p-2.5 transition-[border-color,box-shadow]', on ? 'border-bk-fg shadow-bk-card ring-1 ring-bk-fg' : 'border-bk-line hover:border-bk-fg/40')}>
-                    <button
-                      type="button"
-                      aria-pressed={on}
-                      aria-label={`${family.name}${on ? ', selected' : ''}`}
-                      onClick={() => toggle(family.id)}
-                      className="block w-full rounded-xl text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg"
-                    >
-                      <span className="relative block overflow-hidden rounded-xl">
-                        <GlobalDesignPreview family={family} brand={brand} sample={sample} eager={i < 3} />
-                        <span
-                          aria-hidden="true"
-                          className={cn(
-                            'absolute right-2.5 top-2.5 flex size-8 items-center justify-center rounded-full border-2 transition-colors',
-                            on ? 'border-bk-butter bg-bk-butter text-bk-ink' : 'border-white/80 bg-black/25 text-transparent',
-                          )}
-                        >
-                          <Check className="size-4" strokeWidth={3} />
-                        </span>
-                      </span>
-                      <span className="mt-3 flex items-center justify-between gap-3 px-1">
-                        <span className="min-w-0 truncate text-[15px] font-bold">{family.name}</span>
-                        <span className={cn('shrink-0 text-[12.5px] font-semibold', on ? 'text-bk-fg' : 'text-bk-muted')}>{on ? 'Selected' : 'Select'}</span>
-                      </span>
-                      {(designAuthor(family) || family.tags?.length > 0) && <span className="mt-0.5 block truncate px-1 text-[12.5px] text-bk-muted">{[designAuthor(family), (family.tags || []).join(' · ')].filter(Boolean).join(' · ')}</span>}
-                    </button>
-                    <div role="group" aria-label={`${family.name}: sample slides`} className="mt-2.5 flex gap-1.5 px-1 pb-1">
-                      {SAMPLES.map(n => (
-                        <button
-                          key={n}
-                          type="button"
-                          aria-label={`Sample slide ${n + 1}`}
-                          aria-pressed={sample === n}
-                          onClick={() => setSamples(s => ({ ...s, [family.id]: n }))}
-                          className={cn('h-1.5 flex-1 rounded-full transition-colors', sample === n ? 'bg-bk-fg' : 'bg-bk-line hover:bg-bk-field')}
-                        />
-                      ))}
-                    </div>
-                  </div>
+                  <DesignCard
+                    kind="checkbox" size="lg" surface="raised" selected={on} onSelect={() => toggle(family.id)}
+                    name={family.name} meta={<DesignMeta family={family} size="lg" />}
+                    footer={<SampleDots name={family.name} value={sample} onChange={n => setSamples(s => ({ ...s, [family.id]: n }))} />}
+                  >
+                    <GlobalDesignPreview family={family} brand={brand} sample={sample} eager={i < 3} />
+                  </DesignCard>
                 </li>
               )
             })}

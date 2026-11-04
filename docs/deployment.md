@@ -68,7 +68,7 @@ Not needed for launch. Text reminders show as "Coming soon" on the pricing page 
 
 ## 8. The reminders job
 
-`/api/cron/reminders` sends the reminders that are due and settles the credits of posts left half-made. Something has to call it every 5 minutes with `Authorization: Bearer <CRON_SECRET>`; without `CRON_SECRET` it refuses to run.
+`/api/cron/reminders` sends the reminders that are due and gives back the credits of posts and ads that were never finished (a failed post costs nothing; each account's own also come back the next time its credits are read, so credits don't depend on this job). Something has to call it every 5 minutes with `Authorization: Bearer <CRON_SECRET>`; without `CRON_SECRET` it refuses to run.
 
 - [ ] `CRON_SECRET` in Vercel: a long random value, e.g. from `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 - [ ] On Vercel Pro, add `vercel.json` at the project root. Vercel sends the header itself:

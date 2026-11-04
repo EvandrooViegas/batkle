@@ -7,8 +7,6 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import { resolveVariant, referencePreviewBrand, SAMPLE_COPY } from '@/lib/designs/global/resolve'
 import { previewSlide, SAMPLE_DECK, SAMPLE_IMAGES } from '@/lib/designs/global/compose'
 const DEMO_BRAND = { name: 'Your brand', website: 'https://yourbrand.com', colors: ['#ed5125', '#101327', '#ffe05b'] }
-/** "By …" for a design a member published (its `library` from the API); empty for Batkle's own. */
-export const designAuthor = family => (family?.library && !family.library.official ? `By ${family.library.mine ? 'you' : family.library.author}` : '')
 
 export const COMPOSITION_LABELS = { statement: 'Statement', stacked: 'Stacked', split: 'Split', 'image-led': 'Photo-led', 'backdrop-type': 'Big word behind', list: 'List', closing: 'Closing' }
 

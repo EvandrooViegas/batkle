@@ -17,24 +17,47 @@ export const AD_PLACEMENTS: AdPlacement[] = [
 export const DEFAULT_PLACEMENTS = ['feed-portrait', 'feed-square', 'story']
 
 /**
+ * Ad formats, as Ads Manager names them: one image, or a carousel of 2 to 10 cards people swipe through, each with its
+ * own image and its own headline and description under it. The primary text and the button are the ad's, shared.
+ */
+export const AD_FORMATS = [
+  { id: 'single', label: 'Single image' },
+  { id: 'carousel', label: 'Carousel' },
+] as const
+export type AdFormat = typeof AD_FORMATS[number]['id']
+export const CAROUSEL_CARDS = { min: 2, max: 10, default: 4 }
+
+/**
+ * Every card of a carousel has the same shape, and Meta recommends square. A carousel runs in the feeds and in Stories
+ * (one card per frame), never as a landscape link ad.
+ */
+export const CAROUSEL_PLACEMENTS = ['feed-portrait', 'feed-square', 'story']
+export const CAROUSEL_DEFAULT_PLACEMENTS = ['feed-square']
+
+/**
  * Ad text lengths. Meta shows the first ~125 characters of the primary text before "See more" (so they must work on
  * their own) and accepts more after them; headlines show 40 characters on Instagram and about 27 in the Facebook feed,
- * so their point sits in the first 27; the description shows about 30.
+ * so their point sits in the first 27; the description shows about 30, and about 20 under a carousel card.
  */
-export const AD_TEXT_LIMITS = { primaryText: 125, primaryTextMax: 360, headline: 40, headlineVisible: 27, description: 30 }
+export const AD_TEXT_LIMITS = { primaryText: 125, primaryTextMax: 500, headline: 40, headlineVisible: 27, description: 30, cardDescription: 20 }
 
-/** The three primary text versions, in order: each opens a different way, to test against each other. */
+/**
+ * The three primary text versions, in order: each opens a different way, to test against each other. An ad sells, so
+ * the longer two make the whole case (the problem, the answer, the proof, the objection) and every one ends by telling
+ * the reader what to do.
+ */
 export const AD_ANGLES = [
-  { id: 'short', label: 'Short', use: 'everything in one or two sentences, within 125 characters' },
-  { id: 'problem', label: 'Problem → answer', use: 'the reader’s problem or moment, what the brand does about it, then the next step; 3–5 short lines' },
-  { id: 'proof', label: 'Proof first', use: 'a real proof point from the profile (a named project, a credential, years or work done), then the offer and the next step; 3–5 short lines' },
+  { id: 'short', label: 'Short', use: 'the hook, the offer and a direct call to action, in one or two sentences within 125 characters' },
+  { id: 'problem', label: 'Problem → answer', use: 'the reader’s problem and what it keeps costing them, what the brand does about it, a proof point, then a direct call to action; 4–6 short lines' },
+  { id: 'proof', label: 'Proof first', use: 'a real proof point from the profile (a named project, a credential, years or work done), what the reader gets (two or three concrete points, one per line), the main objection answered, then a direct call to action; 4–7 short lines' },
 ] as const
 
 /**
- * Words on the image itself: Meta favours little text. A hook, a badge naming the offer, an optional line, and a short
- * call to action matching the button under the image.
+ * Words on the image itself: Meta favours little text. A hook, a badge naming the offer, an optional line, and an
+ * optional closing invitation. Meta draws its button under the image, so the closing line never repeats the button: it
+ * says in other words what the reader gets by acting ("Ask us about your damp wall" above "Send Message").
  */
-export const CREATIVE_LIMITS = { headline: 7, supportingText: 10, label: 3, cta: 3 }
+export const CREATIVE_LIMITS = { headline: 7, supportingText: 10, label: 3, cta: 6 }
 
 /**
  * Stories and Reels draw the account name over the top of the image and the reply bar and button over the bottom: Meta
@@ -66,9 +89,26 @@ export const placementById = (id: unknown) => AD_PLACEMENTS.find(p => p.id === i
 export const objectiveById = (id: unknown) => AD_OBJECTIVES.find(o => o.id === id) || AD_OBJECTIVES[1]
 export const isMetaCta = (value: unknown): value is MetaCta => typeof value === 'string' && (META_CTAS as readonly string[]).includes(value)
 
-/** The placements asked for, valid and in Batkle's order; the defaults when none are. */
-export function readPlacements(value: unknown): string[] {
-  const asked = Array.isArray(value) ? value.filter(v => placementById(v)) : []
-  const ids = asked.length ? asked : DEFAULT_PLACEMENTS
+export const readFormat = (value: unknown): AdFormat => (value === 'carousel' ? 'carousel' : 'single')
+/** The sizes a format can be made at, and the ones it starts with. */
+export const placementsFor = (format: AdFormat) => (format === 'carousel' ? CAROUSEL_PLACEMENTS : AD_PLACEMENTS.map(p => p.id))
+export const defaultPlacements = (format: AdFormat) => (format === 'carousel' ? CAROUSEL_DEFAULT_PLACEMENTS : DEFAULT_PLACEMENTS)
+
+/** A carousel's number of cards, within Meta's 2 to 10. */
+export function readCards(value: unknown): number {
+  const n = Math.round(Number(value))
+  return Number.isFinite(n) && n > 0 ? Math.min(CAROUSEL_CARDS.max, Math.max(CAROUSEL_CARDS.min, n)) : CAROUSEL_CARDS.default
+}
+
+/** The placements asked for, valid for the format and in Batkle's order; the format's defaults when none are. */
+export function readPlacements(value: unknown, format: AdFormat = 'single'): string[] {
+  const allowed = placementsFor(format)
+  const asked = Array.isArray(value) ? value.filter(v => typeof v === 'string' && allowed.includes(v)) : []
+  const ids = asked.length ? asked : defaultPlacements(format)
   return AD_PLACEMENTS.map(p => p.id).filter(id => ids.includes(id))
+}
+
+/** What an ad costs: one credit per image made, so a carousel is one per card at every size. */
+export function adCredits(brief: { format?: string; cards?: number; placements: string[] }) {
+  return brief.placements.length * (brief.format === 'carousel' ? readCards(brief.cards) : 1)
 }

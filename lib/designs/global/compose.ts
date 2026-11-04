@@ -79,6 +79,9 @@ export function planSlides(family: GlobalDesignFamily, copy: any): SlidePlan[] {
   const counted = slides.length >= 4 && g.branding.slideNumber === 'none' && postSeed % 3 === 0
   const plans: SlidePlan[] = []
   const observedUses = new Map<any, number>()
+  // A reference whose copy sits on a full-bleed photo is a photo-led arrangement, whatever the study called it ("statement"
+  // or "big word behind" with a photo behind it): followed as recorded, its text-only layout would drop the photo.
+  const references = g.references.map(r => (r.image && r.imagePos === 'full' && !IMAGE_CAPABLE.includes(r.composition) && g.compositions.includes('image-led') ? { ...r, composition: 'image-led' as Composition } : r))
   slides.forEach((slide: any, index: number) => {
     const total = slides.length, last = total > 1 && index === total - 1
     const seed = hash(String(slide?.headline || '') + index)
@@ -98,7 +101,7 @@ export function planSlides(family: GlobalDesignFamily, copy: any): SlidePlan[] {
     // The references' own arrangements come first: list slides follow the list reference, the closing beat the last
     // reference, and other slides rotate through the rest. Sizes still come from the copy. The cover follows
     // reference 1 in two posts out of three; the others open with another arrangement, so covers are not all alike.
-    const refs = g.references
+    const refs = references
     const followCover = postSeed % 3 !== 2
     const observed = !refs.length ? undefined : index === 0 ? (followCover ? refs[0] : undefined)
       : listy && refs.some(r => r.composition === 'list') ? refs.find(r => r.composition === 'list')
@@ -142,12 +145,14 @@ export function planSlides(family: GlobalDesignFamily, copy: any): SlidePlan[] {
     const align = (index === 0 ? alignments[0] : alignments[(index + seed) % Math.max(1, alignments.length)]) || 'left'
     const anchors = g.anchors as Anchor[]
     let anchor = index === 0 ? anchors[postSeed % anchors.length] : anchors[(index + seed) % anchors.length]
-    // A reference arrangement used for this composition sets alignment, anchor and image side; a repeat use varies the anchor.
+    // A reference arrangement used for this composition sets alignment, anchor and image side; a repeat use varies the
+    // anchor. Its alignment and anchor count only while the design still allows them: changing "Copy alignment" or
+    // "Copy position" in the editor overrides what the examples showed.
     const follows = observed && observed.composition === composition ? observed : undefined
     const uses = follows ? observedUses.get(follows) || 0 : 0
     if (follows) observedUses.set(follows, uses + 1)
-    const followedAlign = follows && (composition !== 'split' && composition !== 'list' || follows.align !== 'center') ? follows.align : undefined
-    if (follows) anchor = uses ? anchors[(anchors.indexOf(follows.anchor as Anchor) + uses) % anchors.length] || follows.anchor : follows.anchor
+    const followedAlign = follows && alignments.includes(follows.align as Align) ? follows.align : undefined
+    if (follows && anchors.includes(follows.anchor as Anchor)) anchor = uses ? anchors[(anchors.indexOf(follows.anchor as Anchor) + uses) % anchors.length] : follows.anchor
     if (roomForCutout) anchor = 'top'
     const followedPos = follows?.image && (composition === 'stacked' ? ['top', 'bottom'] : composition === 'split' ? ['left', 'right'] : ['full', 'top', 'bottom']).includes(follows.imagePos) ? follows.imagePos as ImagePos : undefined
     const callout = follows ? follows.callout : g.containers.style !== 'none' && g.containers.use.includes('callout') && index % 2 === 1 && !last
@@ -190,12 +195,15 @@ export function planSlides(family: GlobalDesignFamily, copy: any): SlidePlan[] {
       // slides are already busy, so they keep to the light treatments.
       const overPhoto = wantImage && !cutout && composition === 'image-led' && finalPos === 'full'
       const lowerCopy = (body || String(slide?.cta || '').trim()) && !bottomBranding
+      // A full-width accent band is loud, so it only comes from examples that set copy on solid colour: a headline on a
+      // solid panel, or cards in a brand colour. Otherwise it is something the examples never had.
+      const solidCopy = g.headline.frame === 'solid' || (g.containers.style === 'card' && ['accent', 'primary'].includes(g.containers.fill))
       const text: TextVariant[] = ['classic']
       if (!ruled) text.push('rule')
       if (!wantImage || overPhoto) {
         // The slide number already sits above the headline of a counted slide; a quote mark would compete with it.
         if (words && words <= 9 && !last && !(counted && index > 0)) text.push('quote')
-        if (lowerCopy) text.push('band')
+        if (lowerCopy && solidCopy) text.push('band')
       }
       if (!wantImage) {
         if (finalAlign === 'left') text.push('sidebar')
@@ -254,16 +262,16 @@ const WEIGHT = { regular: 400, bold: 700, black: 900 }
 const LEADING = { tight: 1.02, normal: 1.12, loose: 1.25 }
 
 interface ComposeOptions { preview?: boolean; image?: string; logo?: boolean; imageSize?: { width: number; height: number } }
-interface TextSpec { role: string; text: string; font: string; size: number; min: number; weight: number; lineHeight: number; letterSpacing?: number; color: string; uppercase?: boolean; italic?: boolean; highlight?: 'color' | 'background'; pad?: number; padY?: number }
+interface TextSpec { role: string; text: string; font: string; size: number; min: number; weight: number; lineHeight: number; letterSpacing?: number; color: string; uppercase?: boolean; italic?: boolean; highlight?: 'color' | 'background' | 'underline'; pad?: number; padY?: number }
 
-function emphasize(text: string, slide: any, kind: 'color' | 'background') {
+function emphasize(text: string, slide: any, kind: 'color' | 'background' | 'underline') {
   const words = text.split(/\s+/)
   const requested = Array.isArray(slide.emphasis) ? slide.emphasis.map((w: any) => clean(w).toLowerCase()) : []
   // Without a planned word, accent the most substantial word (longest, later on ties), never a short article.
   const strip = (w: string) => w.replace(/[^\p{L}\p{N}]/gu, '')
   const fallback = words.map((w, i) => ({ w, i, n: strip(w).length })).filter(x => x.n >= 4).sort((a, b) => b.n - a.n || b.i - a.i)[0]?.w || words[words.length - 1]
   const selected = requested.length ? words.filter(w => requested.includes(strip(w).toLowerCase()) || requested.includes(w.toLowerCase())).slice(0, 2) : [fallback]
-  return text.split(/(\s+)/).map(word => selected.includes(word) ? `<%kind:${kind === 'background' ? 'family-highlight' : 'family-emphasis'}:${word}%>` : word).join('')
+  return text.split(/(\s+)/).map(word => selected.includes(word) ? `<%kind:${kind === 'background' ? 'family-highlight' : kind === 'underline' ? 'family-underline' : 'family-emphasis'}:${word}%>` : word).join('')
 }
 
 /** Shrinks a group of text blocks together until it fits the zone; complete copy is never cut. */
@@ -395,14 +403,13 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
   // The logo is measured by its visible mark, not by its file's padding.
   const mark = variants?.bounds && variants.imageAspect ? { bounds: variants.bounds, imageAspect: variants.imageAspect as number } : null
   const markAspect = mark ? mark.bounds.width / mark.bounds.height * mark.imageAspect : 0
-  // One brand mark per slide, always in a corner: never inside the copy and never centred. A brand with a logo is
-  // identified by the logo, not its website: the logo takes the handle's place when the study has no logo position,
-  // and the website link is dropped when the logo is shown. A study that places no branding still gets the logo
-  // (or the name) top-left.
-  const corner = (pos: string) => pos === 'top-center' ? 'top-left' : pos === 'bottom-center' ? 'bottom-left' : pos
-  const logoPos = corner(g.branding.logo !== 'none' ? g.branding.logo
+  // One brand mark per slide, in its own row along the top or bottom edge (a corner or the centre), never inside the
+  // copy. A brand with a logo is identified by the logo, not its website: the logo takes the handle's place when the
+  // study has no logo position, and the website link is dropped when the logo is shown. A study that places no
+  // branding still gets the logo (or the name) top-left.
+  const logoPos = g.branding.logo !== 'none' ? g.branding.logo
     : g.branding.handle !== 'none' ? (showLogo ? g.branding.handle : 'none')
-    : showLogo || clean(brand.name || '').trim() ? 'top-left' : 'none')
+    : showLogo || clean(brand.name || '').trim() ? 'top-left' : 'none'
   const branding = [
     { kind: 'logo', pos: logoPos },
     { kind: 'number', pos: total > 1 ? g.branding.slideNumber : 'none' },
@@ -444,7 +451,7 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
   const bodyText = clean(items.length ? parts.lead : slide.body || slide.supportingText).trim()
   const eyebrowText = clean(slide.eyebrow || slide.subheadline).trim()
   const ctaText = clean(slide.cta).trim()
-  const emphasis = g.emphasis === 'none' ? undefined : g.emphasis === 'background' ? 'background' as const : 'color' as const
+  const emphasis = g.emphasis === 'none' ? undefined : g.emphasis === 'background' || g.emphasis === 'underline' ? g.emphasis : 'color' as const
   const specs: TextSpec[] = []
   const boxed = g.headline.frame !== 'none' && plan.frame !== false
   if (eyebrowText) specs.push({ role: 'eyebrow', text: eyebrowText, font: bodyFont, size: Math.round(bSize * .8), min: 18, weight: 600, lineHeight: 1.2, letterSpacing: 2, color: textOnImage ? '#ffffffd9' : accent, uppercase: true })
@@ -568,6 +575,20 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
     else if (d.kind === 'glow') behind.push({ role: 'decoration', type: 'gradient', gradientType: 'radial', x: cx - size, y: cy - size, width: size * 2, height: size * 2, stops: [{ color: color.slice(0, 7), position: 0, alpha: d.opacity }, { color: color.slice(0, 7), position: 70, alpha: 0 }] })
     else if (d.kind === 'cornerBlock') { const s = Math.round(W * .13); behind.push({ role: 'decoration', type: 'shape', shape: 'rect', x: h === 'left' ? 0 : W - s, y: v === 'top' ? 0 : H - s, width: s, height: s, fill: color }) }
     else if (d.kind === 'frame') { const inset = Math.round(M * .45); behind.push({ role: 'decoration', type: 'shape', shape: 'rect', x: inset, y: inset, width: W - 2 * inset, height: H - 2 * inset, fill: '#00000000', stroke: color, strokeWidth: Math.max(2, Math.round(W * .003)) }) }
+    else if (d.kind === 'stripes') {
+      // Bands across the part of the slide away from the copy, like blinds, fading toward the copy so it stays readable.
+      // On a slide whose copy sits on a photo they are drawn over the photo (see the imagery below), and the photo
+      // between them is shaded, so they read as bands of light on any photo, light or dark.
+      const bar = Math.max(4, Math.round(H * ({ small: .006, medium: .01, large: .016, oversized: .024 } as any)[d.scale]))
+      const from = plan.anchor === 'top' ? Math.round(H * .4) : 0, to = plan.anchor === 'bottom' ? Math.round(H * .62) : H
+      const base = d.color === 'accent' ? accent : d.color === 'foreground' ? fg : (textOnImage ? '#ffffff' : p.tone)
+      for (let y = from; y + bar <= to; y += bar * 2) {
+        const t = (y - from) / Math.max(1, to - from)
+        const fade = plan.anchor === 'bottom' ? 1 - t * .8 : plan.anchor === 'top' ? .2 + t * .8 : .2 + Math.abs(t - .5) * 1.6
+        behind.push({ role: 'stripes', type: 'shape', shape: 'rect', x: 0, y, width: W, height: bar, fill: alpha(base, Math.round(d.opacity * fade)) })
+        if (textOnImage) behind.push({ role: 'stripes', type: 'shape', shape: 'rect', x: 0, y: y + bar, width: W, height: Math.min(bar, to - y - bar), fill: alpha(p.dark, Math.round(Math.min(60, d.opacity + 15) * fade)) })
+      }
+    }
     else if (d.kind === 'dotGrid') {
       const field = d.scale === 'oversized', step = Math.round(W * (field ? .045 : .034)), dot = Math.max(4, Math.round(W * .007))
       const cols = field ? Math.ceil(W / step) : 6, rows = field ? Math.ceil(H / step) : 6
@@ -626,7 +647,7 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
       const solid = g.imagery.overlay === 'solid' || plan.anchor === 'center'
       push('overlay', { type: 'gradient', gradientType: 'linear', ...frame, angle: plan.anchor === 'top' ? 0 : 180, stops: solid ? [{ color: p.dark, position: 0, alpha: 52 }, { color: p.dark, position: 100, alpha: 52 }] : [{ color: p.dark, position: 0, alpha: 8 }, { color: p.dark, position: 55, alpha: 38 }, { color: p.dark, position: 100, alpha: 88 }] })
     } else if (textOnImage) push('overlay', { type: 'gradient', gradientType: 'linear', ...frame, angle: plan.anchor === 'top' ? 0 : 180, stops: [{ color: p.dark, position: 0, alpha: 0 }, { color: p.dark, position: 100, alpha: 70 }] })
-    if (textOnImage) for (const d of behind.filter(d => d.role === 'backdrop-type')) push(d.role, d)
+    if (textOnImage) for (const d of behind.filter(d => d.role === 'backdrop-type' || d.role === 'stripes')) push(d.role, d)
   }
 
   // Copy placement.
@@ -892,10 +913,12 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
     }
   }
 
-  // Branding: logo, slide number and handle in their studied corners.
+  // Branding: logo, slide number and handle in their studied places. Texts in a row keep to their half of it; with
+  // something in the middle of the row, the sides keep to the outer parts so nothing overlaps.
   const half = Math.floor((W - 2 * M) / 2) - 8
   for (const b of branding) {
     const [v, h] = b.pos.split('-')
+    const room = !branding.some(o => o.pos === `${v}-center`) ? half : Math.round((W - 2 * M) * (h === 'center' ? .36 : .3))
     // Every item in a branding row is centred on the row, which is as tall as its tallest item.
     const row = rowHeight(v), rowY = v === 'top' ? M : H - M - row
     const y = rowY + Math.round((row - band) / 2)
@@ -916,11 +939,11 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
         }
       } else if (brand.name) {
         // Branding texts share a row with each other: each box keeps to its half so they never overlap.
-        const width = Math.min(Math.round(W * .45), half)
+        const width = Math.min(Math.round(W * .45), room)
         push('brand-name', { type: 'text', x: place(width), ...line(y, band, Math.round(W * .026), 1.1), width, text: clean(brand.name), fontFamily: heading, fontSize: Math.round(W * .026), fontWeight: 700, lineHeight: 1.1, color: fg, textAlign: h === 'center' ? 'center' : h })
       }
     } else if (b.kind === 'number') {
-      const width = Math.round(W * .16)
+      const width = Math.min(Math.round(W * .16), room)
       push('slide-number', { type: 'text', x: place(width), ...line(y, band, Math.round(W * .03), 1), width, text: `${String(index + 1).padStart(2, '0')}`, fontFamily: heading, fontSize: Math.round(W * .03), fontWeight: 700, lineHeight: 1, color: accent, textAlign: h === 'center' ? 'center' : h })
     } else if (brand.website) {
       let site = clean(brand.website)
@@ -928,12 +951,12 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
       const size = Math.round(W * .022)
       if (cardsFor('handle')) {
         // The handle sits in a pill, as studied.
-        const width = Math.min(Math.round(W * .5), Math.round(site.length * size * .6 + size * 2.2))
+        const width = Math.min(Math.round(W * .5), room, Math.round(site.length * size * .6 + size * 2.2))
         const x = place(width)
         card({ x, y, width, height: band }, 'handle-pill')
         push('handle', { type: 'text', x, ...line(y, band, size, 1.1), width, text: site, fontFamily: bodyFont, fontSize: size, fontWeight: 600, lineHeight: 1.1, color: box.style === 'card' ? cardText : fg, textAlign: 'center' })
       } else {
-        const width = Math.min(Math.round(W * .5), half)
+        const width = Math.min(Math.round(W * .5), room)
         push('handle', { type: 'text', x: place(width), ...line(y, band, size, 1.1), width, text: site, fontFamily: bodyFont, fontSize: size, fontWeight: 400, lineHeight: 1.1, color: muted, textAlign: h === 'center' ? 'center' : h })
       }
     }
@@ -955,6 +978,7 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
   const classes = {
     'family-highlight': { background: accent, color: textOnImage ? on(accent) : p.onAccent, paddingX: 8, paddingY: 0 },
     'family-emphasis': { color: accent, fontWeight: 700 },
+    'family-underline': { textDecoration: 'underline', textDecorationColor: accent, textDecorationThickness: '0.1em', textUnderlineOffset: '0.12em' },
   }
   return { width: W, height: H, background: pageBackground, nodes, groups: [], classes, composition: plan.composition, free }
 }
@@ -969,12 +993,33 @@ export const SAMPLE_DECK = [
 
 /**
  * Sample imagery for study previews, composed exactly like a real post's photo or cutout.
- * Photos from Pexels (free to use): landscape by Bob Krustev (#163915); potted plant by Gül Işık (#2266851),
- * background removed with the app's subject pipeline.
+ * Photos from Pexels (free to use): landscape by Bob Krustev (#163915), city at night by Ethan Woo (#20179590), café by
+ * Emre Can Acer (#2079448), plates by Arif Hakuba (#12018270), team by Ivan S (#8117476), gym by Airam Dato-on
+ * (#13106575), latte by Esra Afşar (#33565954), shop window by Ja Kubislav (#14534753), alley by M.Emin Bilir
+ * (#40629412); potted plant by Gül Işık (#2266851), background removed with the app's subject pipeline.
  */
 export const SAMPLE_IMAGES = {
   photo: { url: '/samples/landscape.jpg', width: 1600, height: 1066 },
+  // Light and dark photos take turns, so one design's samples show how it holds up on both.
+  photos: [
+    { url: '/samples/landscape.jpg', width: 1600, height: 1066 },
+    { url: '/samples/city-night.jpg', width: 1080, height: 1350 },
+    { url: '/samples/cafe.jpg', width: 1080, height: 1350 },
+    { url: '/samples/plates.jpg', width: 1080, height: 1350 },
+    { url: '/samples/team.jpg', width: 1080, height: 1350 },
+    { url: '/samples/gym.jpg', width: 1080, height: 1350 },
+    { url: '/samples/latte.jpg', width: 1080, height: 1350 },
+    { url: '/samples/shop.jpg', width: 1080, height: 1350 },
+    { url: '/samples/alley.jpg', width: 1080, height: 1350 },
+  ],
   cutout: { url: '/samples/cutout.png', width: 637, height: 543 },
+}
+
+/** The sample photo for one sample of a design: each design starts at its own photo (from its id), so designs differ. */
+export function samplePhoto(family: { id?: string }, sampleIndex = 0) {
+  let start = 0
+  for (const ch of String(family?.id || '')) start = (start * 31 + ch.charCodeAt(0)) >>> 0
+  return SAMPLE_IMAGES.photos[(start + sampleIndex) % SAMPLE_IMAGES.photos.length]
 }
 
 /** Preview of one sample beat, with a sample photo or cutout wherever the study places imagery. */
@@ -982,7 +1027,7 @@ export function previewSlide(family: GlobalDesignFamily, brand: any, sampleIndex
   const deck = { format: 'carousel', slides: SAMPLE_DECK }
   const plans = planSlides(family, deck)
   const i = Math.max(0, Math.min(SAMPLE_DECK.length - 1, sampleIndex))
-  const sample = plans[i].cutout ? SAMPLE_IMAGES.cutout : SAMPLE_IMAGES.photo
+  const sample = plans[i].cutout ? SAMPLE_IMAGES.cutout : samplePhoto(family, i)
   try { return composeSlide(family, brand, SAMPLE_DECK[i], plans[i], i, SAMPLE_DECK.length, { preview: true, image: sample.url, imageSize: sample }) }
   catch { return composeSlide(family, brand, { headline: SAMPLE_DECK[i].headline }, { ...plans[i], composition: 'statement', withImage: false }, i, SAMPLE_DECK.length, { preview: true }) }
 }

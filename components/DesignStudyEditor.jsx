@@ -7,6 +7,7 @@ import { familyGrammar, familyImagery } from '@/lib/designs/global/study'
 import { appButton, panelClass } from '@/components/app/ui'
 import { appField } from '@/components/app/field'
 import { cn } from '@/lib/utils'
+import { PICTURES, Swatch } from '@/components/design-studio/StudyPictures'
 
 // Plain names for the study's values. The grammar keeps its own terms; people see these.
 const IMAGERY = [
@@ -26,7 +27,9 @@ const LAYOUTS = {
   list: ['List', 'Points with markers'], closing: ['Closing', 'A sign-off slide'],
 }
 const ROLES = { surface: 'Background', tint: 'Tint of the main colour', light: 'Brand light', dark: 'Brand dark', primary: 'Main colour', accent: 'Accent', foreground: 'Text colour', white: 'White' }
-const DECORATIONS = { oversizedType: 'Big faint type', ring: 'Ring', circle: 'Circle', arc: 'Arc', line: 'Accent line', dotGrid: 'Dot grid', pill: 'Pill around the label', cornerBlock: 'Corner block', frame: 'Border around the slide', glow: 'Glow' }
+const DECORATIONS = { oversizedType: 'Big faint type', ring: 'Ring', circle: 'Circle', arc: 'Arc', line: 'Accent line', dotGrid: 'Dot grid', pill: 'Pill around the label', cornerBlock: 'Corner block', frame: 'Border around the slide', glow: 'Glow', stripes: 'Stripes' }
+// Stripes read like the examples they come from: bold bands in the accent colour (they always span the slide).
+const STRIPES = { kind: 'stripes', color: 'accent', scale: 'large', opacity: 55, placement: 'background' }
 const CORNERS = [['top-left', 'Top left'], ['top-center', 'Top centre'], ['top-right', 'Top right'], ['bottom-left', 'Bottom left'], ['bottom-center', 'Bottom centre'], ['bottom-right', 'Bottom right']]
 const BLANK_STUDY = { personality: '', composition: '', spaceDensity: '', typography: '', colorContrast: '', colorRoles: { background: '', foreground: '', accent: '', decoration: '' }, decorative: '', hierarchy: '', logoPlacement: '', distinctive: [], familyRules: [], variantRules: [], avoid: [] }
 const textArea = appField('h-auto py-2.5 text-[14px] leading-relaxed')
@@ -54,9 +57,32 @@ function Setting({ id, label, hint, children, className = '' }) {
   )
 }
 
-/** One of a few options, as a segmented row. `wide` gives a long row the full width of a two-column grid. */
-function Choice({ label, hint, value, options, onChange, wide = false }) {
+/** One option drawn as it looks: the picture, its name and, when there is one, a line about it. */
+function Tile({ picture, text, sub, selected, onClick, toggle = false, badge = null }) {
+  return (
+    <button type="button" onClick={onClick} {...(toggle ? { 'aria-pressed': selected } : { role: 'radio', 'aria-checked': selected })}
+      className={cn('flex w-[84px] flex-col items-center gap-1.5 rounded-xl border px-1.5 pb-2 pt-2.5 text-center transition-colors focus-visible:[outline-style:solid] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg', sub && 'w-[112px]', selected ? 'border-bk-fg bg-bk-alt shadow-bk-card' : 'border-bk-field hover:border-bk-fg/50')}>
+      <span className="flex h-[52px] items-center justify-center text-bk-fg">{picture}</span>
+      <span className="text-[12px] font-semibold leading-tight">{text}</span>
+      {sub && <span className="text-[11px] leading-snug text-bk-muted">{sub}</span>}
+      {badge}
+    </button>
+  )
+}
+
+/**
+ * One of a few options, as a segmented row, or as picture tiles when `pictures` draws each option. `wide` gives a long
+ * row the full width of a two-column grid.
+ */
+function Choice({ label, hint, value, options, onChange, wide = false, pictures = null }) {
   const id = useId()
+  if (pictures) return (
+    <Setting id={id} label={label} hint={hint} className={wide ? 'sm:col-span-2' : ''}>
+      <div role="radiogroup" aria-labelledby={id} className="flex flex-wrap gap-2">
+        {options.map(([key, text, sub]) => <Tile key={key} picture={pictures[key]} text={text} sub={sub} selected={value === key} onClick={() => onChange(key)} />)}
+      </div>
+    </Setting>
+  )
   return (
     <Setting id={id} label={label} hint={hint} className={wide ? 'sm:col-span-2' : ''}>
       <div role="radiogroup" aria-labelledby={id} className="inline-flex max-w-full flex-wrap gap-1 rounded-xl bg-bk-alt p-1">
@@ -71,13 +97,27 @@ function Choice({ label, hint, value, options, onChange, wide = false }) {
   )
 }
 
-/** Several options that can be on together. With `ordered`, the first one picked is the one used most. */
-function Toggles({ label, hint, value, options, onChange, ordered = false, allowNone = false }) {
+/**
+ * Several options that can be on together, as picture tiles when `pictures` draws each one. With `ordered`, the first
+ * one picked is the one used most.
+ */
+function Toggles({ label, hint, value, options, onChange, ordered = false, allowNone = false, pictures = null }) {
   const id = useId()
   const toggle = key => {
     const next = value.includes(key) ? value.filter(v => v !== key) : [...value, key]
     if (next.length || allowNone) onChange(next)
   }
+  const mostUsed = key => ordered && value.length > 1 && value[0] === key
+  if (pictures) return (
+    <Setting id={id} label={label} hint={hint}>
+      <div role="group" aria-labelledby={id} className="flex flex-wrap gap-2">
+        {options.map(([key, text, sub]) => (
+          <Tile key={key} toggle picture={pictures[key]} text={text} sub={sub} selected={value.includes(key)} onClick={() => toggle(key)}
+            badge={mostUsed(key) && <span className="rounded bg-bk-butter px-1 text-[10px] font-bold text-bk-ink">Most used</span>} />
+        ))}
+      </div>
+    </Setting>
+  )
   return (
     <Setting id={id} label={label} hint={hint}>
       <div role="group" aria-labelledby={id} className="flex flex-wrap gap-1.5">
@@ -99,14 +139,20 @@ function Toggles({ label, hint, value, options, onChange, ordered = false, allow
   )
 }
 
+/** Which of the brand's colours goes here, picked from swatches (drawn in the demo brand's colours). */
 function RoleSelect({ label, value, onChange, roles = COLOR_ROLES }) {
+  const id = useId()
   return (
-    <label className="block min-w-0">
-      <span className="text-[13px] font-bold">{label}</span>
-      <select value={value} onChange={e => onChange(e.target.value)} className={appField('mt-2 h-9 text-[13.5px]')}>
-        {roles.map(role => <option key={role} value={role}>{ROLES[role] || role}</option>)}
-      </select>
-    </label>
+    <Setting id={id} label={label} className="sm:col-span-2">
+      <div role="radiogroup" aria-labelledby={id} className="flex flex-wrap gap-1.5">
+        {roles.map(role => (
+          <button key={role} type="button" role="radio" aria-checked={value === role} onClick={() => onChange(role)}
+            className={cn('flex items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-[12.5px] font-semibold transition-colors focus-visible:[outline-style:solid] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg', value === role ? 'border-bk-fg bg-bk-alt' : 'border-bk-field hover:border-bk-fg/50')}>
+            <Swatch role={role} />{ROLES[role] || role}
+          </button>
+        ))}
+      </div>
+    </Setting>
   )
 }
 
@@ -234,12 +280,12 @@ export default function DesignStudyEditor({ family, onChange, view = 'look' }) {
       {!family.study && <p className="rounded-xl bg-bk-alt p-3 text-[13px]">This design was saved before structured studies. These settings were worked out from its layouts; save to keep them, or use “Study again”.</p>}
 
       <Group title="Layout" hint="How slides are arranged. Each post mixes the layouts you allow.">
-        <Toggles label="Slide layouts" value={g.compositions} options={COMPOSITIONS.map(c => [c, ...LAYOUTS[c]])} onChange={v => setGrammar({ compositions: v })} />
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Toggles ordered label="Copy alignment" value={g.alignment} options={[['left', 'Left'], ['center', 'Centre'], ['right', 'Right']]} onChange={v => setGrammar({ alignment: v })} />
-          <Toggles ordered label="Copy position" value={g.anchors} options={[['top', 'Top'], ['center', 'Middle'], ['bottom', 'Bottom']]} onChange={v => setGrammar({ anchors: v })} />
-          <Choice label="Margins" value={g.margin} options={[['tight', 'Tight'], ['standard', 'Standard'], ['generous', 'Roomy']]} onChange={v => setGrammar({ margin: v })} />
-          <Choice label="Space between copy" value={g.density} options={[['airy', 'Airy'], ['balanced', 'Balanced'], ['dense', 'Dense']]} onChange={v => setGrammar({ density: v })} />
+        <Toggles label="Slide layouts" value={g.compositions} options={COMPOSITIONS.map(c => [c, ...LAYOUTS[c]])} pictures={PICTURES.compositions} onChange={v => setGrammar({ compositions: v })} />
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Toggles ordered label="Copy alignment" value={g.alignment} options={[['left', 'Left'], ['center', 'Centre'], ['right', 'Right']]} pictures={PICTURES.alignment} onChange={v => setGrammar({ alignment: v })} />
+          <Toggles ordered label="Copy position" value={g.anchors} options={[['top', 'Top'], ['center', 'Middle'], ['bottom', 'Bottom']]} pictures={PICTURES.anchors} onChange={v => setGrammar({ anchors: v })} />
+          <Choice label="Margins" value={g.margin} options={[['tight', 'Tight'], ['standard', 'Standard'], ['generous', 'Roomy']]} pictures={PICTURES.margin} onChange={v => setGrammar({ margin: v })} />
+          <Choice label="Space between copy" value={g.density} options={[['airy', 'Airy'], ['balanced', 'Balanced'], ['dense', 'Dense']]} pictures={PICTURES.density} onChange={v => setGrammar({ density: v })} />
         </div>
       </Group>
 
@@ -247,18 +293,18 @@ export default function DesignStudyEditor({ family, onChange, view = 'look' }) {
         <HeadlineBox value={g.headline.frame || 'none'} onChange={setFrame} />
         {g.headline.frame === 'solid' && (
           <div className="grid gap-5 sm:grid-cols-2">
-            <Choice label="Panel outline" hint="Cards get the same line." value={g.panel?.outline ? 'line' : 'none'} options={[['none', 'None'], ['line', 'Thin dark line']]} onChange={v => setGrammar({ panel: { offset: 'none', ...g.panel, outline: v === 'line' } })} />
-            <Choice label="Block behind the panel" hint="Offset down and to the right." value={g.panel?.offset || 'none'} options={[['none', 'None'], ['block', 'Solid'], ['outline', 'Outline only']]} onChange={v => setGrammar({ panel: { outline: false, ...g.panel, offset: v } })} />
+            <Choice label="Panel outline" hint="Cards get the same line." value={g.panel?.outline ? 'line' : 'none'} options={[['none', 'None'], ['line', 'Thin dark line']]} pictures={PICTURES.panelOutline} onChange={v => setGrammar({ panel: { offset: 'none', ...g.panel, outline: v === 'line' } })} />
+            <Choice label="Block behind the panel" hint="Offset down and to the right." value={g.panel?.offset || 'none'} options={[['none', 'None'], ['block', 'Solid'], ['outline', 'Outline only']]} pictures={PICTURES.panelOffset} onChange={v => setGrammar({ panel: { outline: false, ...g.panel, offset: v } })} />
           </div>
         )}
         <div className="grid gap-5 sm:grid-cols-2">
-          <Choice label="Size" value={g.headline.scale} options={[['medium', 'Medium'], ['large', 'Large'], ['veryLarge', 'Very large'], ['oversized', 'Huge']]} onChange={v => headline({ scale: v })} />
-          <Choice label="Weight" value={g.headline.weight} options={[['regular', 'Regular'], ['bold', 'Bold'], ['black', 'Extra bold']]} onChange={v => headline({ weight: v })} />
-          <Choice label="Capitals" value={g.headline.case} options={[['none', 'As written'], ['uppercase', 'ALL CAPS']]} onChange={v => headline({ case: v })} />
-          <Choice label="Letter spacing" value={g.headline.tracking} options={[['tight', 'Tight'], ['normal', 'Normal'], ['wide', 'Wide']]} onChange={v => headline({ tracking: v })} />
-          <Choice label="Line spacing" value={g.headline.leading} options={[['tight', 'Tight'], ['normal', 'Normal'], ['loose', 'Loose']]} onChange={v => headline({ leading: v })} />
-          <Choice wide label="Highlighted words" hint="One or two key words stand out." value={g.emphasis} options={[['none', 'None'], ['color', 'In colour'], ['background', 'Marker'], ['underline', 'Underlined']]} onChange={v => setGrammar({ emphasis: v })} />
-          <Choice label="Fill" value={g.headline.fill} options={[['solid', 'One colour'], ['gradient', 'Gradient']]} onChange={v => headline({ fill: v })} />
+          <Choice wide label="Size" value={g.headline.scale} options={[['medium', 'Medium'], ['large', 'Large'], ['veryLarge', 'Very large'], ['oversized', 'Huge']]} pictures={PICTURES.headlineSize} onChange={v => headline({ scale: v })} />
+          <Choice label="Weight" value={g.headline.weight} options={[['regular', 'Regular'], ['bold', 'Bold'], ['black', 'Extra bold']]} pictures={PICTURES.weight} onChange={v => headline({ weight: v })} />
+          <Choice label="Capitals" value={g.headline.case} options={[['none', 'As written'], ['uppercase', 'ALL CAPS']]} pictures={PICTURES.case} onChange={v => headline({ case: v })} />
+          <Choice label="Letter spacing" value={g.headline.tracking} options={[['tight', 'Tight'], ['normal', 'Normal'], ['wide', 'Wide']]} pictures={PICTURES.tracking} onChange={v => headline({ tracking: v })} />
+          <Choice label="Line spacing" value={g.headline.leading} options={[['tight', 'Tight'], ['normal', 'Normal'], ['loose', 'Loose']]} pictures={PICTURES.leading} onChange={v => headline({ leading: v })} />
+          <Choice wide label="Highlighted words" hint="One or two key words stand out." value={g.emphasis} options={[['none', 'None'], ['color', 'In colour'], ['background', 'Marker'], ['underline', 'Underlined']]} pictures={PICTURES.emphasis} onChange={v => setGrammar({ emphasis: v })} />
+          <Choice label="Fill" value={g.headline.fill} options={[['solid', 'One colour'], ['gradient', 'Gradient']]} pictures={PICTURES.headlineFill} onChange={v => headline({ fill: v })} />
         </div>
         {g.headline.fill === 'gradient' && (
           <div className="grid gap-4 sm:grid-cols-2">
@@ -269,28 +315,28 @@ export default function DesignStudyEditor({ family, onChange, view = 'look' }) {
       </Group>
 
       <Group title="Copy, cards and lists">
-        <Choice label="Supporting copy size" value={g.body.scale} options={[['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']]} onChange={v => setGrammar({ body: { scale: v } })} />
-        <Choice label="Cards" hint="Boxes that hold copy, list items or the website." value={g.containers.style} options={[['none', 'No cards'], ['card', 'Filled'], ['outline', 'Outlined'], ['glass', 'Frosted']]} onChange={v => setGrammar({ containers: { ...g.containers, style: v } })} />
+        <Choice label="Supporting copy size" value={g.body.scale} options={[['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']]} pictures={PICTURES.bodySize} onChange={v => setGrammar({ body: { scale: v } })} />
+        <Choice label="Cards" hint="Boxes that hold copy, list items or the website." value={g.containers.style} options={[['none', 'No cards'], ['card', 'Filled'], ['outline', 'Outlined'], ['glass', 'Frosted']]} pictures={PICTURES.cards} onChange={v => setGrammar({ containers: { ...g.containers, style: v } })} />
         {g.containers.style !== 'none' && <>
           <Toggles allowNone label="Cards hold" value={g.containers.use} options={[['callout', 'Supporting copy'], ['list', 'List items'], ['label', 'Labels'], ['handle', 'Website']]} onChange={setCardUse} />
           <div className="grid gap-5 sm:grid-cols-2">
-            <Choice label="Card corners" value={g.containers.radius} options={[['small', 'Slight'], ['medium', 'Rounded'], ['large', 'Very round'], ['pill', 'Pill']]} onChange={v => setGrammar({ containers: { ...g.containers, radius: v } })} />
+            <Choice wide label="Card corners" value={g.containers.radius} options={[['small', 'Slight'], ['medium', 'Rounded'], ['large', 'Very round'], ['pill', 'Pill']]} pictures={PICTURES.cardCorners} onChange={v => setGrammar({ containers: { ...g.containers, radius: v } })} />
             <RoleSelect label="Card colour" value={g.containers.fill} onChange={v => setGrammar({ containers: { ...g.containers, fill: v } })} />
           </div>
         </>}
         <div className="grid gap-5 sm:grid-cols-2">
           <Choice label="List markers" value={g.list.marker} options={[['number', '1 2 3'], ['check', '✓'], ['arrow', '→'], ['dot', '•']]} onChange={v => setGrammar({ list: { ...g.list, marker: v } })} />
-          <Choice label="Marker shape" value={g.list.shape} options={[['circle', 'Circle'], ['square', 'Square'], ['none', 'None']]} onChange={v => setGrammar({ list: { ...g.list, shape: v } })} />
-          <Choice label="Marker fill" value={g.list.fill} options={[['solid', 'Filled'], ['outline', 'Outlined']]} onChange={v => setGrammar({ list: { ...g.list, fill: v } })} />
+          <Choice label="Marker shape" value={g.list.shape} options={[['circle', 'Circle'], ['square', 'Square'], ['none', 'None']]} pictures={PICTURES.markerShape} onChange={v => setGrammar({ list: { ...g.list, shape: v } })} />
+          <Choice label="Marker fill" value={g.list.fill} options={[['solid', 'Filled'], ['outline', 'Outlined']]} pictures={PICTURES.markerFill} onChange={v => setGrammar({ list: { ...g.list, fill: v } })} />
           <RoleSelect label="Marker colour" value={g.list.color} onChange={v => setGrammar({ list: { ...g.list, color: v } })} />
         </div>
       </Group>
 
       <Group title="Colours" hint="Always the brand’s own colours; this decides which of them go where.">
-        <Toggles ordered label="Slide backgrounds" hint="The second one, if any, marks the closing slide." value={g.surfaces} options={[['dark', 'Brand dark'], ['light', 'Brand light'], ['brand', 'Main colour']]} onChange={v => setGrammar({ surfaces: v })} />
-        <Choice label="Background fill" value={g.background.type} options={[['flat', 'Flat'], ['linear', 'Gradient'], ['radial', 'Radial glow']]} onChange={v => setGrammar({ background: { ...g.background, type: v } })} />
+        <Toggles ordered label="Slide backgrounds" hint="The second one, if any, marks the closing slide." value={g.surfaces} options={[['dark', 'Brand dark'], ['light', 'Brand light'], ['brand', 'Main colour']]} pictures={PICTURES.surfaces} onChange={v => setGrammar({ surfaces: v })} />
+        <Choice label="Background fill" value={g.background.type} options={[['flat', 'Flat'], ['linear', 'Gradient'], ['radial', 'Glow in a corner']]} pictures={PICTURES.backgroundFill} onChange={v => setGrammar({ background: { ...g.background, type: v } })} />
         {g.background.type !== 'flat' && (
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <RoleSelect label="From" value={g.background.from} onChange={v => setGrammar({ background: { ...g.background, from: v } })} />
             <RoleSelect label="To" value={g.background.to} onChange={v => setGrammar({ background: { ...g.background, to: v } })} />
             <Choice label="Strength" value={g.background.intensity} options={[['subtle', 'Subtle'], ['medium', 'Medium'], ['strong', 'Strong']]} onChange={v => setGrammar({ background: { ...g.background, intensity: v } })} />
@@ -300,47 +346,39 @@ export default function DesignStudyEditor({ family, onChange, view = 'look' }) {
 
       <Group title="Photos">
         <Setting label="Photo style">
-          <div role="radiogroup" aria-label="Photo style" className="grid gap-2 sm:grid-cols-2">
-            {IMAGERY.map(([key, text, sub]) => (
-              <button key={key} type="button" role="radio" aria-checked={study.imagery.mode === key} onClick={() => setImagery({ mode: key })}
-                className={cn('rounded-xl border px-3 py-2.5 text-left transition-colors', study.imagery.mode === key ? 'border-bk-fg bg-bk-alt' : 'border-bk-field hover:border-bk-fg/50')}>
-                <span className="block text-[13.5px] font-semibold">{text}</span><span className="block text-[12px] text-bk-muted">{sub}</span>
-              </button>
-            ))}
+          <div role="radiogroup" aria-label="Photo style" className="flex flex-wrap gap-2">
+            {IMAGERY.map(([key, text, sub]) => <Tile key={key} picture={PICTURES.photoStyle[key]} text={text} sub={sub} selected={study.imagery.mode === key} onClick={() => setImagery({ mode: key })} />)}
           </div>
         </Setting>
         {study.imagery.mode !== 'none' && <>
           <div className="grid gap-5 sm:grid-cols-2">
-            <Choice label="How often" value={g.imagery.frequency} options={[['every', 'Every slide'], ['most', 'Most'], ['some', 'Some'], ['rare', 'Rarely']]} onChange={v => photos({ frequency: v })} />
-            <Choice label="Size" value={g.imagery.scale} options={[['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['dominant', 'Dominant']]} onChange={v => photos({ scale: v })} />
-            <Choice label="Colour" value={g.imagery.tone} options={[['color', 'In colour'], ['monochrome', 'Black and white']]} onChange={v => photos({ tone: v })} />
-            <Choice label="Shade over the photo" hint="Darkens the photo so copy on it reads." value={g.imagery.overlay} options={[['none', 'None'], ['gradient', 'Fade'], ['solid', 'Even']]} onChange={v => photos({ overlay: v })} />
-            <Choice wide label="Shape" value={g.imagery.shape} options={[['rect', 'Square corners'], ['rounded', 'Rounded'], ['circle', 'Circle'], ['pill', 'Pill'], ['arch', 'Arch']]} onChange={v => photos({ shape: v })} />
-            <Choice wide label="Photos and copy" value={g.imagery.overlap} options={[['none', 'Apart'], ['text', 'Copy over photo'], ['edge', 'Overlapping edges']]} onChange={v => photos({ overlap: v })} />
+            <Choice wide label="How often" value={g.imagery.frequency} options={[['every', 'Every slide'], ['most', 'Most slides'], ['some', 'Some slides'], ['rare', 'Rarely']]} pictures={PICTURES.photoFrequency} onChange={v => photos({ frequency: v })} />
+            <Choice wide label="Size" value={g.imagery.scale} options={[['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['dominant', 'Takes over']]} pictures={PICTURES.photoSize} onChange={v => photos({ scale: v })} />
+            <Choice label="Colour" value={g.imagery.tone} options={[['color', 'In colour'], ['monochrome', 'Black and white']]} pictures={PICTURES.photoTone} onChange={v => photos({ tone: v })} />
+            <Choice label="Shade over the photo" hint="Darkens the photo so copy on it reads." value={g.imagery.overlay} options={[['none', 'None'], ['gradient', 'Fade'], ['solid', 'Even']]} pictures={PICTURES.photoOverlay} onChange={v => photos({ overlay: v })} />
+            <Choice wide label="Shape" value={g.imagery.shape} options={[['rect', 'Square corners'], ['rounded', 'Rounded'], ['circle', 'Circle'], ['pill', 'Pill'], ['arch', 'Arch']]} pictures={PICTURES.photoShape} onChange={v => photos({ shape: v })} />
+            <Choice wide label="Photos and copy" value={g.imagery.overlap} options={[['none', 'Apart'], ['text', 'Copy over photo'], ['edge', 'Overlapping edges']]} pictures={PICTURES.photoOverlap} onChange={v => photos({ overlap: v })} />
           </div>
-          <Toggles label="Where photos go" value={g.imagery.positions} options={[['full', 'Whole slide'], ['top', 'Top'], ['bottom', 'Bottom'], ['left', 'Left'], ['right', 'Right'], ['center', 'Centre']]} onChange={v => photos({ positions: v })} />
+          <Toggles label="Where photos go" value={g.imagery.positions} options={[['full', 'Whole slide'], ['top', 'Top'], ['bottom', 'Bottom'], ['left', 'Left'], ['right', 'Right'], ['center', 'Centre']]} pictures={PICTURES.photoPositions} onChange={v => photos({ positions: v })} />
           <Choice label="Images" hint="AI-generated images are transparent cut-outs saved to the brand gallery. With stock, about one image in five is a stock photograph instead; photographs are never AI-generated." value={g.imagery.cutout === 'always' ? 'always' : 'some'} options={[['some', 'AI cut-outs and some stock'], ['always', 'AI cut-outs only']]} onChange={v => photos({ cutout: v })} />
         </>}
       </Group>
 
-      <Group title="Decorations" hint="Shapes and marks behind the copy. They keep clear of the copy and the logo.">
+      <Group title="Decorations" hint="Shapes, lines and patterns, such as stripes over the photo. They keep clear of the copy and the logo.">
         {decorations.length === 0 && <p className="text-[13px] text-bk-muted">No decorations: the copy and photos carry the design.</p>}
         {decorations.map((d, i) => (
           <div key={i} className="space-y-4 rounded-xl bg-bk-alt p-3.5">
-            <div className="flex items-end gap-2">
-              <label className="block min-w-0 flex-1">
-                <span className="text-[13px] font-bold">Decoration {i + 1}</span>
-                <select value={d.kind} onChange={e => setDecoration(i, { kind: e.target.value })} className={appField('mt-2 h-9 text-[13.5px]')}>
-                  {DECORATION_KINDS.map(kind => <option key={kind} value={kind}>{DECORATIONS[kind] || kind}</option>)}
-                </select>
-              </label>
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <Choice label={`Decoration ${i + 1}`} value={d.kind} options={DECORATION_KINDS.map(kind => [kind, DECORATIONS[kind] || kind])} pictures={PICTURES.decorations} onChange={v => setDecoration(i, v === 'stripes' && d.kind !== 'stripes' ? STRIPES : { kind: v })} />
+              </div>
               <button type="button" aria-label={`Remove decoration ${i + 1}`} onClick={() => setGrammar({ decorations: decorations.filter((_, j) => j !== i) })} className={appButton('quiet', 'sm', 'size-9 px-0 text-bk-muted hover:text-[#C2412F]')}><Trash2 className="size-4" /></button>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Choice label="Size" value={d.scale} options={[['small', 'S'], ['medium', 'M'], ['large', 'L'], ['oversized', 'XL']]} onChange={v => setDecoration(i, { scale: v })} />
               <Choice label="Colour" value={d.color} options={[['surfaceTone', 'Soft'], ['accent', 'Accent'], ['foreground', 'Text colour']]} onChange={v => setDecoration(i, { color: v })} />
               <Choice label="On" value={d.frequency} options={[['every', 'Every slide'], ['some', 'Every other']]} onChange={v => setDecoration(i, { frequency: v })} />
-              <Choice label="Placement" value={d.placement === 'edge' ? 'edge' : 'corner'} options={[['edge', 'At the edge'], ['corner', 'Inside the margins']]} onChange={v => setDecoration(i, { placement: v })} />
+              {d.kind !== 'stripes' && <Choice label="Placement" value={d.placement === 'edge' ? 'edge' : 'corner'} options={[['edge', 'At the edge'], ['corner', 'Inside the margins']]} pictures={PICTURES.decorationPlacement} onChange={v => setDecoration(i, { placement: v })} />}
             </div>
             <label className="block max-w-[320px]">
               <span className="flex justify-between text-[13px] font-bold">Opacity<span className="font-semibold tabular-nums text-bk-muted">{d.opacity}%</span></span>
@@ -351,7 +389,7 @@ export default function DesignStudyEditor({ family, onChange, view = 'look' }) {
         {decorations.length < 6 && <button type="button" onClick={() => setGrammar({ decorations: [...decorations, { kind: 'ring', placement: 'edge', scale: 'medium', opacity: 20, color: 'surfaceTone', frequency: 'every' }] })} className={appButton('outline', 'sm')}><Plus className="size-4" />Add a decoration</button>}
       </Group>
 
-      <Group title="Logo and labels" hint="Always in a corner, never inside the copy.">
+      <Group title="Logo and labels" hint="Along the top or bottom edge, never inside the copy.">
         <div className="grid gap-5 sm:grid-cols-3">
           <Corner label="Logo" value={g.branding.logo} onChange={v => setGrammar({ branding: { ...g.branding, logo: v } })} />
           <Corner label="Slide number" value={g.branding.slideNumber} onChange={v => setGrammar({ branding: { ...g.branding, slideNumber: v } })} />

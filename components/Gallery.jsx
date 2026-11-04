@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, ImageOff, Loader2, RefreshCw, Search, Sparkles, Trash2, X } from 'lucide-react'
+import { ArrowRight, ImageOff, Loader2, RefreshCw, Scissors, Search, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppShell, useBrandAccess } from '@/components/app/AppShell'
 import { Popup, usePopup } from '@/components/app/popup'
@@ -264,7 +264,7 @@ export default function Gallery({ flowId, brandContext }) {
                   Nothing here matches “{search}”.
                 </EmptyState>
               ) : (
-                <EmptyState icon={Sparkles} title="No cutouts yet" action={<Link href={creationHref} className={appButton('primary', 'sm')}>Create a post<ArrowRight className="size-3.5" /></Link>}>
+                <EmptyState icon={Scissors} title="No cutouts yet" action={<Link href={creationHref} className={appButton('primary', 'sm')}>Create a post<ArrowRight className="size-3.5" /></Link>}>
                   When a post or story gets an AI image, its cutout is saved here and reused whenever a later slide needs the same subject.
                 </EmptyState>
               )}

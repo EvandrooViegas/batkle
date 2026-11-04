@@ -66,7 +66,7 @@ test('a cutout keeps its proportions, stands on the lower edge and never sits un
   }
 })
 
-test('a photo slot filled with a generated cutout is composed as a cutout, and a slide without any image keeps its typography', () => {
+test('a photo slot filled with a generated cutout is composed as a cutout, and a background photo that could not be found becomes a placeholder', () => {
   const photo = study.reconcileStudy(seeds[2])
   const single = { format: 'single', headline: 'Escape the routine', supportingText: 'Go somewhere quiet.' }
   const fallback = generation.renderGlobalPost(photo, brand, single, { slots: [{ slot_id: 'single_main', treatment: 'isolated_subject', source: 'ai_generated', resolvedAsset: { url: '/api/uploads/gen', subject: { url: '/api/uploads/cut', width: 500, height: 700 } } }] }, { id: 'global-photo' }, crypto.randomUUID)
@@ -74,9 +74,12 @@ test('a photo slot filled with a generated cutout is composed as a cutout, and a
   assert.equal(image.src, '/api/uploads/cut'); assert.equal(image.objectFit, 'contain')
   assert.ok(image.width < 1080 && image.y + image.height === 1350)
   const missing = generation.renderGlobalPost(photo, brand, single, { slots: [{ slot_id: 'single_main', resolvedAsset: null, warning: 'quota' }] }, { id: 'global-photo' }, crypto.randomUUID)
-  assert.equal(missing.nodes.some(n => n.type === 'image' && n.designRole === 'image'), false)
+  // The study's photo fills the slide: a placeholder keeps that layout, named so it is easy to replace in the editor.
+  const placeholder = missing.nodes.find(n => n.type === 'image' && n.designRole === 'image')
+  assert.equal(placeholder?.src, '/samples/background-placeholder.png')
+  assert.equal(placeholder?.name, 'Placeholder photo: replace it')
   assert.ok(missing.nodes.some(n => n.designRole === 'headline'))
-  assert.match(missing.validation.warnings.join(' '), /no fitting image was available \(quota\)/)
+  assert.match(missing.validation.warnings.join(' '), /no fitting image was available \(quota\), so a placeholder photo fills the background/)
 })
 
 test('a last slide whose image could not be made ends on the closing arrangement, without a blank frame', () => {
@@ -239,7 +242,7 @@ test('the logo is sized by its mark and lines up with the copy; CTAs are text, a
   }
 })
 
-test('one logo per slide, always in a corner (never a tile inside the copy), and wordmarks are sized by area', () => {
+test('one logo per slide, in its row along the edge (never a tile inside the copy), and wordmarks are sized by area', () => {
   const textOnly = study.reconcileStudy(seeds[1])
   const f = { ...textOnly, study: { ...textOnly.study, grammar: { ...textOnly.study.grammar, badge: 'logo', branding: { logo: 'top-left', slideNumber: 'none', handle: 'top-right' } } } }
   const variants = aspect => ({ source: '/api/uploads/logo', inkLightness: .5, imageAspect: aspect, bounds: { x: 0, y: 0, width: 1, height: 1 }, originalTransparent: 'orig', whiteTransparent: 'white', blackTransparent: 'black' })
@@ -258,10 +261,17 @@ test('one logo per slide, always in a corner (never a tile inside the copy), and
     assert.deepEqual(logos(page).map(n => n.designRole), ['logo'])
     assert.equal(page.nodes.some(n => /^badge/.test(n.designRole || '')), false)
   }
-  // A centred logo position moves to a corner.
-  const centred = { ...f, study: { ...f.study, grammar: { ...f.study.grammar, branding: { logo: 'top-center', slideNumber: 'none', handle: 'none' } } } }
-  const centredLogo = generation.renderGlobalPost(centred, { ...brand, logo: '/api/uploads/logo', logoVariants: variants(1.2) }, carousel, { slots: [] }, { id: 'global-x' }, crypto.randomUUID).pages[0].nodes.find(n => n.designRole === 'logo')
-  assert.ok(centredLogo.x < 200 && centredLogo.y < 200, 'top-left, not top-centre')
+  // A centred logo position stays centred, at the top or the bottom, clear of the copy and of the slide number.
+  for (const [logo, top] of [['top-center', true], ['bottom-center', false]]) {
+    const centred = { ...f, study: { ...f.study, grammar: { ...f.study.grammar, branding: { logo, slideNumber: logo.replace('center', 'right'), handle: 'none' } } } }
+    const page = generation.renderGlobalPost(centred, { ...brand, logo: '/api/uploads/logo', logoVariants: variants(1.2) }, carousel, { slots: [] }, { id: 'global-x' }, crypto.randomUUID).pages[0]
+    const mark = page.nodes.find(n => n.designRole === 'logo'), number = page.nodes.find(n => n.designRole === 'slide-number')
+    assert.ok(Math.abs(mark.x + mark.width / 2 - 540) <= 2, `${logo}: centred (${mark.x}+${mark.width})`)
+    assert.ok(top ? mark.y < 200 : mark.y + mark.height > 1150, `${logo}: y ${mark.y}`)
+    assert.ok(number.x >= mark.x + mark.width, `${logo}: the slide number keeps clear of the logo`)
+    const copy = page.nodes.filter(n => n.type === 'text' && /^(headline|body|eyebrow|cta)$/.test(n.designRole || ''))
+    assert.ok(copy.every(t => top ? t.y >= mark.y + mark.height : t.y + t.height <= mark.y), `${logo}: the copy keeps clear of the logo`)
+  }
   // A list slide whose plan carries the tile flag still shows the corner logo, because lists never draw the tile.
   const listPlan = { ...f, study: { ...f.study, grammar: { ...f.study.grammar, references: [{ composition: 'statement', align: 'left', anchor: 'top', image: false, imagePos: 'bottom', callout: false, badge: true }, { composition: 'list', align: 'left', anchor: 'top', image: false, imagePos: 'bottom', callout: false, badge: true }] } } }
   const listed = generation.renderGlobalPost(listPlan, { ...brand, logo: '/api/uploads/logo', logoVariants: variants(1.2) }, { format: 'carousel', slides: [{ headline: 'Capa clara' }, { headline: 'Três razões', body: '1. Um\n2. Dois\n3. Três' }] }, { slots: [] }, { id: 'global-x' }, crypto.randomUUID)

@@ -9,7 +9,8 @@ import type { Feature, ImageQuality, Interval, Plan, PlanId } from './plans'
  * - extraCredits: bought credit packs, used after the month's credits run out, never expiring
  * - textsUsed: text reminders sent this credit month
  * `creditCharges` records what each post took, so a post that fails can give its credits back, and `creditGrants`
- * makes a bought pack count once however often Stripe reports it.
+ * makes a bought pack count once however often Stripe reports it. A post or ad is only paid for when it is made: its
+ * charge is held while it is made, settled when it is, and given back when it fails or is never finished.
  *
  * Accounts without a subscription are on Free. Payments not being set up changes nothing here.
  */
@@ -110,6 +111,7 @@ function ensureIndexes(db: any) {
     db.collection('creditCharges').createIndex({ id: 1 }, { unique: true }),
     db.collection('creditCharges').createIndex({ ownerId: 1, ref: 1 }),
     db.collection('creditCharges').createIndex({ status: 1, createdAt: 1 }),
+    db.collection('creditCharges').createIndex({ ownerId: 1, status: 1, createdAt: 1 }),
     db.collection('creditGrants').createIndex({ ref: 1 }, { unique: true }),
     db.collection('uploads').createIndex({ ownerId: 1 }, { sparse: true }),
   ]).catch(error => { indexes = null; console.warn('[billing] could not create indexes:', error?.message) })
@@ -138,11 +140,14 @@ export function allowances(account: Pick<BillingAccount, 'plan' | 'status' | 'ad
 
 /**
  * The account's billing record, opened on Free the first time it is needed. When a new credit month has begun, the
- * month's use starts again from zero (once, however many requests arrive together).
+ * month's use starts again from zero (once, however many requests arrive together). Posts and ads of the account that
+ * never finished give their credits back first (releaseStaleCharges), so the balance never counts a failed one, even
+ * when the scheduled job is not running.
  */
 export async function loadBilling(db: any, userId: string, now = new Date()): Promise<BillingAccount> {
   if (!userId) throw billingError(401, 'unauthenticated', 'Sign in to continue.')
   await ensureIndexes(db)
+  await releaseStaleCharges(db, { now, ownerId: userId })
   let account: BillingAccount | null = await accounts(db).findOne({ id: userId }, { projection: { _id: 0 } })
   if (!account) {
     const period = creditPeriod(now, now)
@@ -314,22 +319,38 @@ export async function findCharge(db: any, userId: string, ref: string): Promise<
   return found[0] || null
 }
 
-/** How long a post's charge may stay held before releaseStaleCharges settles it: a post takes minutes to make. */
-export const STALE_CHARGE_MS = 3 * 60 * 60 * 1000
+/**
+ * How long a charge may stay held before it counts as a post or ad that failed. Each step of making one is a request
+ * of a few minutes at most, and a finished post settles its charge at once, so after this nothing is still working on it.
+ */
+export const STALE_CHARGE_MS = 30 * 60 * 1000
 
 /**
- * Settles charges left held by posts that were never finished (the tab was closed mid-way). A post whose images
- * were made (`imagesAt`) cost what it took, so it stays charged; one that stopped before its images gets its credits
- * back. Run by the scheduled job; returns how many of each.
+ * Gives back the credits of posts and ads that were never finished: a step failed without answering (a time-out or a
+ * crash), the connection dropped, or the tab was closed mid-way. Nothing is charged for a post that was not made, even
+ * when its images were. Run by the scheduled job for every account, and by loadBilling for one (`ownerId`).
  */
-export async function releaseStaleCharges(db: any, { now = new Date(), olderThanMs = STALE_CHARGE_MS, limit = 200 } = {}): Promise<{ refunded: number; settled: number }> {
-  const stale = await db.collection('creditCharges').find({ status: 'held', createdAt: { $lt: new Date(now.getTime() - olderThanMs) } }, { projection: { _id: 0 } }).limit(limit).toArray()
-  let refunded = 0, settled = 0
-  for (const charge of stale as (CreditCharge & { imagesAt?: Date })[]) {
-    if (charge.imagesAt) { if (await settleCharge(db, charge.ownerId, charge.id)) settled++ }
-    else if (await refundCharge(db, charge.ownerId, charge.id)) refunded++
-  }
-  return { refunded, settled }
+export async function releaseStaleCharges(db: any, { now = new Date(), olderThanMs = STALE_CHARGE_MS, limit = 200, ownerId }: { now?: Date; olderThanMs?: number; limit?: number; ownerId?: string } = {}): Promise<{ refunded: number }> {
+  const filter = { ...(ownerId ? { ownerId } : {}), status: 'held', createdAt: { $lt: new Date(now.getTime() - olderThanMs) } }
+  const stale = await db.collection('creditCharges').find(filter, { projection: { _id: 0, id: 1, ownerId: 1 } }).limit(limit).toArray()
+  let refunded = 0
+  for (const charge of stale) if (await refundCharge(db, charge.ownerId, charge.id)) refunded++
+  return { refunded }
+}
+
+/**
+ * A post or ad whose making failed gives its credits back at once (POST /api/billing/release, sent by the browser when
+ * a step failed or never answered). A post that was made keeps its charge. Returns what became of the charge:
+ * 'refunded' (now, or already by the step that failed), 'settled' (the post was made), or null when there is none.
+ */
+export async function releaseCharge(db: any, userId: string, ref: unknown): Promise<'refunded' | 'settled' | null> {
+  if (typeof ref !== 'string' || !ref) return null
+  const charges = db.collection('creditCharges')
+  const [charge] = await charges.find({ ownerId: userId, ref }, { projection: { _id: 0, id: 1, status: 1 } }).sort({ createdAt: -1 }).limit(1).toArray()
+  if (!charge) return null
+  if (charge.status === 'held') await refundCharge(db, userId, charge.id)
+  const now = await charges.findOne({ id: charge.id, ownerId: userId }, { projection: { _id: 0, status: 1 } })
+  return now?.status === 'settled' ? 'settled' : 'refunded'
 }
 
 /** Adds bought credits once per `ref` (the Stripe checkout session): false when that ref was already counted. */

@@ -2,14 +2,16 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Check, ChevronDown, Loader2, SlidersHorizontal, Sparkles, ZoomIn } from 'lucide-react'
-import GlobalDesignPreview, { COMPOSITION_LABELS, SampleLightbox } from '@/components/GlobalDesignPreview'
+import { Check, ChevronDown, SlidersHorizontal } from 'lucide-react'
+import { COMPOSITION_LABELS, SampleLightbox } from '@/components/GlobalDesignPreview'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { familyGrammar, familyImagery } from '@/lib/designs/global/study'
 import { POST_LANGUAGES, languageChoices } from '@/lib/client/onboarding'
 import { contentLanguage } from '@/lib/services/contentLanguage'
 import { cn } from '@/lib/utils'
 import { appButton, appLayer } from '../ui'
+import { useBrandAccess } from '../AppShell'
+import { DesignPicker, IMAGERY_LABELS } from '../DesignPicker'
 
 const FORMATS = [
   { value: 'auto', label: 'Auto', title: 'Batkle picks a carousel or a single post for the idea' },
@@ -82,8 +84,8 @@ export function Row({ label, hint, children }) {
   )
 }
 
-/** The designs selected for the brand, loaded the first time the settings open. */
-function useBrandDesigns(flowId, open) {
+/** The designs selected for the brand, loaded the first time the settings (or the ad brief's design step) open. */
+export function useBrandDesigns(flowId, open) {
   const [state, setState] = useState({ status: 'idle', items: [] })
   useEffect(() => { setState({ status: 'idle', items: [] }) }, [flowId])
   useEffect(() => {
@@ -99,48 +101,6 @@ function useBrandDesigns(flowId, open) {
       .catch(error => setState({ status: 'error', items: [], error: error.message }))
   }, [open, flowId, state.status])
   return [state, () => setState({ status: 'idle', items: [] })]
-}
-
-// How a design uses imagery, in plain words.
-const IMAGERY_LABELS = {
-  none: 'Typography only', background: 'Photo behind the text', fullBleed: 'Full-bleed photos', cutout: 'Cut-out images',
-  contained: 'Framed photos', collage: 'Photo collage', mixed: 'Mixed imagery', other: 'Mixed imagery',
-}
-
-function DesignTile({ selected, onSelect, onInspect, label, name = label, title, children }) {
-  return (
-    <div className="relative min-w-0">
-      <button
-        type="button"
-        aria-pressed={selected}
-        aria-label={name}
-        onClick={onSelect}
-        title={title}
-        className={cn(
-          'group block w-full min-w-0 rounded-lg border p-1 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg',
-          selected ? 'border-bk-fg ring-1 ring-bk-fg' : 'border-bk-line hover:border-bk-fg/40',
-        )}
-      >
-        {/* The preview's sample words are decoration; the tile is named by its design. */}
-        <span aria-hidden="true" className="relative block overflow-hidden rounded-md">
-          {children}
-          {selected && <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-bk-fg text-bk-bg"><Check className="size-3" strokeWidth={3} /></span>}
-        </span>
-        <span className="mt-1 block truncate px-0.5 text-[11.5px] font-semibold">{label}</span>
-      </button>
-      {onInspect && (
-        <button
-          type="button"
-          onClick={onInspect}
-          aria-label={`Inspect ${name}`}
-          title="Inspect"
-          className="absolute left-2 top-2 flex size-6 items-center justify-center rounded-full bg-black/60 text-white transition-[background-color,transform] hover:scale-110 hover:bg-black/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-bk-fg"
-        >
-          <ZoomIn className="size-3.5" aria-hidden="true" />
-        </button>
-      )}
-    </div>
-  )
 }
 
 /** A design's sample slides, enlarged, with what it does and a way to pick it. */
@@ -173,6 +133,8 @@ export function PostSettings({ value, onChange, brandContext, photoCount = 0, di
   const [open, setOpen] = useState(false)
   const flowId = brandContext?.id
   const [designs, reloadDesigns] = useBrandDesigns(flowId, open)
+  // Adding a design from the library changes the brand's designs: an admin's or the owner's call.
+  const { canManage } = useBrandAccess()
   const { options: languages, selected: brandLanguage } = useMemo(() => languageChoices(brandContext || {}, contentLanguage), [brandContext])
   const brandLanguageLabel = languages.find(o => o.code === brandLanguage)?.label || 'the brand’s language'
   const set = patch => onChange({ ...value, ...patch })
@@ -284,37 +246,20 @@ export function PostSettings({ value, onChange, brandContext, photoCount = 0, di
               ? 'This design is typography only, so it cannot show photos.'
               : null}
           >
-            {designs.status === 'loading' || designs.status === 'idle' ? (
-              <p role="status" className="flex items-center gap-2 py-2 text-[12.5px] text-bk-muted"><Loader2 className="size-3.5 animate-spin" />Loading your designs…</p>
-            ) : designs.status === 'error' ? (
+            {designs.status === 'error' ? (
               <p className="text-[12.5px] text-[#C2412F] dark:text-[#F0826F]">
                 {designs.error}. <button type="button" onClick={reloadDesigns} className="font-semibold underline underline-offset-4">Try again</button>
               </p>
             ) : (
               <>
-                <div role="group" aria-label="Design" className="grid grid-cols-4 gap-1.5">
-                  <DesignTile selected={value.designId === 'auto'} onSelect={() => set({ designId: 'auto' })} label="Auto" title="Batkle picks one of your designs for each post">
-                    <span className="flex aspect-[4/5] flex-col items-center justify-center gap-1 bg-bk-alt text-bk-muted">
-                      <Sparkles className="size-4" aria-hidden="true" />
-                    </span>
-                  </DesignTile>
-                  {designs.items.map(item => (
-                    <DesignTile
-                      key={item.design.id}
-                      selected={value.designId === item.design.id}
-                      onSelect={() => set({ designId: item.design.id })}
-                      onInspect={() => setInspecting({ item, index: 0 })}
-                      label={item.design.name}
-                      name={`${item.design.name}${textOnly(item) ? ' (typography only)' : ''}`}
-                      title={`${item.design.name}${textOnly(item) ? ' (typography only)' : ''}`}
-                    >
-                      <GlobalDesignPreview family={item.family} brand={brandContext || {}} sampleLabel={false} />
-                    </DesignTile>
-                  ))}
-                </div>
-                {!designs.items.length && (
+                <DesignPicker
+                  size="sm" columns="grid-cols-4" flowId={flowId} brand={brandContext || {}} designs={designs} reload={reloadDesigns}
+                  value={value.designId} onChange={designId => set({ designId })} canAdd={canManage}
+                  autoHint="Batkle picks one of your designs for each post" onInspect={item => setInspecting({ item, index: 0 })}
+                />
+                {designs.status === 'ready' && !designs.items.length && (
                   <p className="mt-2 text-[12px] leading-snug text-bk-muted">
-                    This brand uses its starter designs.{flowId && <> <Link href={`/app/${flowId}/brand-information`} className="font-semibold text-bk-fg underline underline-offset-4">Choose designs</Link> to pick one here.</>}
+                    This brand uses its starter designs.{flowId && !canManage && <> <Link href={`/app/${flowId}/design-library`} className="font-semibold text-bk-fg underline underline-offset-4">See the Design Library</Link>.</>}
                   </p>
                 )}
               </>

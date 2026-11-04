@@ -53,7 +53,7 @@ const someOf = <T extends readonly [string, ...string[]]>(values: T, fallback: T
   z.array(z.enum(values)).min(1)).catch(fallback)
 /** Composition moves a study allows. The planner combines them with the grammar; they are not templates. */
 export const COMPOSITIONS = ['statement', 'stacked', 'split', 'image-led', 'backdrop-type', 'list', 'closing'] as const
-export const DECORATION_KINDS = ['oversizedType', 'ring', 'circle', 'arc', 'line', 'dotGrid', 'pill', 'cornerBlock', 'frame', 'glow'] as const
+export const DECORATION_KINDS = ['oversizedType', 'ring', 'circle', 'arc', 'line', 'dotGrid', 'pill', 'cornerBlock', 'frame', 'glow', 'stripes'] as const
 const POSITIONS = ['top-left', 'top-right', 'top-center', 'bottom-left', 'bottom-right', 'bottom-center', 'none'] as const
 /** Color roles a study may use; each resolves to the current brand at generation time. */
 export const COLOR_ROLES = ['surface', 'tint', 'light', 'dark', 'primary', 'accent', 'foreground', 'white'] as const

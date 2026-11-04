@@ -3,7 +3,7 @@ import { connectToMongo } from '@/lib/services/db/mongo'
 import { requireUserId } from '@/lib/auth'
 import { publicMessage } from '@/lib/services/publicError'
 import { billingErrorBody } from '@/lib/billing/account'
-import { handleBuildAd, handleDeleteAd, handleListAds, handlePlanAd, handleUpdateAdCopy } from '@/lib/handlers/adHandlers'
+import { handleAdIdea, handleBuildAd, handleDeleteAd, handleListAds, handlePlanAd, handleUpdateAdCopy } from '@/lib/handlers/adHandlers'
 import { requireBrandAccess, sharedLimitAnswer } from '@/lib/teams'
 
 export const runtime = 'nodejs'
@@ -14,6 +14,7 @@ export const maxDuration = 120
 /**
  * Meta ads for the signed-in account's brands (Business plan):
  *   GET    /api/ads?flowId=   the brand's ads, newest first
+ *   POST   /api/ads/idea      { flowId, from, avoid } a new brief idea from one item of the profile (no credits)
  *   POST   /api/ads/plan      { flowId, brief } copy, design and image plan; holds one credit per size (chargeRef)
  *   POST   /api/ads/build     { flowId, brief, ad, copy, resolvedPlan, chargeRef } every size as an editable post
  *   PATCH  /api/ads/:id       { copy } the person's edits to the ad's text
@@ -45,6 +46,10 @@ async function route(request, path, method, acting) {
     if (!path.length && method === 'GET') {
       const flowId = new URL(request.url).searchParams.get('flowId')
       return await handleListAds(db, await brandOwner(flowId, 'viewer'), flowId)
+    }
+    if (path[0] === 'idea' && method === 'POST') {
+      const body = await request.json()
+      return await handleAdIdea(db, await brandOwner(body?.flowId, 'editor'), body)
     }
     if ((path[0] === 'plan' || path[0] === 'build') && method === 'POST') {
       const body = await request.json()

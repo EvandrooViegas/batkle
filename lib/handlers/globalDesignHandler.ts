@@ -1,15 +1,17 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
 import sharp from 'sharp'
+import { currentUser } from '@clerk/nextjs/server'
 import { ADMIN_COOKIE, adminConfigured, validAdminKey, adminSession, isDesignAdmin } from '@/lib/designs/global/admin'
-import { listGlobalDesigns, listLibrary, listOwnRecords, getGlobalRecord, saveGlobalDraft, publishGlobalDesign, retireGlobalDesign, hydrateBrandFamilies, DesignLibraryError } from '@/lib/designs/global/store'
-import { canEdit, type Viewer } from '@/lib/designs/global/access'
+import { listGlobalDesigns, listLibrary, listOwnRecords, getGlobalRecord, saveGlobalDraft, publishGlobalDesign, retireGlobalDesign, hydrateBrandFamilies, refreshAuthor, creditGlobalDesign, DesignLibraryError, type DesignAuthor } from '@/lib/designs/global/store'
+import { canEdit, libraryInfo, type Viewer } from '@/lib/designs/global/access'
 import { loadViewer } from '@/lib/designs/global/viewer'
 import { analyzeDesignReferences } from '@/lib/designs/global/analyze'
 import { billingErrorBody, isAdminUser, requireFeature } from '@/lib/billing/account'
 import { retrySeconds } from '@/lib/services/ai/requestBudget'
 import { compactImage } from '@/lib/services/imageStorage'
 import { saveUpload } from '@/lib/services/uploadStore'
+import { BRAND_FIELDS, brandCard, brandRole } from '@/lib/teams'
 
 /** A member's design is studied from at most this many references (the admin's from up to 30). */
 export const MEMBER_MAX_REFERENCES = 10
@@ -20,6 +22,17 @@ export const MEMBER_DAILY_STUDIES = 5
 async function authorName(db: any, userId: string) {
   const user = await db.collection('users').findOne({ id: userId }, { projection: { _id: 0, name: 1, email: 1 } })
   return user?.name || (user?.email ? String(user.email).split('@')[0] : '') || 'A Batkle member'
+}
+
+/**
+ * The byline for what this person makes: their name, their account photo, and the brand they are working in when they
+ * have a part in it. The photo is Clerk's; a design keeps the one it was published with.
+ */
+async function designAuthor(db: any, userId: string, flowId: unknown): Promise<DesignAuthor> {
+  const [name, user, role] = await Promise.all([authorName(db, userId), currentUser().catch(() => null), brandRole(db, userId, flowId)])
+  const photo = user?.id === userId && user.hasImage && String(user.imageUrl).startsWith('https://') ? user.imageUrl : null
+  const flow = role ? await db.collection('flows').findOne({ id: role.flowId }, { projection: BRAND_FIELDS }) : null
+  return { id: userId, name, photo, brand: flow ? brandCard(flow) : null }
 }
 
 /** A record this viewer may edit; anything else reads as missing. */
@@ -61,7 +74,7 @@ export async function handleGlobalDesignRequest(db: any, request: Request, path:
     const admin = isDesignAdmin(request) || await isAdminUser(db, userId)
     const viewer = await loadViewer(db, userId, admin)
     if (!id && method === 'GET') {
-      if (url.searchParams.get('admin') === '1') { if (!admin) throw new DesignLibraryError('Admin sign-in is required.', 401); return NextResponse.json(await listGlobalDesigns(db, true)) }
+      if (url.searchParams.get('admin') === '1') { if (!admin) throw new DesignLibraryError('Admin sign-in is required.', 401); return NextResponse.json((await listGlobalDesigns(db, true)).map((r: any) => ({ ...r, library: libraryInfo(r, viewer) }))) }
       if (url.searchParams.get('mine') === '1') return NextResponse.json(await listOwnRecords(db, viewer))
       return NextResponse.json(await listLibrary(db, viewer))
     }
@@ -104,8 +117,10 @@ export async function handleGlobalDesignRequest(db: any, request: Request, path:
     }
     if (!id && method === 'POST') {
       await requirePlan()
-      const owner = member ? { id: member, name: await authorName(db, member) } : undefined
-      return NextResponse.json(await saveGlobalDraft(db, await request.json(), undefined, owner))
+      // Made in the brand the library was opened from (?flowId=), by the signed-in person. The key session has neither.
+      const author = userId ? await designAuthor(db, userId, url.searchParams.get('flowId')) : undefined
+      const owner = member ? { id: member, name: author!.name } : undefined
+      return NextResponse.json(await saveGlobalDraft(db, await request.json(), undefined, owner, author))
     }
     if (id && !action && method === 'GET') return NextResponse.json(await editableRecord(db, id, viewer))
     if (id && method === 'PATCH') {
@@ -115,11 +130,22 @@ export async function handleGlobalDesignRequest(db: any, request: Request, path:
       if (body.family?.id !== id) throw new DesignLibraryError('Family ID cannot change.')
       return NextResponse.json(await saveGlobalDraft(db, body.family, body.revision))
     }
+    if (id && action === 'credit' && method === 'POST') {
+      if (!userId) throw new DesignLibraryError('Sign in to continue.', 401)
+      await editableRecord(db, id, viewer)
+      const author = await designAuthor(db, userId, (await request.json()).flowId)
+      if (!author.brand) throw new DesignLibraryError('Open the library from the brand this design was made in.')
+      return NextResponse.json(await creditGlobalDesign(db, id, author))
+    }
     if (id && (action === 'publish' || action === 'unpublish' || method === 'DELETE')) {
       if (method !== 'POST' && method !== 'DELETE') throw new DesignLibraryError('Method not allowed', 405)
       await editableRecord(db, id, viewer)
       const { revision, visibility } = await request.json()
-      if (action === 'publish') { await requirePlan(); return NextResponse.json(await publishGlobalDesign(db, id, revision, visibility)) }
+      if (action === 'publish') {
+        await requirePlan()
+        if (userId) await refreshAuthor(db, id, await designAuthor(db, userId, null))
+        return NextResponse.json(await publishGlobalDesign(db, id, revision, visibility))
+      }
       return NextResponse.json(await retireGlobalDesign(db, id, revision, method === 'DELETE'))
     }
     throw new DesignLibraryError('Design action not found', 404)

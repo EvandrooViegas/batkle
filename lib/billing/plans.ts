@@ -49,14 +49,14 @@ export const PLANS: Record<PlanId, Plan> = {
   },
   pro: {
     id: 'pro', name: 'Pro', tagline: 'One business posting regularly',
-    price: { month: 34.99, year: 349.9 },
+    price: { month: 27.99, year: 279.9 },
     brands: 2, credits: 150, imageQuality: 'high', photosPerPost: 8,
     scheduling: true, emailReminders: true, textReminders: 30, customDesigns: true, adDesigns: false, postVoice: true, trialDays: 7,
     popular: true,
   },
   business: {
     id: 'business', name: 'Business', tagline: 'Several brands or a lot of content',
-    price: { month: 79.99, year: 799.9 },
+    price: { month: 69.99, year: 699.9 },
     brands: 5, credits: 500, imageQuality: 'high', photosPerPost: 10,
     scheduling: true, emailReminders: true, textReminders: 100, customDesigns: true, adDesigns: true, postVoice: true, trialDays: 7,
   },

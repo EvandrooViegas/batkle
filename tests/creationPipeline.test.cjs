@@ -6,12 +6,12 @@ const {apiError}=new Function('process',fs.readFileSync('lib/client/billing.js',
 // The page's window: the credits meter listens for 'bk:credits-changed'.
 function page(){const events=[];return {events,window:{dispatchEvent:e=>events.push(e.type)},CustomEvent:class{constructor(type){this.type=type}}}}
 const load=(fetch,browser=page())=>new Function('fetch','apiError','window','CustomEvent',body+';return runPostGeneration')(fetch,apiError,browser.window,browser.CustomEvent)
-function setup({needsVisuals=false,fail,failure={error:'boom'},status=500}={}) {
+function setup({needsVisuals=false,fail,failure={error:'boom'},status=500,release='refunded'}={}) {
  const requests=[], stages=[], results={}, browser=page()
  const fetch=async(url,init)=>{
   const payload=JSON.parse(init.body);requests.push([url,payload])
   const ok=url!==fail
-  const data=!ok?failure:url==='/api/plan-post'?{copy:payload.copy||{headline:'Fresh'},needsVisuals,chargeRef:'post_ref',credits:{charged:1,left:29},plan:{designId:'global-x',layoutPlan:{source:'global'},slots:[{slot_id:'single_main',slot_label:'Main',needs_visual:needsVisuals}]}}:url==='/api/resolve-assets'?{slots:[{slot_id:'single_main',resolvedAsset:{url:'/photo'}}]}:{id:'canvas-1'}
+  const data=!ok?failure:url==='/api/billing/release'?{status:release}:url==='/api/plan-post'?{copy:payload.copy||{headline:'Fresh'},needsVisuals,chargeRef:'post_ref',credits:{charged:1,left:29},plan:{designId:'global-x',layoutPlan:{source:'global'},slots:[{slot_id:'single_main',slot_label:'Main',needs_visual:needsVisuals}]}}:url==='/api/resolve-assets'?{slots:[{slot_id:'single_main',resolvedAsset:{url:'/photo'}}]}:{id:'canvas-1'}
   return {ok,status:ok?200:status,json:async()=>data}
  }
  const run=load(fetch,browser)
@@ -73,10 +73,22 @@ test('a plan limit keeps its code and details, stops the build and refreshes the
  const other=setup({fail:'/api/plan-post'});const plain=await other.go().catch(e=>e)
  assert.equal(plain.code,undefined,'other failures carry no billing code');assert.deepEqual(other.events,[])
 })
-test('a failed stage after PLAN refreshes the meter, since the server gives the credits back',async()=>{
+test('a failed stage after PLAN gives the credits back, says so, and refreshes the meter',async()=>{
  for(const stage of ['/api/resolve-assets','/api/design-canvas']){
   const s=setup({needsVisuals:true,fail:stage})
-  await assert.rejects(s.go(),/boom/)
+  await assert.rejects(s.go(),error=>error.message==='boom Your 1 credit was given back.'&&error.creditsReturned===true)
+  const release=s.requests.find(r=>r[0]==='/api/billing/release')
+  assert.deepEqual(release?.[1],{chargeRef:'post_ref',flowId:'b'},stage)
   assert.deepEqual(s.events,['bk:credits-changed','bk:credits-changed'],stage)
  }
+})
+
+test('a post made after all (its answer was lost) keeps its charge and its message; a failed plan has nothing to give back',async()=>{
+ const lost=setup({needsVisuals:true,fail:'/api/design-canvas',status:504,failure:{error:'The request timed out.'},release:'settled'})
+ await assert.rejects(lost.go(),error=>error.message==='The request timed out.'&&!error.creditsReturned)
+ const plan=setup({fail:'/api/plan-post'})
+ await assert.rejects(plan.go(),/boom/)
+ assert.ok(!plan.requests.some(r=>r[0]==='/api/billing/release'))
+ const done=setup({needsVisuals:true});await done.go()
+ assert.ok(!done.requests.some(r=>r[0]==='/api/billing/release'),'a finished post is not released')
 })

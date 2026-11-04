@@ -25,7 +25,7 @@ function load(file, deps = {}, env = {}) {
 /**
  * An in-memory stand-in for the MongoDB calls billing makes: equality filters (Dates by value, null for missing)
  * with $lt, $lte, $gt, $gte, $in, $ne and $exists; $set, $inc and $setOnInsert with upsert; unique keys; and
- * findOneAndUpdate. `failNext(name)` makes the next write to a collection throw.
+ * findOneAndUpdate; find with limit. `failNext(name)` makes the next write to a collection throw.
  */
 function fakeDb() {
   const data = {}
@@ -93,6 +93,12 @@ function fakeDb() {
       if (options.unique && !(unique[name] || []).some(keys => keys.join() === Object.keys(spec).join())) (unique[name] ||= []).push(Object.keys(spec))
     },
     async findOne(filter) { const doc = table(name).find(d => matches(d, filter)); return doc ? clone(doc) : null },
+    // Reading an account first gives back its unfinished posts' credits (releaseStaleCharges): a plain list.
+    find(filter) {
+      let limit = Infinity
+      const chain = { limit: n => { limit = n; return chain }, toArray: async () => table(name).filter(d => matches(d, filter)).slice(0, limit).map(clone) }
+      return chain
+    },
     async countDocuments(filter) { return table(name).filter(d => matches(d, filter)).length },
     aggregate: () => ({ toArray: async () => [] }),
     async insertOne(doc) { failIfAsked(name); const copy = clone(doc); checkUnique(name, copy); table(name).push(copy); return { acknowledged: true } },

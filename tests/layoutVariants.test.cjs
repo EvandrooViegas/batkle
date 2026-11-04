@@ -49,6 +49,43 @@ test('a carousel varies its layout variants: no slide repeats the previous one',
   }
 })
 
+test('the accent band only comes from examples that set copy on solid colour', () => {
+  const withGrammar = (family, grammar) => ({ ...family, study: { ...family.study, grammar: { ...family.study.grammar, ...grammar } } })
+  const bands = family => Array.from({ length: 30 }, (_, i) => compose.planSlides(family, { format: 'carousel', slides: slidesFor(4).map((sl, j) => ({ ...sl, headline: `${sl.headline} ${i}-${j}` })) }))
+    .flat().filter(p => p.variant === 'band').length
+  const plain = withGrammar(editorial, { headline: { ...editorial.study.grammar.headline, frame: 'none' }, containers: { ...editorial.study.grammar.containers, style: 'none' }, branding: { ...editorial.study.grammar.branding, logo: 'top-right', slideNumber: 'none', handle: 'none' } })
+  assert.equal(bands(plain), 0, 'no band when the examples have none')
+  assert.ok(bands(withGrammar(plain, { headline: { ...plain.study.grammar.headline, frame: 'solid' } })) > 0, 'a headline on a solid panel allows it')
+  assert.ok(bands(withGrammar(plain, { containers: { ...plain.study.grammar.containers, style: 'card', fill: 'accent' } })) > 0, 'accent cards allow it')
+  assert.equal(bands(withGrammar(plain, { containers: { ...plain.study.grammar.containers, style: 'card', fill: 'tint' } })), 0, 'quiet tinted cards do not')
+})
+
+test('copy alignment and position chosen in the editor win over what the examples showed', () => {
+  const withGrammar = grammar => ({ ...editorial, study: { ...editorial.study, grammar: { ...editorial.study.grammar, compositions: ['statement', 'stacked', 'closing'], ...grammar } } })
+  const references = [{ composition: 'statement', align: 'left', anchor: 'bottom', image: false, imagePos: 'full', callout: false, badge: false }, { composition: 'stacked', align: 'left', anchor: 'bottom', image: false, imagePos: 'full', callout: false, badge: false }]
+  const plans = grammar => compose.planSlides(withGrammar({ references, ...grammar }), { format: 'carousel', slides: slidesFor(4).filter((_, i) => i !== 2) })
+  // Centre chosen in the editor: every slide is centred, though the examples were left-aligned.
+  assert.deepEqual([...new Set(plans({ alignment: ['center'], anchors: ['bottom'] }).map(p => p.align))], ['center'])
+  // Allowing both keeps the examples' own left alignment where they apply.
+  assert.ok(plans({ alignment: ['left', 'center'], anchors: ['bottom'] }).some(p => p.align === 'left'))
+  // Copy moved to the top in the editor: no slide stays at the bottom the examples showed.
+  assert.deepEqual([...new Set(plans({ alignment: ['left'], anchors: ['top'] }).map(p => p.anchor))], ['top'])
+})
+
+test('underlined highlights are underlined in the accent colour, not coloured like "In colour"', () => {
+  const page = emphasis => {
+    const family = { ...editorial, study: { ...editorial.study, grammar: { ...editorial.study.grammar, emphasis } } }
+    const plan = { ...compose.planSlides(family, { format: 'single', headline: 'Make your next move matter' })[0], variant: 'classic' }
+    return compose.composeSlide(family, brand, { headline: 'Make your next move matter', emphasis: ['move'] }, plan, 0, 1)
+  }
+  const headline = canvas => canvas.nodes.find(n => n.designRole === 'headline').text
+  const underlined = page('underline'), coloured = page('color')
+  assert.match(headline(underlined), /<%kind:family-underline:move%>/)
+  assert.equal(underlined.classes['family-underline'].textDecoration, 'underline')
+  assert.ok(underlined.classes['family-underline'].textDecorationColor && !underlined.classes['family-underline'].color, 'the word keeps its colour; the line is the accent')
+  assert.match(headline(coloured), /<%kind:family-emphasis:move%>/)
+})
+
 test('a study built on a photograph behind the copy keeps it full bleed', () => {
   for (let i = 0; i < 30; i++) {
     const plan = compose.planSlides(escape, { format: 'single', headline: `Escape ${i}`, body: 'Go somewhere quiet.' })[0]

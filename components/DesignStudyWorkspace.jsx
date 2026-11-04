@@ -10,7 +10,26 @@ import { SegmentedTabs, appButton, panelClass } from '@/components/app/ui'
 import { appField } from '@/components/app/field'
 import { cn } from '@/lib/utils'
 
-export const STATUS_TONE = { published: 'bg-[#1F7A5A]/10 text-[#17583F] dark:text-[#4CC79A]', draft: 'bg-bk-chip text-bk-fg', unpublished: 'bg-[#F2A900]/15 text-[#9A6B00] dark:text-[#F2C14E]' }
+/**
+ * Where a design stands in the library, in plain words. It is about the design itself, not about any brand: whether the
+ * open brand uses it is the "In use" pill. Batkle's own designs and members' public ones are live for everyone, a
+ * member's private one only for their team; a draft is not live anywhere yet.
+ */
+export function designStatus(record, official = false) {
+  if (record?.status === 'published') return { text: official ? 'Live in the library' : record.visibility === 'public' ? 'Shared with everyone' : 'Shared with your team', dot: 'bg-[#1F7A5A] dark:bg-[#4CC79A]' }
+  if (record?.status === 'unpublished') return { text: 'Hidden from the library', short: 'Hidden', dot: 'bg-[#F2A900]' }
+  return { text: official ? 'Draft · not live yet' : 'Draft · only you can see it', short: 'Draft', dot: 'bg-bk-muted' }
+}
+
+/** A design's status as a quiet pill with a coloured dot; `short` for narrow rows. */
+export function StatusPill({ record, official = false, short = false, className = '' }) {
+  const status = designStatus(record, official)
+  return (
+    <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full bg-bk-chip px-2.5 py-0.5 text-[11.5px] font-semibold text-bk-fg/85', className)}>
+      <span aria-hidden="true" className={cn('size-1.5 rounded-full', status.dot)} />{(short && status.short) || status.text}
+    </span>
+  )
+}
 const TABS = [['look', 'Look'], ['notes', 'Notes for the AI'], ['details', 'Name and sharing'], ['advanced', 'Advanced']]
 const caption = 'mb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-bk-muted'
 
@@ -32,7 +51,7 @@ export default function DesignStudyWorkspace({ family, record, brand = {}, offic
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <button type="button" onClick={onClose} className={appButton('quiet', 'sm', '-ml-3 text-bk-muted')}><ArrowLeft className="size-4" />Design Library</button>
         <h2 id="design-workspace-title" className="min-w-0 truncate font-bk-display text-[24px] font-bold tracking-[-0.03em]">{family.name || 'Untitled design'}</h2>
-        <span className={cn('rounded-md px-2 py-0.5 text-[11.5px] font-bold capitalize', STATUS_TONE[record.status] || STATUS_TONE.draft)}>{record.status}</span>
+        <StatusPill record={record} official={official} />
       </div>
 
       <div className="mt-5 grid items-start gap-6 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
@@ -92,7 +111,7 @@ export default function DesignStudyWorkspace({ family, record, brand = {}, offic
               <section className={cn(panelClass, 'p-4 sm:p-5')}>
                 <h3 className="text-[15px] font-bold">Who can use it</h3>
                 <div role="radiogroup" aria-label="Who can use it" className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {[['public', Globe, 'Everyone', 'Anyone finds it in the library. Members on Pro and Business can use it.'], ['private', Lock, 'You and your team', 'Only you and the people in your teams.']].map(([value, Icon, label, hint]) => (
+                  {[['public', Globe, 'Everyone', 'Anyone finds it in the library, with your name, photo and brand. Members on Pro and Business can use it.'], ['private', Lock, 'You and your team', 'Only you and the people in your teams.']].map(([value, Icon, label, hint]) => (
                     <button key={value} type="button" role="radio" aria-checked={visibility === value} onClick={() => onVisibility(value)} className={cn('flex gap-3 rounded-xl border p-3 text-left transition-colors', visibility === value ? 'border-bk-fg bg-bk-alt' : 'border-bk-field hover:border-bk-fg/40')}>
                       <Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                       <span><span className="block text-[14px] font-bold">{label}</span><span className="mt-0.5 block text-[12.5px] leading-relaxed text-bk-muted">{hint}</span></span>

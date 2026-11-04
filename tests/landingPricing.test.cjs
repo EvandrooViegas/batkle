@@ -24,11 +24,11 @@ test('yearly prices show the yearly total and what it is per month', () => {
   assert.equal(text.monthlyEquivalent(190), '$15.83')
   assert.equal(text.monthlyEquivalent(490), '$40.83')
   assert.equal(text.monthlyEquivalent(120), '$10')
-  assert.equal(text.priceText(PLANS.pro, 'year'), '$349.90 a year (≈ $29.16/month)')
-  assert.equal(text.priceText(PLANS.business, 'year'), '$799.90 a year (≈ $66.66/month)')
-  assert.equal(text.priceText(PLANS.pro, 'month'), '$34.99 a month')
+  assert.equal(text.priceText(PLANS.pro, 'year'), '$279.90 a year (≈ $23.33/month)')
+  assert.equal(text.priceText(PLANS.business, 'year'), '$699.90 a year (≈ $58.33/month)')
+  assert.equal(text.priceText(PLANS.pro, 'month'), '$27.99 a month')
   assert.equal(text.priceText(PLANS.free, 'year'), '$0')
-  assert.deepEqual(text.priceParts(PLANS.business, 'month'), { amount: '$79.99', unit: 'a month', detail: 'Billed monthly' })
+  assert.deepEqual(text.priceParts(PLANS.business, 'month'), { amount: '$69.99', unit: 'a month', detail: 'Billed monthly' })
 })
 
 test('the yearly switch says how many months are free', () => {
@@ -77,7 +77,7 @@ test('Free starts the app; paid plans open the plan settings with the plan and p
 
 test('the FAQ answers use the numbers in plans.ts', () => {
   assert.equal(text.pricingFaqAnswer(),
-    'Start on the free plan: 1 brand and 30 credits a month, no card needed. Pro is $34.99 a month and Business $79.99 a month, ' +
+    'Start on the free plan: 1 brand and 30 credits a month, no card needed. Pro is $27.99 a month and Business $69.99 a month, ' +
     'each with a 7-day free trial, and paying yearly gets you 2 months free. Credits are images: a single post costs 1 credit, ' +
     'a carousel 1 per slide. See the plans above for everything each one includes.')
   assert.match(text.creditFaqAnswer(), /^One credit makes one image\./)

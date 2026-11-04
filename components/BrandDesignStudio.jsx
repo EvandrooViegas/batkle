@@ -1,8 +1,10 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import Link from 'next/link'
-import { ArrowUpRight, Check, Loader2, Search } from 'lucide-react'
-import GlobalDesignPreview, { designAuthor } from '@/components/GlobalDesignPreview'
+import { ArrowUpRight, Loader2, Search } from 'lucide-react'
+import GlobalDesignPreview from '@/components/GlobalDesignPreview'
+import { DesignCard, DesignMeta, SampleDots } from '@/components/app/DesignPicker'
 import { appField } from '@/components/app/field'
 import { Notice, panelClass } from '@/components/app/ui'
 import { cn } from '@/lib/utils'
@@ -12,11 +14,12 @@ const brandDesignsUrl = flowId => `/api/global-designs/brand?flowId=${encodeURIC
 
 /**
  * The designs a brand uses, with a toggle that saves at once and then checks the save, so what shows as
- * selected is always what the brand keeps. `imported` holds the brand's pinned versions of each design.
+ * selected is always what the brand keeps. `imported` holds the brand's pinned versions of each design. A save is
+ * confirmed with a toast; an error stays on the page.
  */
 export function useBrandDesignSelection(flowId, brand, onChange = () => {}) {
   const [selected, setSelected] = useState([]), [imported, setImported] = useState([])
-  const [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('')
+  const [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('')
 
   useEffect(() => {
     if (!flowId) { setReady(true); return }
@@ -28,8 +31,9 @@ export function useBrandDesignSelection(flowId, brand, onChange = () => {}) {
     return () => { active = false }
   }, [flowId])
 
-  const save = async familyIds => {
-    setBusy(true); setError(''); setNotice('')
+  // Answers whether the brand now keeps `familyIds`; `message` replaces the usual toast.
+  const save = async (familyIds, message) => {
+    setBusy(true); setError('')
     try {
       const response = await fetch('/api/brand-designs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ flowId, familyIds }) })
       const data = await response.json()
@@ -42,27 +46,30 @@ export function useBrandDesignSelection(flowId, brand, onChange = () => {}) {
       setImported(items)
       setSelected(savedIds)
       onChange({ ...brand, designs: data.brandContext.designs, designLibraryVersion: 1 })
-      setNotice(savedIds.length ? `Saved. New posts use ${savedIds.length === 1 ? 'this design' : `these ${savedIds.length} designs`}.` : 'No designs selected. New posts use your starter designs.')
+      toast.success(message || (savedIds.length ? `Saved. New posts use ${savedIds.length === 1 ? 'this design' : `these ${savedIds.length} designs`}.` : 'No designs selected. New posts use your starter designs.'))
+      return true
     } catch (e) {
       setError(e.message)
       // Show the selection that is actually saved, never an unsaved one.
       try { const r = await fetch(brandDesignsUrl(flowId), { cache: 'no-store' }); if (r.ok) setSelected((await r.json()).map(item => item.family.id)) } catch {}
+      return false
     } finally { setBusy(false) }
   }
 
-  const toggle = familyId => {
-    setNotice(''); setError('')
+  /** Switches a design on or off for the brand; resolves to whether that was saved. */
+  const toggle = (familyId, message) => {
+    setError('')
     const next = selected.includes(familyId) ? selected.filter(id => id !== familyId) : [...selected, familyId]
     setSelected(next)
-    void save(next)
+    return save(next, message)
   }
 
-  return { selected, imported, ready, busy, error, notice, toggle }
+  return { selected, imported, ready, busy, error, toggle }
 }
 
 /** The brand's chosen designs, picked from every published design. */
 export default function BrandDesignStudio({ flowId, brand, onChange, bare = false }) {
-  const { selected, imported, ready, busy, error: selectionError, notice, toggle: toggleFamily } = useBrandDesignSelection(flowId, brand, onChange)
+  const { selected, imported, ready, busy, error: selectionError, toggle: toggleFamily } = useBrandDesignSelection(flowId, brand, onChange)
   const [published, setPublished] = useState(null), [loadError, setLoadError] = useState('')
   const [samples, setSamples] = useState({}), [query, setQuery] = useState('')
 
@@ -76,7 +83,8 @@ export default function BrandDesignStudio({ flowId, brand, onChange, bare = fals
 
   // The brand keeps its pinned version of each design; designs it uses that were unpublished still show.
   const pinned = new Map(imported.map(item => [item.family.id, item.family]))
-  const families = published ? [...published.map(f => pinned.get(f.id) || f), ...imported.filter(item => !published.some(f => f.id === item.family.id)).map(item => item.family)] : []
+  // A pinned copy doesn't carry who made the design; the library's listing does.
+  const families = published ? [...published.map(f => (pinned.has(f.id) ? { ...pinned.get(f.id), library: f.library } : f)),...imported.filter(item => !published.some(f => f.id === item.family.id)).map(item => item.family)] : []
   const loading = published === null || !ready
   const error = loadError || selectionError
   const visible = families.filter(f => `${f.name} ${(f.tags || []).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
@@ -105,7 +113,6 @@ export default function BrandDesignStudio({ flowId, brand, onChange, bare = fals
       </div>
 
       {error && <Notice tone="error" className="mt-4">{error}</Notice>}
-      {notice && <Notice tone="success" className="mt-4">{notice}</Notice>}
 
       {loading ? (
         <ul aria-label="Loading designs" className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -118,26 +125,13 @@ export default function BrandDesignStudio({ flowId, brand, onChange, bare = fals
             const sample = samples[family.id] || 0
             return (
               <li key={family.id} className="min-w-0">
-                <div className={cn('rounded-2xl border bg-bk-surface p-2.5 transition-[border-color,box-shadow]', on ? 'border-bk-fg shadow-bk-card ring-1 ring-bk-fg' : 'border-bk-line hover:border-bk-fg/40')}>
-                  <button type="button" disabled={busy} aria-pressed={on} aria-label={`${family.name}${on ? ', selected' : ''}`} onClick={() => toggleFamily(family.id)} className="block w-full rounded-xl text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg disabled:cursor-wait">
-                    <span className="relative block overflow-hidden rounded-xl">
-                      <GlobalDesignPreview family={family} brand={brand} sample={sample} eager={i < 3} />
-                      <span aria-hidden="true" className={cn('absolute right-2.5 top-2.5 flex size-8 items-center justify-center rounded-full border-2 transition-colors', on ? 'border-bk-butter bg-bk-butter text-bk-ink' : 'border-white/80 bg-black/25 text-transparent')}>
-                        <Check className="size-4" strokeWidth={3} />
-                      </span>
-                    </span>
-                    <span className="mt-3 flex items-center justify-between gap-3 px-1">
-                      <span className="min-w-0 truncate text-[14.5px] font-bold">{family.name}</span>
-                      <span className={cn('shrink-0 text-[12.5px] font-semibold', on ? 'text-bk-fg' : 'text-bk-muted')}>{on ? 'Selected' : 'Select'}</span>
-                    </span>
-                    {(designAuthor(family) || family.tags?.length > 0) && <span className="mt-0.5 block truncate px-1 text-[12.5px] text-bk-muted">{[designAuthor(family), (family.tags || []).join(' · ')].filter(Boolean).join(' · ')}</span>}
-                  </button>
-                  <div role="group" aria-label={`${family.name}: sample slides`} className="mt-2.5 flex gap-1.5 px-1 pb-1">
-                    {[0, 1, 2, 3].map(n => (
-                      <button key={n} type="button" aria-label={`Sample slide ${n + 1}`} aria-pressed={sample === n} onClick={() => setSamples(prev => ({ ...prev, [family.id]: n }))} className={cn('h-1.5 flex-1 rounded-full transition-colors', sample === n ? 'bg-bk-fg' : 'bg-bk-line hover:bg-bk-field')} />
-                    ))}
-                  </div>
-                </div>
+                <DesignCard
+                  kind="checkbox" size="lg" surface="raised" selected={on} disabled={busy} onSelect={() => toggleFamily(family.id)}
+                  name={family.name} meta={<DesignMeta family={family} size="lg" />}
+                  footer={<SampleDots name={family.name} value={sample} onChange={n => setSamples(prev => ({ ...prev, [family.id]: n }))} />}
+                >
+                  <GlobalDesignPreview family={family} brand={brand} sample={sample} eager={i < 3} />
+                </DesignCard>
               </li>
             )
           })}

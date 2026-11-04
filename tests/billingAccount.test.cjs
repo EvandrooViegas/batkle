@@ -10,7 +10,7 @@ const it = require.main === module ? test : () => {}
 
 const strip = file => stripTypeScriptTypes(fs.readFileSync(file, 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, ''))
 const PLAN_EXPORTS = ['PLANS', 'TRIAL', 'approxPosts', 'cheapestPlanForBrands', 'cheapestPlanForPhotos', 'cheapestPlanWith', 'planById']
-const ACCOUNT_EXPORTS = ['BILLING_CODES', 'billingError', 'billingErrorBody', 'addMonths', 'creditPeriod', 'effectivePlanId', 'effectivePlan', 'allowances', 'loadBilling', 'creditsLeft', 'getBillingSummary', 'summarize', 'canStartTrial', 'chargeCredits', 'refundCharge', 'settleCharge', 'findCharge', 'grantExtraCredits', 'takeTextReminder', 'returnTextReminder', 'hasFeature', 'requireFeature', 'requireBrandSlot', 'requirePhotoRoom', 'imageQualityFor', 'findBillingByCustomer', 'setStripeCustomer', 'applySubscription', 'releaseStaleCharges', 'STALE_CHARGE_MS']
+const ACCOUNT_EXPORTS = ['BILLING_CODES', 'billingError', 'billingErrorBody', 'addMonths', 'creditPeriod', 'effectivePlanId', 'effectivePlan', 'allowances', 'loadBilling', 'creditsLeft', 'getBillingSummary', 'summarize', 'canStartTrial', 'chargeCredits', 'refundCharge', 'settleCharge', 'findCharge', 'grantExtraCredits', 'takeTextReminder', 'returnTextReminder', 'hasFeature', 'requireFeature', 'requireBrandSlot', 'requirePhotoRoom', 'imageQualityFor', 'findBillingByCustomer', 'setStripeCustomer', 'applySubscription', 'releaseStaleCharges', 'releaseCharge', 'STALE_CHARGE_MS']
 const plans = new Function(strip('lib/billing/plans.ts') + `;return {${PLAN_EXPORTS.join(',')}}`)()
 
 /** A clock the billing code reads through its own `Date`: `new Date()` and `Date.now()` give `clock.now`. */
@@ -184,6 +184,13 @@ const DAY = 24 * 3600 * 1000
 const iso = date => new Date(date).toISOString()
 const USER = 'user_1'
 const stored = (db, id = USER) => db.table('billingAccounts').find(a => a.id === id)
+/** Credits spent on a post that was made: charged, then settled when the post is built, as the app does. */
+const spend = async (billing, db, credits) => {
+  const charge = await billing.chargeCredits(db, USER, credits)
+  await billing.settleCharge(db, USER, charge.id)
+  return charge
+}
+
 const subscribe = (billing, db, planId, status, extra = {}) =>
   billing.applySubscription(db, USER, { planId, status, interval: 'month', stripeCustomerId: 'cus_1', stripeSubscriptionId: 'sub_1', ...extra })
 
@@ -248,7 +255,7 @@ it('an account opens on Free, once, with the indexes billing relies on', async (
 it('a new credit month starts from nothing used, lazily and once, and keeps bought credits', async () => {
   const { billing, db, clock } = setup({ start: '2026-01-31T10:00:00Z' })
   await billing.grantExtraCredits(db, USER, 100, { ref: 'cs_pack' })
-  await billing.chargeCredits(db, USER, 12)
+  await spend(billing, db, 12)
   assert.ok(await billing.takeTextReminder(db, USER) === false, 'Free has no text reminders')
   db.table('billingAccounts')[0].textsUsed = 3
   clock.set('2026-02-28T09:59:59Z')
@@ -356,14 +363,16 @@ it('a refund gives a held charge back once, and only the bought part after the m
   assert.equal(db.table('creditCharges')[0].status, 'refunded')
   assert.equal(await billing.refundCharge(db, USER, 'chg_missing'), false)
 
-  // 30 monthly credits used, then 6 from a pack; the refund arrives in the next credit month.
+  // 30 monthly credits used, then 6 from a pack; the post never finished, and the refund arrives in the next credit
+  // month: reading the account gives it back.
   await billing.grantExtraCredits(db, USER, 10, { ref: 'cs_1' })
-  await billing.chargeCredits(db, USER, 24)
+  await spend(billing, db, 24)
   const mixed = await billing.chargeCredits(db, USER, 12)
   assert.deepEqual([mixed.fromMonthly, mixed.fromExtra], [6, 6])
   clock.set('2026-02-10T00:00:01Z')
   assert.equal((await billing.loadBilling(db, USER)).creditsUsed, 0)
-  assert.equal(await billing.refundCharge(db, USER, mixed.id), true)
+  assert.equal(db.table('creditCharges').find(c => c.id === mixed.id).status, 'refunded')
+  assert.equal(await billing.refundCharge(db, USER, mixed.id), false, 'given back once')
   const account = stored(db)
   assert.equal(account.creditsUsed, 0, 'the new month is not credited with last month’s credits')
   assert.equal(account.extraCredits, 10, 'bought credits come back whenever the refund happens')
@@ -476,7 +485,7 @@ it('a free trial caps credits at 50 and texts at 5, whatever the plan', async ()
 it('a plan change starts a new credit month with nothing used; a renewal does not', async () => {
   const { billing, db, clock } = setup({ start: '2026-01-31T10:00:00Z' })
   await billing.grantExtraCredits(db, USER, 40, { ref: 'cs_1' })
-  await billing.chargeCredits(db, USER, 20)
+  await spend(billing, db, 20)
 
   // Free → Pro: the month follows the subscription's period.
   clock.set('2026-02-10T12:00:00Z')
@@ -489,7 +498,7 @@ it('a plan change starts a new credit month with nothing used; a renewal does no
   assert.deepEqual([account.stripeCustomerId, account.stripeSubscriptionId, account.cancelAtPeriodEnd], ['cus_1', 'sub_1', false])
 
   // An update on the same plan keeps the month's use; credits renew from the anchor instead.
-  await billing.chargeCredits(db, USER, 40)
+  await spend(billing, db, 40)
   clock.set('2026-02-20T09:00:00Z')
   account = await subscribe(billing, db, 'pro', 'active', { currentPeriodStart: paidFrom, currentPeriodEnd: new Date('2026-03-10T11:59:00Z') })
   assert.deepEqual([account.creditsUsed, iso(account.creditAnchor)], [40, iso(paidFrom)])

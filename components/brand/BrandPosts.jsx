@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, ImageUp, Images, Loader2, Plus, RefreshCw, Trash2, Type, X } from 'lucide-react'
 import UpgradeNotice from '@/components/app/billing/UpgradeNotice'
-import { Popup } from '@/components/app/popup'
+import { Popup, usePopup } from '@/components/app/popup'
 import { appField } from '@/components/app/field'
 import { Eyebrow, Notice, appButton, panelClass } from '@/components/app/ui'
 import { apiError, isBillingCode } from '@/lib/client/billing'
@@ -163,6 +163,7 @@ export default function BrandPosts({ flowId, value, onChange, allowed }) {
   const [newCaption, setNewCaption] = useState('')
   // Several images chosen at once, waiting for "one carousel or separate posts?".
   const [choice, setChoice] = useState(null)
+  const popup = usePopup()
   const picker = useRef(null)
   const queue = useRef(Promise.resolve())
   const reorder = useRef(null)
@@ -271,7 +272,8 @@ export default function BrandPosts({ flowId, value, onChange, allowed }) {
   }
 
   const withSlides = (post, slides) => ({ ...latest.current, posts: latest.current.posts.map(p => (p.id === post.id ? { ...p, slides, image: undefined, text: undefined } : p)) })
-  const removeSlide = (post, index) => {
+  const removeSlide = async (post, index) => {
+    if (!(await popup.confirm({ title: `Remove slide ${index + 1}?`, description: 'The other slides stay in this carousel.', confirmLabel: 'Remove slide', tone: 'danger' }))) return
     const slides = slidesOf(post).filter((_, i) => i !== index)
     save(current => ({ posts: sendable(withSlides(post, slides).posts.filter(p => p.id !== post.id || slidesOf(p).length || p.caption)) }), true)
   }
@@ -295,7 +297,10 @@ export default function BrandPosts({ flowId, value, onChange, allowed }) {
     save(current => ({ posts: sendable(current.posts.map(p => (p.id === post.id ? { ...p, caption: draft.trim() } : p))) }), true)
       .then(saved => saved && setCaptions(({ [post.id]: now, ...rest }) => (now === draft ? rest : { ...rest, [post.id]: now })))
   }
-  const remove = post => save(current => ({ posts: sendable(current.posts.filter(p => p.id !== post.id)) }), !locked)
+  const remove = async post => {
+    if (!(await popup.confirm({ title: 'Remove this post?', description: 'Batkle stops learning your voice from it, and its images are removed.', confirmLabel: 'Remove post', tone: 'danger' }))) return
+    save(current => ({ posts: sendable(current.posts.filter(p => p.id !== post.id)) }), !locked)
+  }
   const addCaption = () => {
     const caption = newCaption.trim()
     if (!caption) return

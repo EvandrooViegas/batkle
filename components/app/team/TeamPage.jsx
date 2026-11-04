@@ -99,6 +99,13 @@ export default function TeamPage({ flowId, brandName }) {
     const address = email.trim()
     if (address && await team.invite(address, role, into.value === flowId ? null : { flowId: into.value, name: into.label })) setEmail('')
   }
+  const removeMember = async member => {
+    const who = member.name || member.email
+    const asked = member.status === 'active'
+      ? { title: `Remove ${who} from ${name}?`, description: 'They lose access to this brand. The posts they made stay with it.', confirmLabel: 'Remove', tone: 'danger' }
+      : { title: `Take back the invitation to ${member.email}?`, description: 'Their invitation stops working. You can invite them again later.', confirmLabel: 'Take it back', tone: 'danger' }
+    if (await popup.confirm(asked)) await team.remove(member)
+  }
   const leave = async () => {
     if (!(await popup.confirm({ title: `Leave ${name}?`, description: 'It leaves your brand list. The posts made in it stay with the brand.', confirmLabel: 'Leave brand' }))) return
     if (await team.leave()) { router.replace('/app/teams'); router.refresh() }
@@ -174,7 +181,7 @@ export default function TeamPage({ flowId, brandName }) {
                       action={manage && (
                         <span className="flex shrink-0 items-center gap-1">
                           <AppSelect id={`role-${m.id}`} label={`Role of ${label}`} value={m.role} disabled={!!busy} onChange={next => next !== m.role && team.setRole(m, next)} options={ROLE_CHOICES} size="sm" align="end" menuWidth={320} className="w-[104px]" />
-                          <button type="button" disabled={!!busy} onClick={() => team.remove(m)} aria-label={m.status === 'active' ? `Remove ${label}` : `Take back the invitation to ${m.email}`} title={m.status === 'active' ? 'Remove from the brand' : 'Take back the invitation'} className={appButton('quiet', 'sm', 'size-8 shrink-0 px-0')}>
+                          <button type="button" disabled={!!busy} onClick={() => removeMember(m)} aria-label={m.status === 'active' ? `Remove ${label}` : `Take back the invitation to ${m.email}`} title={m.status === 'active' ? 'Remove from the brand' : 'Take back the invitation'} className={appButton('quiet', 'sm', 'size-8 shrink-0 px-0')}>
                             {busy === m.id ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
                           </button>
                         </span>

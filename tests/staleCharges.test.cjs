@@ -3,34 +3,35 @@ const assert = require('node:assert/strict')
 const { setup } = require('./billingAccount.test.cjs')
 
 const USER = 'user_1'
-const HOUR = 3600 * 1000
+const MINUTE = 60 * 1000
 const account = db => db.table('billingAccounts').find(a => a.id === USER)
 const charge = (db, id) => db.table('creditCharges').find(c => c.id === id)
 
-test('a post left before its images gets its credits back after three hours, and only then', async () => {
+test('a post that was never finished gets its credits back after half an hour, and only then', async () => {
   const { db, billing, clock } = setup({ start: '2026-10-15T09:00:00Z' })
   const { id } = await billing.chargeCredits(db, USER, 4, { ref: 'post_a' })
   assert.equal(account(db).creditsUsed, 4)
 
-  clock.advance(2 * HOUR)
-  assert.deepEqual(await billing.releaseStaleCharges(db, { now: new clock.Date() }), { refunded: 0, settled: 0 }, 'a post may still be in progress')
+  clock.advance(20 * MINUTE)
+  assert.deepEqual(await billing.releaseStaleCharges(db, { now: new clock.Date() }), { refunded: 0 }, 'a post may still be in progress')
 
-  clock.advance(1.5 * HOUR)
-  assert.deepEqual(await billing.releaseStaleCharges(db, { now: new clock.Date() }), { refunded: 1, settled: 0 })
+  clock.advance(15 * MINUTE)
+  assert.deepEqual(await billing.releaseStaleCharges(db, { now: new clock.Date() }), { refunded: 1 })
   assert.equal(account(db).creditsUsed, 0)
   assert.equal(charge(db, id).status, 'refunded')
-  assert.deepEqual(await billing.releaseStaleCharges(db, { now: new clock.Date() }), { refunded: 0, settled: 0 }, 'once only')
+  assert.deepEqual(await billing.releaseStaleCharges(db, { now: new clock.Date() }), { refunded: 0 }, 'once only')
   assert.equal(account(db).creditsUsed, 0)
 })
 
-test('a post whose images were made stays charged: the charge is settled, not refunded', async () => {
+test('a post whose images were made but whose post never was costs nothing either', async () => {
   const { db, billing, clock } = setup({ start: '2026-10-15T09:00:00Z' })
   const { id } = await billing.chargeCredits(db, USER, 3, { ref: 'post_b' })
+  // The images step claimed the charge, then the build failed without answering (a time-out).
   charge(db, id).imagesAt = new clock.Date()
-  clock.advance(4 * HOUR)
-  assert.deepEqual(await billing.releaseStaleCharges(db, { now: new clock.Date() }), { refunded: 0, settled: 1 })
-  assert.equal(charge(db, id).status, 'settled')
-  assert.equal(account(db).creditsUsed, 3)
+  clock.advance(40 * MINUTE)
+  assert.deepEqual(await billing.releaseStaleCharges(db, { now: new clock.Date() }), { refunded: 1 })
+  assert.equal(charge(db, id).status, 'refunded')
+  assert.equal(account(db).creditsUsed, 0)
 })
 
 test('finished and refunded posts are left alone, and bought credits come back where they were taken from', async () => {
@@ -41,9 +42,52 @@ test('finished and refunded posts are left alone, and bought credits come back w
   // 30 Free credits a month: 2 used, so 28 more come from the month and 2 from the bought ones.
   const big = await billing.chargeCredits(db, USER, 30, { ref: 'post_big' })
   assert.equal(big.fromExtra, 2)
-  clock.advance(5 * HOUR)
-  assert.deepEqual(await billing.releaseStaleCharges(db, { now: new clock.Date() }), { refunded: 1, settled: 0 })
+  clock.advance(5 * 60 * MINUTE)
+  assert.deepEqual(await billing.releaseStaleCharges(db, { now: new clock.Date() }), { refunded: 1 })
   assert.equal(account(db).creditsUsed, 2)
   assert.equal(account(db).extraCredits, 10)
   assert.equal(charge(db, done.id).status, 'settled')
+})
+
+test('reading an account gives back its own unfinished posts, so a failed one never blocks the next', async () => {
+  const { db, billing, clock } = setup({ start: '2026-10-15T09:00:00Z' })
+  // 30 Free credits: a 30-slide post that never finished holds them all.
+  await billing.chargeCredits(db, USER, 30, { ref: 'post_lost' })
+  db.table('creditCharges').push({ id: 'chg_other', ownerId: 'someone_else', credits: 5, fromMonthly: 5, fromExtra: 0, periodStart: account(db).creditPeriodStart, reason: 'post', ref: 'post_x', status: 'held', createdAt: new clock.Date() })
+  await assert.rejects(billing.chargeCredits(db, USER, 1, { ref: 'post_next' }), { code: 'insufficient_credits' }, 'still being made')
+  clock.advance(31 * MINUTE)
+  // No scheduled job ran: the next charge reads the account, which gives the lost post's credits back first.
+  const next = await billing.chargeCredits(db, USER, 4, { ref: 'post_next' })
+  assert.equal(next.credits, 4)
+  assert.equal(account(db).creditsUsed, 4)
+  assert.equal(db.table('creditCharges').find(c => c.ref === 'post_lost').status, 'refunded')
+  assert.equal(charge(db, 'chg_other').status, 'held', 'another account’s charge is its own business')
+  const summary = await billing.getBillingSummary(db, USER)
+  assert.equal(summary.credits.left, 26)
+})
+
+test('a failed post gives its credits back at once when the browser asks, and a made post keeps its charge', async () => {
+  const { db, billing } = setup({ start: '2026-10-15T09:00:00Z' })
+  const failed = await billing.chargeCredits(db, USER, 3, { ref: 'post_failed' })
+  assert.equal(await billing.releaseCharge(db, USER, 'post_failed'), 'refunded')
+  assert.equal(charge(db, failed.id).status, 'refunded')
+  assert.equal(account(db).creditsUsed, 0)
+  assert.equal(await billing.releaseCharge(db, USER, 'post_failed'), 'refunded', 'asking again changes nothing')
+  assert.equal(account(db).creditsUsed, 0)
+
+  // The server already gave it back (the step failed and answered): the answer is the same, nothing twice.
+  const refunded = await billing.chargeCredits(db, USER, 2, { ref: 'post_server' })
+  await billing.refundCharge(db, USER, refunded.id)
+  assert.equal(await billing.releaseCharge(db, USER, 'post_server'), 'refunded')
+  assert.equal(account(db).creditsUsed, 0)
+
+  // The post was made after all (its response was lost on the way): it stays paid for.
+  const made = await billing.chargeCredits(db, USER, 2, { ref: 'post_made' })
+  await billing.settleCharge(db, USER, made.id)
+  assert.equal(await billing.releaseCharge(db, USER, 'post_made'), 'settled')
+  assert.equal(account(db).creditsUsed, 2)
+
+  assert.equal(await billing.releaseCharge(db, USER, 'post_unknown'), null)
+  assert.equal(await billing.releaseCharge(db, 'someone_else', 'post_made'), null, 'only the account’s own charges')
+  assert.equal(await billing.releaseCharge(db, USER, 42), null)
 })

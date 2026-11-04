@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRight, Check, Sparkles } from 'lucide-react'
+import { ArrowRight, Check, Lightbulb } from 'lucide-react'
 import { BrandTile, appButton, brandLogo } from '../ui'
 import { stepHeading } from './styles'
 
@@ -22,7 +22,7 @@ export default function ReadyStep({ flowId, brand, languageLabel, headingRef }) 
       </p>
       <div className="mt-8 flex flex-col items-center justify-center gap-2 sm:flex-row">
         <Link href={`/app/${flowId}/creation`} className={appButton('primary', 'md', 'h-11 px-5')}>
-          <Sparkles className="size-4" />Get your first post ideas<ArrowRight className="size-4" />
+          <Lightbulb className="size-4" />Get your first post ideas<ArrowRight className="size-4" />
         </Link>
         <Link href={`/app/${flowId}/brand-information`} className={appButton('outline', 'md', 'h-11')}>
           Review brand profile

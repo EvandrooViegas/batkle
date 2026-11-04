@@ -13,10 +13,10 @@ const types = load('lib/designs/global/types.ts', ['familySchema', 'variantSchem
 const { INITIAL_GLOBAL_FAMILIES: seeds } = load('lib/designs/global/seeds.ts', ['INITIAL_GLOBAL_FAMILIES'])
 const resolve = load('lib/designs/global/resolve.ts', ['resolveBrandTokens', 'resolveVariant', 'referencePreviewBrand', 'contentSlots', 'countLines', 'clean', 'lightness', 'on', 'hex', 'SAMPLE_COPY'])
 const study = load('lib/designs/global/study.ts', ['variantImageMode', 'familyImagery', 'familyCutouts', 'familyPhotoLed', 'familyGrammar', 'deriveGrammar', 'reconcileStudy', 'studyForPlanning'], { ...types })
-const compose = load('lib/designs/global/compose.ts', ['planSlides', 'composeSlide', 'imageFrame', 'brandPalette', 'listItems', 'previewSlide', 'SAMPLE_DECK', 'imageChoiceOf'], { ...resolve, ...study })
+const compose = load('lib/designs/global/compose.ts', ['planSlides', 'composeSlide', 'imageFrame', 'brandPalette', 'listItems', 'previewSlide', 'SAMPLE_DECK', 'SAMPLE_IMAGES', 'samplePhoto', 'imageChoiceOf'], { ...resolve, ...study })
 const validate = load('lib/designs/global/validate.ts', ['validatePost', 'validatePage'])
-const access = load('lib/designs/global/access.ts', ['ANONYMOUS', 'BATKLE_AUTHOR', 'VISIBILITIES', 'isOfficial', 'visibilityOf', 'canSee', 'canUse', 'canKeepUsing', 'canEdit', 'libraryInfo', 'upgradeToUseError'])
-const store = load('lib/designs/global/store.ts', ['DesignLibraryError', 'ensureGlobalDesignLibrary', 'getGlobalVersion', 'listGlobalDesigns', 'listLibrary', 'listOwnRecords', 'usableFamilyIds', 'getGlobalRecord', 'saveGlobalDraft', 'publishGlobalDesign', 'retireGlobalDesign', 'selectBrandFamilies', 'hydrateBrandFamilies'], { INITIAL_GLOBAL_FAMILIES: seeds, ...types, ...study, ...access })
+const access = load('lib/designs/global/access.ts', ['ANONYMOUS', 'BATKLE_AUTHOR', 'VISIBILITIES', 'isOfficial', 'visibilityOf', 'canSee', 'canUse', 'canKeepUsing', 'canEdit', 'makerOf', 'libraryInfo', 'upgradeToUseError'])
+const store = load('lib/designs/global/store.ts', ['DesignLibraryError', 'ensureGlobalDesignLibrary', 'getGlobalVersion', 'listGlobalDesigns', 'listLibrary', 'listOwnRecords', 'usableFamilyIds', 'getGlobalRecord', 'saveGlobalDraft', 'publishGlobalDesign', 'refreshAuthor', 'creditGlobalDesign', 'retireGlobalDesign', 'selectBrandFamilies', 'hydrateBrandFamilies'], { INITIAL_GLOBAL_FAMILIES: seeds, ...types, ...study, ...access, ...load('lib/teams.ts', ['BRAND_FIELDS', 'brandCard'], { randomUUID: crypto.randomUUID }) })
 // loadViewer reads billing and teams; tests pass a viewer instead of a userId.
 const generation = load('lib/designs/global/generation.ts', ['chooseBrandFamily', 'globalLayoutPlan', 'renderGlobalPost'], { ...compose, ...store, ...study, ...validate, ...access, loadViewer: async () => { throw Error('pass a viewer in tests') } })
 const auth = load('lib/designs/global/admin.ts', ['validAdminKey', 'adminSession', 'isDesignAdmin', 'requireDesignAdmin'], { ...crypto })
@@ -25,7 +25,7 @@ function memoryDb() {
   const tables = new Map()
   const get = (object, path) => path.split('.').reduce((v, key) => v?.[key], object)
   const set = (object, path, value) => { const keys = path.split('.'); const last = keys.pop(); let current = object; for (const key of keys) current = current[key] ||= {}; current[last] = structuredClone(value) }
-  const matches = (doc, query) => Object.entries(query).every(([key, value]) => value && typeof value === 'object' && '$exists' in value ? (get(doc, key) !== undefined) === value.$exists : JSON.stringify(get(doc, key)) === JSON.stringify(value))
+  const matches = (doc, query) => Object.entries(query).every(([key, value]) => value && typeof value === 'object' && '$exists' in value ? (get(doc, key) !== undefined) === value.$exists : value && typeof value === 'object' && '$in' in value ? value.$in.includes(get(doc, key)) : JSON.stringify(get(doc, key)) === JSON.stringify(value))
   return { tables, collection(name) {
     if (!tables.has(name)) tables.set(name, [])
     const list = tables.get(name)

@@ -66,6 +66,12 @@ export async function recentBrandPosts(db: any, brandId: string | undefined, lim
 const slidesOf = (copy: any) => Array.isArray(copy.slides) && copy.slides.length ? copy.slides : [copy]
 
 /**
+ * Stands in for a background photo that could not be found or made (public/samples/background-placeholder.png): a
+ * neutral grey with a faint picture outline, so it reads as "a photo goes here" and is replaced in the editor.
+ */
+export const PLACEHOLDER_PHOTO = { url: '/samples/background-placeholder.png', width: 1080, height: 1350 }
+
+/**
  * Deterministic: the study grammar decides each slide's composition and whether it carries imagery. No model call.
  * A text slide whose copy leaves a large empty band also gets an AI cutout there, when the plan gave it a subject.
  */
@@ -127,7 +133,11 @@ export function renderGlobalPost(family: GlobalDesignFamily, brand: any, copy: a
     // A cutout needs a transparent image: an AI PNG, or a photo whose subject was cut out. A photo that could not be
     // cut out is never placed as if it were one.
     const usable = !cutout || !!asset?.subject?.url || asset?.source === 'ai_generated'
-    const image = slot.needs_visual && usable && !(opaque && slot.plan.fill) ? (cutout && asset?.subject?.url) || asset?.url || '' : ''
+    const found = slot.needs_visual && usable && !(opaque && slot.plan.fill) ? (cutout && asset?.subject?.url) || asset?.url || '' : ''
+    // A photo that fills the background and could not be found or made: a placeholder photo stands in, so the slide
+    // keeps the study's photo layout instead of turning into a text layout, and the owner replaces it in the editor.
+    const placeholder = !found && slot.needs_visual && slot.background && !cutout && !slot.plan.fill
+    const image = placeholder ? PLACEHOLDER_PHOTO.url : found
     const imageSize = cutout && asset ? (asset.subject?.url ? asset.subject : asset.width && asset.height ? asset : undefined) : undefined
     // A slide shows only its own CTA; the post-level CTA belongs to the caption, not to every last slide.
     const content = { ...slide, cta: slide.cta || '' }
@@ -138,6 +148,7 @@ export function renderGlobalPost(family: GlobalDesignFamily, brand: any, copy: a
     // A fill cutout is optional: without its image the slide is simply the text layout it already was.
     const fill = !!slot.plan.fill
     if (slot.needs_visual && !image && !fill) notes.push(`${slides.length > 1 ? `Slide ${index + 1}: ` : ''}no fitting image was available${resolved?.warning ? ` (${resolved.warning})` : ''}, so it was composed without imagery.`)
+    if (placeholder) notes.push(`${slides.length > 1 ? `Slide ${index + 1}: ` : ''}no fitting image was available${resolved?.warning ? ` (${resolved.warning})` : ''}, so a placeholder photo fills the background. Replace it with your own in the editor.`)
     const noFill = { ...slot.plan, withImage: false, cutout: false, fill: false }
     if (opaque && image) notes.push(`${slides.length > 1 ? `Slide ${index + 1}: ` : ''}the image could not be cut out, so it is shown framed.`)
     const base = slot.needs_visual && !image ? (fill ? noFill : { ...slot.plan, withImage: false, cutout: false, composition: textOnly }) : { ...slot.plan, cutout, ...(opaque ? { photo: 'card' } : {}) }
@@ -163,7 +174,8 @@ export function renderGlobalPost(family: GlobalDesignFamily, brand: any, copy: a
           const placed = page.nodes.some((n: any) => n.type === 'image' && n.src === image)
           notes.push(`${slides.length > 1 ? `Slide ${index + 1}: ` : ''}the copy needed more room than the layout left beside the image, so ${placed ? 'the image was made smaller' : 'it was composed without its image'}.`)
         }
-        return { ...page, nodes: page.nodes.map(n => ({ ...n, id: id() })), id: id(), name: `${index + 1}. ${page.composition}`, order: index, type: index === 0 ? 'top_peer' : index === slides.length - 1 ? 'bottom_peer' : 'content', globalComposition: page.composition }
+        // The placeholder is named in the editor's layers, so it is easy to find and replace.
+        return { ...page, nodes: page.nodes.map((n: any) => ({ ...n, ...(placeholder && n.type === 'image' && n.src === PLACEHOLDER_PHOTO.url ? { name: 'Placeholder photo: replace it' } : {}), id: id() })), id: id(), name: `${index + 1}. ${page.composition}`, order: index, type: index === 0 ? 'top_peer' : index === slides.length - 1 ? 'bottom_peer' : 'content', globalComposition: page.composition }
       } catch (error: any) { if (error.status !== 422) throw error; lastError = error }
     }
     throw Object.assign(new Error(`${slides.length > 1 ? `Slide ${index + 1}: ` : ''}${lastError.message}`), { status: 422 })

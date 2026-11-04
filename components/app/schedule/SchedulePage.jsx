@@ -210,6 +210,13 @@ export default function SchedulePage({ flowId, brandName = 'Your brand' }) {
   }
 
   const focusEntry = focusId ? schedule.entries.find(e => e.id === focusId) || null : null
+  // A reminder's link to a post already marked as posted says so once, as a toast.
+  const toldPosted = useRef(false)
+  useEffect(() => {
+    if (!postedBefore || focusEntry?.status !== 'posted' || toldPosted.current) return
+    toldPosted.current = true
+    toast.success(`You’ve already marked “${focusEntry.topic || 'this post'}” as posted.`)
+  }, [postedBefore, focusEntry])
   const scrolled = useRef(false)
   useEffect(() => {
     if (!schedule.loaded || !focusEntry || scrolled.current) return
@@ -350,9 +357,6 @@ export default function SchedulePage({ flowId, brandName = 'Your brand' }) {
         {gate && <UpgradeNotice error={gate} className="mt-3 max-w-[760px]" />}
         {schedule.loaded && !schedule.loadError && focusId && !focusEntry && (
           <Notice className="mt-3 max-w-[760px]">That post isn’t on the schedule any more.</Notice>
-        )}
-        {postedBefore && focusEntry?.status === 'posted' && (
-          <Notice tone="success" className="mt-3 max-w-[760px]">You’ve already marked “{focusEntry.topic || 'this post'}” as posted.</Notice>
         )}
 
         {!schedule.loaded && (

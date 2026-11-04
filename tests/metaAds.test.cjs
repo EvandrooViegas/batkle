@@ -6,7 +6,7 @@ const { stripTypeScriptTypes } = require('node:module')
 const { seeds, generation, study } = require('./globalDesigns.test.cjs')
 
 const load = file => stripTypeScriptTypes(fs.readFileSync(file, 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, ''))
-const meta = new Function(load('lib/ads/meta.ts') + ';return { AD_PLACEMENTS, DEFAULT_PLACEMENTS, AD_TEXT_LIMITS, AD_ANGLES, CREATIVE_LIMITS, STORY_SAFE, META_CTAS, AD_OBJECTIVES, AD_VARIANTS, placementById, objectiveById, isMetaCta, readPlacements }')()
+const meta = new Function(load('lib/ads/meta.ts') + ';return { AD_PLACEMENTS, DEFAULT_PLACEMENTS, AD_TEXT_LIMITS, AD_ANGLES, CREATIVE_LIMITS, STORY_SAFE, META_CTAS, AD_OBJECTIVES, AD_VARIANTS, AD_FORMATS, CAROUSEL_CARDS, CAROUSEL_PLACEMENTS, CAROUSEL_DEFAULT_PLACEMENTS, placementById, objectiveById, isMetaCta, readFormat, readCards, placementsFor, defaultPlacements, readPlacements, adCredits }')()
 const story = new Function(load('lib/designs/global/story.ts') + ';return { toStoryCanvas, storyArea, STORY_FRAME }')()
 const language = new Function(load('lib/services/contentLanguage.ts') + load('lib/services/copyFacts.ts') + load('lib/services/contentAngles.ts') + ';return { postLanguage, languageIssues, modernPortuguese, inventedFigures, brandSubjects, mentionsSubject, aiTells, resultClaims }')()
 
@@ -21,7 +21,7 @@ function adHandlers(overrides = {}) {
     requireOwnBrands: async () => {}, sanitizeDesignPlan: (_f, copy) => copy, planAssets: async () => ({ slots: [] }),
     ...language, ...meta, toStoryCanvas: story.toStoryCanvas, ...overrides,
   }
-  return new Function(...Object.keys(deps), load('lib/handlers/adHandlers.ts') + ';return { readAdBrief, fitChars, dropPointers, pickHeadlines, adCopyIssues, asideTerms, proofPoints, normalizeAdCopy, writeAdCopy, creativeCopy, adFamily, composeAtSize, handleBuildAd, handleUpdateAdCopy }')(...Object.values(deps))
+  return new Function(...Object.keys(deps), load('lib/handlers/adHandlers.ts') + ';return { readAdBrief, fitChars, dropPointers, pickHeadlines, adCopyIssues, closingNote, asideTerms, proofPoints, normalizeAdCopy, writeAdCopy, creativeCopy, adFamily, composeAtSize, handlePlanAd, handleBuildAd, handleUpdateAdCopy }')(...Object.values(deps))
 }
 const ads = adHandlers()
 const portuguese = language.postLanguage({ language: 'Portuguese', languageVariant: 'pt-PT' })
@@ -35,28 +35,53 @@ const goodCopy = () => ({
   ],
   headlines: ['Avaliação de fachadas em Lisboa', 'Orçamento sem compromisso', 'Fachadas sem fissuras'],
   description: 'Alvará de Obra Pública', cta: 'Get Quote',
-  creative: { headline: 'A sua fachada precisa de obras?', supportingText: 'Avaliamos no local', label: 'Avaliação no local', cta: 'Peça orçamento' },
+  creative: { headline: 'A sua fachada precisa de obras?', supportingText: 'Avaliamos no local', label: 'Avaliação no local', cta: 'Diga-nos o que a fachada precisa' },
   image: { subject: 'historic building facade with scaffolding', queries: ['facade scaffolding'] },
+})
+
+// A four-card carousel that follows every rule: a hook, two reasons, the offer with the action on the last image.
+const goodCarousel = () => ({
+  primaryText: goodCopy().primaryText, cta: 'Get Quote',
+  cards: [
+    { headline: 'Fissuras na fachada?', description: 'Avaliação no local', creative: { headline: 'A sua fachada tem fissuras?', supportingText: '', cta: '' }, image: { subject: 'cracked old facade', queries: ['cracked facade'] } },
+    { headline: 'Vemos a causa no local', description: '', creative: { headline: 'Vamos ao local ver a causa', supportingText: 'E explicamos o que fazer' }, image: { subject: 'engineer inspecting a wall', queries: ['wall inspection'] } },
+    { headline: 'Obra no Ministério da Justiça', description: 'Com alvará', creative: { headline: 'A fachada do Ministério da Justiça', supportingText: 'Reabilitada pela nossa equipa' }, image: { subject: 'restored government building facade', queries: ['restored facade'] } },
+    { headline: 'Orçamento sem compromisso', description: '', creative: { headline: 'Orçamento sem compromisso', supportingText: '', cta: 'Diga-nos o que a fachada precisa' }, image: { subject: 'facade with scaffolding', queries: ['facade scaffolding'] } },
+  ],
 })
 
 test('Meta’s sizes, limits, angles and buttons', () => {
   assert.deepEqual(meta.AD_PLACEMENTS.map(p => [p.ratio, p.width, p.height]), [['4:5', 1080, 1350], ['1:1', 1080, 1080], ['9:16', 1080, 1920], ['1.91:1', 1200, 628]])
   assert.deepEqual(meta.readPlacements(['landscape', 'story', 'nope']), ['story', 'landscape'])
   assert.deepEqual(meta.readPlacements([]), meta.DEFAULT_PLACEMENTS)
-  assert.deepEqual(meta.AD_TEXT_LIMITS, { primaryText: 125, primaryTextMax: 360, headline: 40, headlineVisible: 27, description: 30 })
+  assert.deepEqual(meta.AD_TEXT_LIMITS, { primaryText: 125, primaryTextMax: 500, headline: 40, headlineVisible: 27, description: 30, cardDescription: 20 })
   assert.deepEqual(meta.AD_ANGLES.map(a => a.id), ['short', 'problem', 'proof'])
   assert.equal(meta.AD_ANGLES.length, meta.AD_VARIANTS)
+  assert.ok(meta.AD_ANGLES.every(a => /call to action/.test(a.use)), 'every version ends by telling the reader what to do')
   assert.ok(meta.isMetaCta('Learn More') && !meta.isMetaCta('Click here'))
   assert.equal(meta.objectiveById('nope').id, 'traffic')
+})
+
+test('carousels: 2 to 10 cards, never landscape, square by default, one credit per card at each size', () => {
+  assert.deepEqual(meta.AD_FORMATS.map(f => f.id), ['single', 'carousel'])
+  assert.equal(meta.readFormat('carousel'), 'carousel'); assert.equal(meta.readFormat('reel'), 'single')
+  assert.deepEqual([meta.readCards(1), meta.readCards('6'), meta.readCards(40), meta.readCards('x')], [2, 6, 10, meta.CAROUSEL_CARDS.default])
+  assert.deepEqual(meta.readPlacements(['landscape', 'story'], 'carousel'), ['story'])
+  assert.deepEqual(meta.readPlacements(['landscape'], 'carousel'), ['feed-square'], 'only landscape asked: the carousel default')
+  assert.deepEqual(meta.placementsFor('carousel'), ['feed-portrait', 'feed-square', 'story'])
+  assert.equal(meta.adCredits({ format: 'single', cards: 1, placements: ['feed-square', 'story'] }), 2)
+  assert.equal(meta.adCredits({ format: 'carousel', cards: 5, placements: ['feed-square', 'story'] }), 10)
 })
 
 test('a brief needs what the ad promotes; the button follows the goal unless one is picked', () => {
   assert.throws(() => ads.readAdBrief({ brief: { offer: ' ' } }), /promotes/)
   assert.throws(() => ads.readAdBrief({ brief: { offer: 'Facade repairs', url: 'ftp://x' } }), /http/)
   const brief = ads.readAdBrief({ brief: { offer: '  Free on-site assessment  ', objective: 'leads', placements: ['story'], designId: 'starter-x' } })
-  assert.deepEqual(brief, { offer: 'Free on-site assessment', objective: 'leads', audience: '', incentive: '', url: '', cta: 'Get Quote', placements: ['story'], designId: undefined })
+  assert.deepEqual(brief, { offer: 'Free on-site assessment', objective: 'leads', audience: '', incentive: '', url: '', cta: 'Get Quote', format: 'single', cards: 1, placements: ['story'], designId: undefined })
   assert.equal(ads.readAdBrief({ brief: { offer: 'Course', incentive: '  First class free  ' } }).incentive, 'First class free')
   assert.equal(ads.readAdBrief({ brief: { offer: 'Course', objective: 'sales', cta: 'Sign Up' } }).cta, 'Sign Up')
+  const carousel = ads.readAdBrief({ brief: { offer: 'Course', format: 'carousel', cards: 12, placements: ['landscape', 'feed-portrait'] } })
+  assert.deepEqual([carousel.format, carousel.cards, carousel.placements], ['carousel', 10, ['feed-portrait']])
 })
 
 test('ad copy is checked: three angles, Meta’s limits, a first line that stops the reader, no filler, no invented figures', () => {
@@ -69,7 +94,7 @@ test('ad copy is checked: three angles, Meta’s limits, a first line that stops
   assert.match(issues({ headlines: ['Avaliação gratuita de fachadas históricas em Lisboa'] }), /headline has \d+ characters; the limit is 40/)
   assert.match(issues({ cta: 'Click here' }), /cta must be one of/)
   assert.match(issues({ creative: { ...goodCopy().creative, headline: 'Uma frase longa demais para a imagem do anúncio' } }), /creative.headline has more than 7 words/)
-  assert.match(issues({ creative: { ...goodCopy().creative, cta: 'Peça já o seu orçamento hoje' } }), /creative.cta has more than 3 words/)
+  assert.match(issues({ creative: { ...goodCopy().creative, cta: 'Diga-nos já o que a sua fachada precisa hoje' } }), /creative.cta has more than 6 words/)
   assert.match(issues({ headlines: ['Descubra a nossa avaliação'] }), /marketing filler \(Descubra\)/)
   assert.match(issues({ primaryText: ['Poupe 40% este mês na reabilitação de fachadas.', ...goodCopy().primaryText.slice(1)] }), /figures/)
   // Five headline candidates: the ones over the limit or with filler are left out, so they spoil nothing.
@@ -98,8 +123,19 @@ test('Meta’s three headlines come from the candidates that fit, never cut shor
   assert.equal(ads.dropPointers('Primeira linha.\nPeça orçamento.\nSaiba mais.'), 'Primeira linha.\nPeça orçamento.')
   assert.equal(ads.dropPointers('Learn more'), 'Learn more', 'a text that is only a closer stays, to be rejected')
   assert.equal(ads.dropPointers('Mais clientes na sua barbearia. Descubra como.\nSaiba mais e comece a receber reservas.\nClique para saber como.'), 'Mais clientes na sua barbearia.')
-  assert.equal(ads.normalizeAdCopy({ ...goodCopy(), creative: { ...goodCopy().creative, cta: 'Saiba Mais' } }, ads.readAdBrief({ brief: { offer: 'Fachadas' } }), 'pt-PT').creative.cta, '', 'the image does not repeat Meta’s button')
-  assert.deepEqual(ads.adCopyIssues({ ...goodCopy(), creative: { ...goodCopy().creative, cta: 'Saiba mais' } }, portuguese, 'Ministério da Justiça Alvará de Obra Pública'), [])
+  // Meta draws its button under the image: a closing line that points at it, or is the button in other words or
+  // another language, is left off the image.
+  const repeats = ['Saiba Mais', 'Get Quote', 'Get Quote Now', 'Send us a message', 'Peça orçamento', 'Peça já o seu orçamento', 'Envie-nos uma mensagem', 'Contact us to learn more']
+  for (const cta of repeats)
+    assert.equal(ads.normalizeAdCopy({ ...goodCopy(), creative: { ...goodCopy().creative, cta } }, ads.readAdBrief({ brief: { offer: 'Fachadas' } }), 'pt-PT').creative.cta, '', `“${cta}” only repeats the button`)
+  for (const cta of ['Tell us what your site needs', 'Tell us about the job'])
+    assert.equal(ads.normalizeAdCopy({ ...goodCopy(), creative: { ...goodCopy().creative, cta } }, ads.readAdBrief({ brief: { offer: 'Fachadas' } }), 'en').creative.cta, cta, `“${cta}” says something the button does not`)
+  // A repeated button (or no closing line) is no reason to rewrite the ad: the review is asked for other words.
+  for (const cta of ['Saiba mais', 'Peça orçamento', ''])
+    assert.deepEqual(ads.adCopyIssues({ ...goodCopy(), creative: { ...goodCopy().creative, cta } }, portuguese, 'Ministério da Justiça Alvará de Obra Pública'), [])
+  assert.equal(ads.closingNote({ ...goodCopy(), creative: { ...goodCopy().creative, cta: 'Peça orçamento' } }), 'creative.cta (“Peça orçamento”) repeats Meta’s “Get Quote” button under the image; say what the reader gets by acting in 3 to 6 other words (such as “Ask us about your damp wall”), or leave it empty')
+  assert.equal(ads.closingNote(goodCopy()), '')
+  assert.equal(ads.closingNote({ ...goodCopy(), creative: { ...goodCopy().creative, cta: '' } }), '')
   const brief = ads.readAdBrief({ brief: { offer: 'Fachadas', objective: 'leads' } })
   const ad = ads.normalizeAdCopy({ ...goodCopy(), primaryText: ['Fachadas avaliadas no local. Saiba mais', ...goodCopy().primaryText.slice(1)], headlines: ['Seguidores que viram clientes fiéis e pagantes todos os meses', 'Fachadas sem fissuras', 'Orçamento após uma visita', 'Obra do Ministério da Justiça'] }, brief, 'pt-PT')
   assert.equal(ad.primaryText[0], 'Fachadas avaliadas no local.')
@@ -126,14 +162,14 @@ test('copy is fitted at whole words, keeps its line breaks and is spelled in cur
   const ad = ads.normalizeAdCopy({
     primaryText: ['Um texto', 'Primeira linha\n\n  Segunda   linha ', 'Um texto'],
     headlines: ['Avaliação de fachadas históricas em Lisboa e arredores'], cta: 'nope',
-    creative: { headline: 'Um dois três quatro cinco seis sete oito', label: 'Fachadas de Lisboa hoje', cta: 'Peça já o orçamento' },
+    creative: { headline: 'Um dois três quatro cinco seis sete oito', label: 'Fachadas de Lisboa hoje', cta: 'Diga-nos o que precisa para a fachada' },
   }, brief, 'pt-PT')
   assert.deepEqual(ad.primaryText, ['Um texto', 'Primeira linha\nSegunda linha'], 'line breaks stay; repeated versions go')
   assert.ok(ad.headlines[0].length <= 40)
   assert.equal(ad.cta, 'Get Quote', 'an unknown button falls back to the goal’s')
   assert.equal(ad.creative.headline.split(' ').length, 7)
   assert.equal(ad.creative.label, 'Fachadas de Lisboa')
-  assert.equal(ad.creative.cta, 'Peça já o')
+  assert.equal(ad.creative.cta, 'Diga-nos o que precisa', 'cut at six words, never on a dangling “para a”')
   assert.equal(ad.image, null)
 })
 
@@ -171,6 +207,82 @@ test('a draft with nothing usable is asked again first; when the review cannot f
   const { copy } = await ads.writeAdCopy(brand, brief, reply([{ ...goodCopy(), description: 'Orçamento gratuito' }, 'not json', goodCopy()]))
   assert.deepEqual(asked, ['write', 'review', 'write'])
   assert.equal(copy.description, 'Alvará de Obra Pública', 'the rewrite without the free claim is kept')
+})
+
+test('a closing line that repeats the button costs no rewrite: the review is asked for other words, else it is left off', async () => {
+  const brand = { name: 'PRUMO', language: 'Portuguese', languageVariant: 'pt-PT', about: 'Engenharia. Alvará de Obra Pública 120909.', projects: [{ name: 'Ministério da Justiça' }] }
+  const brief = ads.readAdBrief({ brief: { offer: 'Avaliação de fachadas', objective: 'leads' } })
+  const echo = { ...goodCopy(), creative: { ...goodCopy().creative, cta: 'Peça já o seu orçamento' } }
+  const run = async review => {
+    const asked = [], answers = [echo, review]
+    const { copy } = await ads.writeAdCopy(brand, brief, async (_g, request) => { asked.push(request); return { choices: [{ message: { content: JSON.stringify(answers.shift()) } }] } })
+    return { asked, copy }
+  }
+  const fixed = await run(goodCopy())
+  assert.equal(fixed.asked.length, 2, 'the draft, then the review')
+  assert.match(fixed.asked[1].messages[1].content, /THE CHECKS FOUND[\s\S]*“Peça já o seu orçamento”\) repeats Meta’s “Get Quote” button/)
+  assert.equal(fixed.copy.creative.cta, 'Diga-nos o que a fachada precisa')
+  const kept = await run(echo)
+  assert.equal(kept.asked.length, 2)
+  assert.equal(kept.copy.creative.cta, '', 'the image has no closing line rather than the button twice')
+})
+
+test('a carousel is checked card by card: the number asked for, a headline under each, words on each image, the action on the last', () => {
+  const facts = 'Ministério da Justiça Alvará de Obra Pública'
+  assert.deepEqual(ads.adCopyIssues(goodCarousel(), portuguese, facts, [], 4), [])
+  const issues = (cards, count = 4) => ads.adCopyIssues({ ...goodCarousel(), cards }, portuguese, facts, [], count).join(' | ')
+  const good = goodCarousel().cards
+  assert.match(issues(good.slice(0, 3)), /must have exactly 4 cards; it has 3/)
+  const pointing = [...good.slice(0, 3), { ...good[3], creative: { ...good[3].creative, cta: 'Saiba mais' } }]
+  assert.equal(issues(pointing), '')
+  assert.match(ads.closingNote({ ...goodCarousel(), cards: pointing }, 4), /closing line on the last card’s image \(“Saiba mais”\) repeats Meta’s “Get Quote” button/)
+  assert.match(issues([{ ...good[0], description: 'Avaliação técnica no local' }, ...good.slice(1)]), /description of card 1 is over 20/)
+  assert.match(issues([{ ...good[0], headline: '' }, ...good.slice(1)]), /card 1 has no headline/)
+  assert.match(issues([good[0], { ...good[1], creative: { headline: 'Vamos ao local ver a causa da humidade toda' } }, ...good.slice(2)]), /image words of card 2 have more than 7/)
+  assert.match(issues([{ ...good[0], headline: 'Poupe 40% na fachada' }, ...good.slice(1)]), /figures/, 'the same fact checks as a single image')
+  // The single image's headlines and badge play no part in a carousel.
+  assert.deepEqual(ads.adCopyIssues({ ...goodCarousel(), headlines: [], creative: null }, portuguese, facts, [], 4), [])
+})
+
+test('a carousel is fitted per card, keeps the action on the last card only, and is no longer than asked', () => {
+  const brief = ads.readAdBrief({ brief: { offer: 'Fachadas', objective: 'leads', format: 'carousel', cards: 3 } })
+  const cards = [{ ...goodCarousel().cards[0], creative: { headline: 'Hook', cta: 'Peça já' } }, ...goodCarousel().cards.slice(1)]
+  const ad = ads.normalizeAdCopy({ ...goodCarousel(), cards: [...cards.slice(0, 1), { ...cards[1], description: 'Uma descrição longa demais para o cartão' }, ...cards.slice(2)] }, brief, 'pt-PT')
+  assert.equal(ad.cards.length, 3, 'a fourth card is left out')
+  assert.ok(ad.cards[1].description.length <= 20)
+  assert.deepEqual(ad.cards.map(c => c.creative.cta), ['', '', ''], 'the third card is now the last, and it had no action')
+  assert.equal(ad.creative.headline, 'Hook', 'the ad’s creative is its first card’s')
+  assert.deepEqual(ad.image, goodCarousel().cards[0].image)
+  assert.equal(ad.headlines, undefined)
+  const full = ads.normalizeAdCopy(goodCarousel(), { ...brief, cards: 4 }, 'pt-PT')
+  assert.deepEqual(full.cards.map(c => c.creative.cta), ['', '', '', 'Diga-nos o que a fachada precisa'])
+})
+
+test('ads are written to sell to the ideal customer, harder than posts; a carousel is written and reviewed card by card', async () => {
+  const brand = { name: 'PRUMO', language: 'Portuguese', languageVariant: 'pt-PT', about: 'Engenharia. Alvará de Obra Pública 120909.', projects: [{ name: 'Ministério da Justiça' }], targetAudience: 'Condomínios de prédios antigos em Lisboa' }
+  const asked = []
+  const answer = async (_g, request) => { asked.push(request); return { choices: [{ message: { content: JSON.stringify(goodCarousel()) } }] } }
+  const brief = ads.readAdBrief({ brief: { offer: 'Avaliação de fachadas', objective: 'leads', format: 'carousel', cards: 4 } })
+  const { copy } = await ads.writeAdCopy(brand, brief, answer)
+  const [writer, review] = asked.map(r => r.messages[0].content)
+  assert.match(writer, /An ad is not a post[\s\S]*SELL one service or product to the brand's ideal customer/)
+  assert.match(writer, /"objection"/)
+  assert.match(writer, /Every primary text ends by telling the reader what to do/)
+  assert.match(writer, /exactly 4 cards[\s\S]*card 1: the hook[\s\S]*cards 2 to 3: one reason to buy each[\s\S]*card 4: the offer and the action/)
+  assert.doesNotMatch(writer, /"headlines": \[/, 'a carousel has a headline per card, not three to test')
+  assert.match(asked[0].messages[1].content, /"format":"carousel of 4 cards"[\s\S]*"idealCustomer":"Condomínios de prédios antigos em Lisboa"/, 'without an audience in the brief, the profile’s ideal customer')
+  assert.match(review, /It sells[\s\S]*THIS AD IS A CAROUSEL: keep exactly the draft's number of cards/)
+  assert.ok(asked[0].max_tokens > 4500, 'room for every card')
+  assert.equal(copy.cards.length, 4)
+  assert.equal(copy.cards[3].creative.cta, 'Diga-nos o que a fachada precisa')
+  // A single image keeps its headlines to test and its one creative.
+  asked.length = 0
+  await ads.writeAdCopy(brand, ads.readAdBrief({ brief: { offer: 'Avaliação de fachadas', objective: 'leads' } }), async (_g, request) => { asked.push(request); return { choices: [{ message: { content: JSON.stringify(goodCopy()) } }] } })
+  assert.match(asked[0].messages[0].content, /"headlines": \[5 versions/)
+  assert.doesNotMatch(asked[0].messages[0].content, /exactly \d+ cards|CAROUSEL/)
+  // A carousel that comes back with a single card cannot be made.
+  const lonely = { ...goodCarousel(), cards: goodCarousel().cards.slice(0, 1) }
+  await assert.rejects(ads.writeAdCopy(brand, brief, async () => ({ choices: [{ message: { content: JSON.stringify(lonely) } }] })), /carousel could not be written/)
 })
 
 test('a review that invents a figure or breaks more rules is dropped, and the draft is kept', async () => {
@@ -213,7 +325,7 @@ test('a term the profile repeats but the brief does not mention stays out of the
 })
 
 const brand = { id: 'brand', name: 'PRUMO SOALHEIRO', colors: ['#e3ad3b', '#393836'], fonts: ['Anton', 'Roboto'], website: 'https://prumo.pt' }
-const adCopy = { primaryText: ['x'], headlines: ['x'], description: '', cta: 'Get Quote', creative: { headline: 'A sua fachada precisa de obras?', supportingText: 'Avaliamos no local', label: 'Fachadas', cta: 'Peça orçamento' }, image: { subject: 'historic facade', queries: ['facade'] } }
+const adCopy = { primaryText: ['x'], headlines: ['x'], description: '', cta: 'Get Quote', creative: { headline: 'A sua fachada precisa de obras?', supportingText: 'Avaliamos no local', label: 'Fachadas', cta: 'Diga-nos o que a fachada precisa' }, image: { subject: 'historic facade', queries: ['facade'] } }
 const plain = { slots: [{ slot_id: 'single_main', resolvedAsset: null }] }
 
 test('the creative always looks for a picture, and carries the hook, the badge and a short call to action', () => {
@@ -222,7 +334,7 @@ test('the creative always looks for a picture, and carries the hook, the badge a
     assert.equal(copy.format, 'single')
     assert.equal(copy.imageChoice, 'on', '“With images”, whatever the design’s own habit')
     assert.deepEqual(copy.design.image, adCopy.image)
-    assert.equal(copy.cta, 'Peça orçamento')
+    assert.equal(copy.cta, 'Diga-nos o que a fachada precisa')
     assert.equal(copy.subheadline, 'Fachadas')
     assert.ok(study.familyGrammar(family).compositions.includes(copy.design.composition))
   }
@@ -296,9 +408,89 @@ test('building keeps the credits for the sizes made and gives one back for each 
   assert.equal(calls.settle, 1); assert.equal(calls.refund, 0)
   assert.equal(calls.grants.length, 1); assert.equal(calls.grants[0][0], 1)
   assert.ok(inserted.filter(d => d.ad).every(d => d.ownerId === 'user' && d.ad.id === result.body.ad.id), 'every size is a post owned by the account, tagged with its ad')
-  assert.equal(result.body.ad.creative.cta, 'Peça orçamento')
+  assert.equal(result.body.ad.creative.cta, 'Diga-nos o que a fachada precisa')
   const short = adHandlers({ loadGenerationBrandContext: async () => ({ ...brand }), findCharge: async () => ({ id: 'c', status: 'held', credits: 1 }) })
   await assert.rejects(short.handleBuildAd(db, 'user', { flowId: 'brand', brief: { offer: 'Fachadas', placements: ['feed-square', 'story'] }, chargeRef: 'ref' }), /start again/)
+})
+
+const carouselAd = () => ads.normalizeAdCopy(goodCarousel(), ads.readAdBrief({ brief: { offer: 'Fachadas', objective: 'leads', format: 'carousel', cards: 4 } }), 'pt-PT')
+
+test('a carousel is one post per size with a page per card: its own image and words on each, the action on the last', () => {
+  const asset = { url: '/api/uploads/photo', width: 1600, height: 1067, source: 'unsplash' }
+  const resolved = { slots: [1, 2, 3, 4].map(n => ({ slot_id: `slide_${n}`, resolvedAsset: asset })) }
+  for (const family of seeds) {
+    const copy = ads.creativeCopy(carouselAd(), family)
+    assert.equal(copy.format, 'carousel')
+    assert.equal(copy.imageChoice, 'on')
+    assert.deepEqual(copy.slides.map(s => s.design.image.subject), goodCarousel().cards.map(c => c.image.subject))
+    assert.deepEqual(copy.slides.map(s => s.cta), ['', '', '', 'Diga-nos o que a fachada precisa'])
+    assert.ok(study.familyGrammar(family).compositions.includes(copy.slides[0].design.composition), 'the cover opens like a single image')
+    for (const id of meta.CAROUSEL_PLACEMENTS) {
+      const placement = meta.placementById(id), label = `${family.name} ${placement.ratio}`
+      const canvas = ads.composeAtSize(family, placement, brand, copy, resolved, { id: `global-${family.id}` }, crypto.randomUUID)
+      assert.equal(canvas.type, 'carousel', label)
+      assert.equal(canvas.pages.length, 4, label)
+      assert.equal(canvas.height, placement.height, label)
+      const first = canvas.pages[0].nodes.filter(n => n.type === 'text').map(n => n.text.replace(/<%[^:%]*:[^:%]*:([^%]*)%>/g, '$1')).join(' ')
+      assert.match(first, /fissuras/i, `${label}: the hook is on the first card`)
+      if (id === 'story') for (const page of canvas.pages) for (const n of page.nodes.filter(n => n.type === 'text')) assert.ok(n.y >= meta.STORY_SAFE.top - 1 && n.y + n.height <= placement.height - meta.STORY_SAFE.bottom + 1, `${label}: "${n.text}" is clear of Meta’s bars`)
+    }
+  }
+})
+
+test('planning a carousel charges one credit per card at each size, for the cards actually written', async () => {
+  const family = seeds[0]
+  const charged = []
+  const threeCards = { ...goodCarousel(), cards: goodCarousel().cards.filter((_, i) => i !== 2) }
+  const handlers = adHandlers({
+    loadGenerationBrandContext: async () => ({ ...brand, language: 'Portuguese', languageVariant: 'pt-PT', about: 'Alvará de Obra Pública. Ministério da Justiça.' }),
+    chooseBrandFamily: async () => ({ family, design: { id: `global-${family.id}` } }),
+    availableGroqCompletion: async () => ({ choices: [{ message: { content: JSON.stringify(threeCards) } }] }),
+    planAssets: async (_db, { copy }) => ({ slots: copy.slides.map((_, i) => ({ slot_id: `slide_${i + 1}`, needs_visual: true })) }),
+    chargeCredits: async (_db, _user, credits) => { charged.push(credits); return { credits } },
+  })
+  process.env.GROQ_API_KEY ||= 'test'
+  const result = await handlers.handlePlanAd({}, 'user', { flowId: 'brand', brief: { offer: 'Fachadas', objective: 'leads', format: 'carousel', cards: 4, placements: ['feed-square', 'story'] } })
+  assert.deepEqual(charged, [6], 'asked for 4 cards, 3 came back: 3 cards × 2 sizes')
+  assert.equal(result.body.brief.cards, 3, 'the build is told how many cards there are')
+  assert.equal(result.body.plan.slots.length, 3)
+  assert.equal(result.body.credits.charged, 6)
+})
+
+test('building a carousel needs its cards’ credits, and a size that cannot be made gives back one per card', async () => {
+  const family = seeds[0]
+  const grants = [], inserted = []
+  const handlers = adHandlers({
+    loadGenerationBrandContext: async () => ({ ...brand }),
+    findCharge: async () => ({ id: 'charge', status: 'held', credits: 8 }),
+    hydrateBrandFamilies: async () => [{ design: { id: `global-${family.id}` }, family }],
+    renderGlobalPost: (sized, ...rest) => { if (sized.height === 1350) throw Object.assign(Error('overflow'), { status: 422 }); return generation.renderGlobalPost(sized, ...rest) },
+    grantExtraCredits: async (_db, _user, credits) => { grants.push(credits) },
+  })
+  const db = { collection: () => ({ insertOne: async doc => { inserted.push(doc) } }) }
+  const ad = carouselAd(), copy = ads.creativeCopy(ad, family)
+  const body = { flowId: 'brand', brief: { offer: 'Fachadas', objective: 'leads', format: 'carousel', cards: 4, placements: ['feed-portrait', 'feed-square'] }, ad, copy, resolvedPlan: { designId: `global-${family.id}`, slots: [] }, chargeRef: 'ref' }
+  const result = await handlers.handleBuildAd(db, 'user', body)
+  assert.deepEqual(result.body.ad.canvases.map(c => [c.placement, c.canvas.pages.length]), [['feed-square', 4]])
+  assert.deepEqual(grants, [4], 'the portrait size’s four cards come back')
+  assert.deepEqual(result.body.ad.copy.cards.map(c => c.headline), goodCarousel().cards.map(c => c.headline))
+  assert.equal(result.body.ad.copy.headlines, undefined, 'a carousel has no headlines of its own')
+  const short = adHandlers({ loadGenerationBrandContext: async () => ({ ...brand }), findCharge: async () => ({ id: 'c', status: 'held', credits: 4 }) })
+  await assert.rejects(short.handleBuildAd(db, 'user', body), /start again/, 'two sizes of four cards need 8 credits')
+})
+
+test('editing a carousel’s text changes its cards’ headlines and descriptions, never their number', async () => {
+  const brief = ads.readAdBrief({ brief: { offer: 'Fachadas', objective: 'leads', format: 'carousel', cards: 2 } })
+  const stored = { id: 'ad2', ownerId: 'user', flowId: 'brand', brief, copy: { primaryText: ['Antes'], cards: [{ headline: 'Um', description: '' }, { headline: 'Dois', description: 'd' }], cta: 'Get Quote' }, creative: { headline: 'Hook' } }
+  let saved = null
+  const db = { collection: () => ({ findOne: async q => (q.id === 'ad2' ? stored : null), updateOne: async (_q, update) => { saved = update.$set } }) }
+  const handlers = adHandlers({ loadGenerationBrandContext: async () => ({ ...brand, language: 'Portuguese', languageVariant: 'pt-PT' }) })
+  const result = await handlers.handleUpdateAdCopy(db, 'user', 'ad2', { copy: { primaryText: ['Depois'], cards: [{ headline: 'Primeiro cartão', description: 'Uma descrição bem mais longa do que vinte' }, null, { headline: 'Um terceiro' }] } })
+  assert.deepEqual(result.body.copy.cards.map(c => c.headline), ['Primeiro cartão', 'Dois'])
+  assert.ok(result.body.copy.cards[0].description.length <= 20)
+  assert.equal(result.body.copy.cards[1].description, 'd')
+  assert.deepEqual(result.body.copy.primaryText, ['Depois'])
+  assert.deepEqual(saved.copy, result.body.copy)
 })
 
 test('the person edits the ad’s text within Meta’s limits; the image stays as built', async () => {

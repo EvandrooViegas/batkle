@@ -139,8 +139,8 @@ const studyPrompt = (width: number, height: number, count: number, first: boolea
 
 BRAND-AGNOSTIC RULES (critical):
 - The study describes visual behaviour, never brand identity. Never write hex values, font names, logos, company names or reference copy in the study.
-- Describe colors as ROLES and RELATIONSHIPS ("dominant dark background, one bright high-contrast accent used on about one phrase, decorations are low-opacity versions of the accent").
-- Describe typography as BEHAVIOUR ("extremely heavy condensed sans headline occupying ~40% of the canvas, tight leading, body ~30% of headline scale, uppercase labels").
+- Describe colors as ROLES and RELATIONSHIPS ("dominant dark background, one bright accent on one phrase, low-opacity accent decorations").
+- Describe typography as BEHAVIOUR ("extremely heavy condensed sans headline, tight leading, small uppercase labels").
 - Logos: record only placement behaviour; never reproduce a reference logo.
 - Use proportional rules ("headline occupies roughly 35–55% of the visual area"), never pixel coordinates in the study.
 
@@ -153,7 +153,8 @@ ELEMENT INVENTORY (look closely; small elements define the family as much as the
 - list markers: numbers, checks, arrows or dots, inside circles or rounded squares, solid or outlined;
 - icons: header icons (arrow, plus, check), scattered faint marks (links, plus signs, sparks) and their opacity;
 - borders: text enclosed by a rectangle (even if it looks like two thin rules above and below) is headline.frame "outline" (filled panel: "solid"), not a rule or emphasis; labels; buttons; the website handle;
-- photos and cutouts: color or black-and-white, position, scale, overlap with text or other elements.
+- photos and cutouts: color or black-and-white, position, scale, overlap with text or other elements;
+- patterns over the photo or slide: repeated bands or lines are decorations "stripes", in their color role.
 Then map EVERY element into the grammar (headline.fill/gradient, background, containers, list, icons, imagery incl. tone, branding, cta, decorations). An element in the references that has no place in the grammar is lost, so prefer the closest grammar value over omitting it. A photograph or cutout in ANY reference means imagery.mode is not "none" (use frequency for how often). grammar.references records each reference's own arrangement in order (composition, align, anchor, whether it has an image and where, whether its supporting copy sits in a callout card, whether it shows a logo badge); generation follows these arrangements to stay close to the references.
 
 GRAMMAR: fill study.grammar with the closest values. compositions = every composition move this language supports, including plausible ones the references imply (statement, stacked, split, image-led, backdrop-type, list, closing). alignment, anchors and surfaces list every option the family allows, dominant first. decorations = the decorative vocabulary ("frame" = border around the canvas, "cornerBlock" = solid square in a corner; neither is a block behind the copy). branding = where logo, slide number and website handle sit. A photo filling the canvas behind the copy is "image-led" (imagePos "full"), not "split". Copy on a filled block: headline.frame "solid", containers.style "card", not imagery.overlay.

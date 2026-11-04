@@ -21,10 +21,17 @@ export interface Viewer {
   teammates: string[]
 }
 
+/** The brand a design was made in, as its byline shows it. */
+export interface MakerBrand { name: string; logo: string | null; logoOnDark: boolean }
+/** Who made a design: the brand it was made in and the person who uploaded it. Ids never leave the server. */
+export interface Maker { brand: MakerBrand | null; person: { name: string; photo: string | null; you: boolean } | null }
+
 /** What a page shows about a design's origin and what the viewer can do with it. */
 export interface LibraryInfo {
   official: boolean
   author: string
+  /** Null for a design saved before bylines were kept, such as Batkle's bundled ones. */
+  maker: Maker | null
   visibility: Visibility
   mine: boolean
   /** Private and shared through a team the viewer is in. */
@@ -70,6 +77,15 @@ export function canEdit(record: any, viewer: Viewer): boolean {
   return viewer.admin || (!!record?.ownerId && record.ownerId === viewer.userId)
 }
 
+/** The byline saved with a record (`author`): its brand's name and logo, and the person's name and photo. */
+export function makerOf(record: any, userId?: string | null): Maker | null {
+  const author = record?.author, brand = author?.brand
+  const you = !!userId && (author?.id || record?.ownerId) === userId
+  const person = author?.name ? { name: String(author.name).slice(0, 80), photo: typeof author.photo === 'string' ? author.photo : null, you } : null
+  const made = brand?.name ? { name: String(brand.name).slice(0, 80), logo: typeof brand.logo === 'string' ? brand.logo : null, logoOnDark: !!brand.logoOnDark } : null
+  return person || made ? { brand: made, person } : null
+}
+
 export function libraryInfo(record: any, viewer: Viewer): LibraryInfo {
   const official = isOfficial(record), visibility = visibilityOf(record)
   const mine = !official && record.ownerId === viewer.userId
@@ -77,6 +93,7 @@ export function libraryInfo(record: any, viewer: Viewer): LibraryInfo {
   return {
     official,
     author: official ? BATKLE_AUTHOR : String(record?.author?.name || 'A Batkle member'),
+    maker: makerOf(record, viewer.userId),
     visibility,
     mine,
     team: !official && !mine && visibility === 'private' && viewer.teammates.includes(record.ownerId),

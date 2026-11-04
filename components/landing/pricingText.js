@@ -20,7 +20,7 @@ export function yearlySavingLabel() {
   return months > 0 ? `${plural(months, 'month')} free` : ''
 }
 
-/** A yearly price as a monthly one, to the cent: $349.90 a year is $29.16 a month. */
+/** A yearly price as a monthly one, to the cent: $279.90 a year is $23.33 a month. */
 export function monthlyEquivalent(yearly) {
   return formatPrice(Math.round((yearly / 12) * 100) / 100)
 }
@@ -32,7 +32,7 @@ export function priceParts(plan, interval) {
   return { amount: formatPrice(plan.price.month), unit: 'a month', detail: 'Billed monthly' }
 }
 
-/** The price in one line: "$34.99 a month", "$349.90 a year (≈ $29.16/month)" or "$0". */
+/** The price in one line: "$27.99 a month", "$279.90 a year (≈ $23.33/month)" or "$0". */
 export function priceText(plan, interval) {
   const { amount, unit, detail } = priceParts(plan, interval)
   if (!plan.price.month) return amount

@@ -16,7 +16,7 @@ test('who sees and uses a design: Batkle’s for everyone, members’ public for
   // Public: everyone sees it; Free sees it and is offered the upgrade.
   assert.ok(access.canSee(publicDesign, freeCarla))
   assert.ok(!access.canUse(publicDesign, freeCarla))
-  assert.deepEqual(access.libraryInfo(publicDesign, freeCarla), { official: false, author: 'Anna', visibility: 'public', mine: false, team: false, usable: false, upgrade: true })
+  assert.deepEqual(access.libraryInfo(publicDesign, freeCarla), { official: false, author: 'Anna', maker: { brand: null, person: { name: 'Anna', photo: null, you: false } }, visibility: 'public', mine: false, team: false, usable: false, upgrade: true })
   assert.ok(access.canUse(publicDesign, bruno))
   // Private: the author and their teammates only.
   assert.ok(!access.canSee(privateDesign, bruno))
@@ -80,6 +80,44 @@ test('a member’s design is saved with its author, private until published, and
   const republished = await store.publishGlobalDesign(db, official[0], seed.revision, 'private')
   assert.equal(republished.visibility, undefined)
   assert.ok((await store.listLibrary(db, freeCarla)).some(f => f.id === official[0]))
+})
+
+test('a design names the brand it was made in and who uploaded it, as they are now, without ids', async () => {
+  const db = await libraryWithMemberDesigns()
+  const kachica = { id: 'kachica', ownerId: 'eva', name: 'kachica', brandContext: { name: 'KACHICA', logo: '/api/uploads/logo-k' } }
+  await db.collection('flows').insertOne(kachica)
+  await db.collection('users').insertOne({ id: 'eva', name: 'Eva Lima' })
+  const eva = { id: 'eva', name: 'Eva', photo: 'https://img.clerk.com/eva', brand: { id: 'kachica', name: 'KACHICA', logo: '/api/uploads/logo-k', logoOnDark: false } }
+  // The admin's own: still one of Batkle's (no owner), with a byline.
+  const saved = await store.saveGlobalDraft(db, { ...seeds[0], id: 'family-made', name: 'Made in Kachica' }, undefined, undefined, eva)
+  await store.publishGlobalDesign(db, 'family-made', saved.revision)
+  await db.collection('flows').updateOne({ id: 'kachica' }, { $set: { 'brandContext.name': 'KACHICA Studio' } })
+  const listed = (await store.listLibrary(db, bruno)).find(f => f.id === 'family-made').library
+  assert.equal(listed.official, true)
+  assert.deepEqual(listed.maker, { brand: { name: 'KACHICA Studio', logo: '/api/uploads/logo-k', logoOnDark: false }, person: { name: 'Eva Lima', photo: 'https://img.clerk.com/eva', you: false } })
+  assert.ok(!/kachica"|"eva"/.test(JSON.stringify(listed)), 'brand and account ids stay on the server')
+  assert.equal((await store.listLibrary(db, viewer('eva'))).find(f => f.id === 'family-made').library.maker.person.you, true)
+  // A legacy member design has its author's name and no brand.
+  assert.deepEqual((await store.listLibrary(db, bruno)).find(f => f.id === 'family-public').library.maker, { brand: null, person: { name: 'Anna Lopes', photo: null, you: false } })
+  // Publishing again keeps the uploader's photo current; nobody else's publish changes it.
+  await store.refreshAuthor(db, 'family-made', { ...eva, photo: 'https://img.clerk.com/eva-2' })
+  await store.refreshAuthor(db, 'family-made', { id: 'bruno', name: 'Bruno', photo: 'https://img.clerk.com/bruno' })
+  assert.equal((await store.getGlobalRecord(db, 'family-made')).author.photo, 'https://img.clerk.com/eva-2')
+})
+
+test('a design saved before bylines is credited once, by its maker, and Batkle’s bundled ones stay Batkle’s', async () => {
+  const db = await libraryWithMemberDesigns()
+  const eva = { id: 'eva', name: 'Eva', photo: null, brand: { id: 'kachica', name: 'KACHICA', logo: null, logoOnDark: false } }
+  await store.saveGlobalDraft(db, { ...seeds[0], id: 'family-old', name: 'Old admin design' })
+  assert.equal((await store.getGlobalRecord(db, 'family-old')).author, undefined)
+  const credited = await store.creditGlobalDesign(db, 'family-old', eva)
+  assert.deepEqual(credited.author, { id: 'eva', name: 'Eva', photo: null, brand: eva.brand })
+  await assert.rejects(store.creditGlobalDesign(db, 'family-old', eva), error => error.status === 409)
+  await assert.rejects(store.creditGlobalDesign(db, seeds[0].id, eva), /bundled/)
+  // A member's design: only its owner credits it, and they stay its author.
+  await assert.rejects(store.creditGlobalDesign(db, 'family-public', eva), error => error.status === 403)
+  const own = await store.creditGlobalDesign(db, 'family-public', { ...eva, id: 'anna', name: 'Anna Lopes' })
+  assert.equal(own.ownerId, 'anna'); assert.equal(own.author.brand.name, 'KACHICA')
 })
 
 test('switching a design on checks the account: Free is asked to upgrade, a private design reads as missing', async () => {

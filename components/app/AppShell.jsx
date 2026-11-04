@@ -382,8 +382,9 @@ function SidebarContent({ flows, brand, counts, activeSlug, collapsed = false, o
   return (
     <div className={cn('flex h-full flex-col pb-4 pt-4', collapsed ? 'items-center px-3' : 'px-3.5')}>
       <div className={cn('flex items-center', collapsed ? 'flex-col gap-3' : 'justify-between gap-2 pl-1')}>
-        <RailTip show={collapsed} label="Batkle home">
-          <Link href="/" onClick={onNavigate} aria-label="Batkle home" className="rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-bk-fg">
+        {/* The logo opens the brand's Posts & stories, where the work is (/app opens the last brand used). */}
+        <RailTip show={collapsed} label="Posts & stories">
+          <Link href={brand?.id ? `/app/${brand.id}/creation` : '/app'} onClick={onNavigate} aria-label="Batkle: Posts & stories" className="rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-bk-fg">
             {collapsed ? (
               <>
                 <img src="/logo/batkle-icon-color.png" alt="" width={30} height={30} className="block size-[30px] dark:hidden" />
@@ -541,7 +542,7 @@ export default function AppShell({ flows, brand, counts: initialCounts, account:
           </aside>
 
           <header className="sticky top-0 z-40 flex h-12 items-center justify-between gap-3 border-b border-bk-line bg-bk-bg/95 px-4 lg:hidden">
-            <Link href="/" aria-label="Batkle home" className="shrink-0"><BatkleLogo size={24} /></Link>
+            <Link href={brand?.id ? `/app/${brand.id}/creation` : '/app'} aria-label="Batkle: Posts & stories" className="shrink-0"><BatkleLogo size={24} /></Link>
             <div className="flex min-w-0 items-center gap-2">
               <BrandTile name={brand.name} logo={brand.logo} logoOnDark={brand.logoOnDark} size={24} />
               <span className="truncate text-[13px] font-bold">{brand.name}</span>
