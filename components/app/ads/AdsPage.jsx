@@ -289,21 +289,20 @@ function NewAdDialog({ open, onOpenChange, flowId, brand, value, onChange, onCre
             )}
 
             {step === 1 && (
-              <div>
-                <p className={fieldLabel}>Which design should the ad use?</p>
-                <p className={hint}>The image is made in this design, at every size, in your brand’s colours and fonts.</p>
-                {designs.status === 'error' && <Notice tone="error" className="mt-3">{designs.error}</Notice>}
-                {designs.status === 'ready' && !designs.items.length && !canManage ? (
-                  <Notice className="mt-3">Ads use the Design Library, and this brand has no designs yet. Ask the brand’s owner or an admin to add one in the <Link href={`/app/${flowId}/design-library`} className="font-semibold underline underline-offset-4">Design Library</Link>.</Notice>
-                ) : designs.status !== 'error' && (
-                  <div className="mt-3">
-                    <DesignPicker
-                      flowId={flowId} brand={brand || {}} designs={designs} reload={reloadDesigns} value={value.designId} onChange={designId => set({ designId })}
-                      canAdd={canManage} requireDesign emptyText="Ads use the Design Library, and this brand has no designs yet."
-                    />
-                  </div>
-                )}
-              </div>
+              designs.status === 'error' || (designs.status === 'ready' && !designs.items.length && !canManage) ? (
+                <div>
+                  <p className={fieldLabel}>Which design should the ad use?</p>
+                  {designs.status === 'error'
+                    ? <Notice tone="error" className="mt-3">{designs.error}</Notice>
+                    : <Notice className="mt-3">Ads use the Design Library, and this brand has no designs yet. Ask the brand’s owner or an admin to add one in the <Link href={`/app/${flowId}/design-library`} className="font-semibold underline underline-offset-4">Design Library</Link>.</Notice>}
+                </div>
+              ) : (
+                <DesignPicker
+                  title="Which design should the ad use?" hint="The image is made in this design, at every size, in your brand’s colours and fonts."
+                  flowId={flowId} brand={brand || {}} designs={designs} reload={reloadDesigns} value={value.designId} onChange={designId => set({ designId })}
+                  canAdd={canManage} requireDesign emptyText="Ads use the Design Library, and this brand has no designs yet."
+                />
+              )
             )}
 
             {step === 2 && (
