@@ -23,19 +23,23 @@ export const IMAGERY_LABELS = {
   contained: 'Framed photos', collage: 'Photo collage', mixed: 'Mixed imagery', other: 'Mixed imagery',
 }
 
+// A card is the sample slide edge to edge on top, then its name and maker. `info` pads the words, `footer` the sample
+// dots under them, and `tile` is the add tile's inside.
 const SIZES = {
   // The post settings popover: four to a row.
-  sm: { card: 'rounded-xl p-1', preview: 'rounded-lg', row: 'px-0.5 pt-1', name: 'truncate text-[11.5px] font-semibold' },
+  sm: { card: 'rounded-xl', info: 'px-2 py-1.5', name: 'truncate text-[11.5px] font-semibold', footer: 'px-2 pb-2', tile: 'gap-1.5 p-2' },
   // A dialog.
-  md: { card: 'rounded-2xl p-1.5', preview: 'rounded-xl', row: 'gap-2 px-1 pb-0.5 pt-2', name: 'line-clamp-2 text-[13px] font-semibold leading-snug' },
+  md: { card: 'rounded-2xl', info: 'gap-2 px-3 pb-3 pt-2.5', name: 'line-clamp-2 text-[13.5px] font-bold leading-snug', footer: '-mt-1 px-3 pb-3', tile: 'gap-2 p-4' },
   // A page.
-  lg: { card: 'rounded-2xl p-2', preview: 'rounded-xl', row: 'gap-2.5 px-1 pb-1 pt-3', name: 'line-clamp-2 text-[14.5px] font-bold leading-snug' },
+  lg: { card: 'rounded-2xl', info: 'gap-2.5 px-3.5 pb-3.5 pt-3', name: 'line-clamp-2 text-[14.5px] font-bold leading-snug', footer: '-mt-1.5 px-3.5 pb-3.5', tile: 'gap-2.5 p-5' },
 }
+const picked = 'bg-[#FFD84D]/10 dark:bg-bk-butter/[0.07]'
+// Drawn inside the card's edge: the card clips anything outside it.
+const focusInside = 'focus-visible:[outline-style:solid] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-bk-fg'
 
-/** A radio dot, a tick box or a plus, in the yellow of the app's choice cards. */
+/** A radio dot or a tick box, in the yellow of the app's choice cards. */
 function Mark({ kind, on }) {
   const yellow = 'border-[#E2A100] dark:border-bk-butter'
-  if (kind === 'add') return <span aria-hidden="true" className="mt-px flex size-[18px] shrink-0 items-center justify-center rounded-full bg-bk-fg text-bk-bg"><Plus className="size-3" strokeWidth={3} /></span>
   return (
     <span aria-hidden="true" className={cn('mt-px flex size-[18px] shrink-0 items-center justify-center border-2', kind === 'checkbox' ? 'rounded-[5px]' : 'rounded-full', on ? yellow : 'border-bk-field', on && kind === 'checkbox' && 'bg-[#E2A100] text-white dark:bg-bk-butter dark:text-bk-ink')}>
       {on && (kind === 'checkbox' ? <Check className="size-3" strokeWidth={3.5} /> : <span className="size-2 rounded-full bg-[#E2A100] dark:bg-bk-butter" />)}
@@ -44,25 +48,24 @@ function Mark({ kind, on }) {
 }
 
 /**
- * One design to choose: its preview (children), its name and a line under it (`meta`). `kind` is 'radio' (one of
- * several), 'checkbox' (any number) or 'add' (adds it to the brand). `surface` is 'raised' on a page and 'tint' inside
- * a dialog or popover. `overlay` sits over the card (an inspect button); `footer` goes under the name (sample dots).
+ * One design to choose, as a raised card: its preview (children) edge to edge on top, then a radio or tick with its
+ * name and a line under it (`meta`). `kind` is 'radio' (one of several) or 'checkbox' (any number); a picked one is
+ * ringed in yellow. `overlay` sits over the card (an inspect button); `footer` goes under the name (sample dots).
  */
-export function DesignCard({ kind = 'radio', selected = false, onSelect, name, label = name, meta, title, size = 'md', surface = 'tint', disabled, busy, overlay, footer, children }) {
+export function DesignCard({ kind = 'radio', selected = false, onSelect, name, label = name, meta, title, size = 'md', disabled, busy, overlay, footer, children }) {
   const s = SIZES[size]
   return (
-    <div className={cn('relative min-w-0 transition-[box-shadow,background-color]', s.card, surface === 'raised' ? 'bg-bk-surface shadow-bk-card' : 'bg-bk-alt', selected ? 'bg-[#FFD84D]/10 ring-2 ring-[#E2A100] dark:bg-bk-butter/[0.07] dark:ring-bk-butter' : 'ring-bk-fg/25 can-hover:ring-1')}>
+    <div className={cn('relative flex min-w-0 flex-col overflow-hidden bg-bk-surface shadow-bk-card transition-[box-shadow]', s.card, selected ? 'ring-2 ring-[#E2A100] dark:ring-bk-butter' : 'can-hover:shadow-bk-pop')}>
       <button
-        type="button" onClick={onSelect} disabled={disabled} title={title} aria-label={label}
-        {...(kind === 'add' ? {} : { role: kind, 'aria-checked': selected })}
-        className={cn('block w-full min-w-0 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bk-fg disabled:cursor-not-allowed', s.preview, busy && 'disabled:cursor-wait')}
+        type="button" onClick={onSelect} disabled={disabled} title={title} aria-label={label} role={kind} aria-checked={selected}
+        className={cn('flex w-full min-w-0 flex-1 flex-col text-left disabled:cursor-not-allowed', s.card, focusInside, busy && 'disabled:cursor-wait')}
       >
         {/* The preview's sample words are decoration; the card is named by its design. */}
-        <span aria-hidden="true" className={cn('relative block overflow-hidden', s.preview)}>
+        <span aria-hidden="true" className="relative block w-full overflow-hidden bg-bk-chip">
           {children}
           {busy && <span className="absolute inset-0 flex items-center justify-center bg-black/40"><Loader2 className="size-5 animate-spin text-white" /></span>}
         </span>
-        <span className={cn('flex items-start', s.row)}>
+        <span className={cn('flex w-full flex-1 items-start', s.info, selected && picked)}>
           {size !== 'sm' && <Mark kind={kind} on={selected} />}
           <span className="min-w-0 flex-1">
             <span className={cn('block', s.name)}>{name}</span>
@@ -71,8 +74,30 @@ export function DesignCard({ kind = 'radio', selected = false, onSelect, name, l
         </span>
       </button>
       {overlay}
-      {footer}
+      {footer && <div className={cn(s.footer, selected && picked)}>{footer}</div>}
     </div>
+  )
+}
+
+/**
+ * The way into the Design Library, as a dashed tile the size of a design card. It shows no designs, so it is there
+ * at once instead of loading previews in one by one.
+ */
+function AddTile({ size, count, onClick }) {
+  const s = SIZES[size]
+  return (
+    <button type="button" onClick={onClick} title="Add a design from the Design Library"
+      className={cn('group relative min-w-0 border-2 border-dashed border-bk-field text-center transition-colors can-hover:border-bk-fg/40 can-hover:bg-bk-alt/60', s.card, focusInside)}>
+      {/* As tall as a card even alone on its row: the preview's 4:5 and the line of words under it. */}
+      <span aria-hidden="true" className={cn('block w-full', size === 'sm' ? 'aspect-[4/5.4]' : 'aspect-[4/5.8]')} />
+      <span className={cn('absolute inset-0 flex flex-col items-center justify-center', s.tile)}>
+        <span className={cn('flex items-center justify-center rounded-full bg-bk-butter text-bk-ink transition-transform can-hover:group-hover:scale-105', size === 'sm' ? 'size-7' : 'size-10')}>
+          <Plus className={size === 'sm' ? 'size-3.5' : 'size-5'} strokeWidth={2.5} aria-hidden="true" />
+        </span>
+        <span className={cn('font-bold leading-tight', size === 'sm' ? 'text-[11px]' : size === 'lg' ? 'text-[14.5px]' : 'text-[13.5px]')}>Add from the library</span>
+        {size !== 'sm' && <span className="text-[12px] text-bk-muted">{count} more design{count === 1 ? '' : 's'}</span>}
+      </span>
+    </button>
   )
 }
 
@@ -86,7 +111,7 @@ export function DesignMeta({ family, info = family?.library, size = 'md' }) {
 /** Dots under a design card to flip through its four sample slides. */
 export function SampleDots({ name, value, onChange }) {
   return (
-    <div role="group" aria-label={`${name}: sample slides`} className="mt-1 flex gap-1.5 px-1 pb-1">
+    <div role="group" aria-label={`${name}: sample slides`} className="flex gap-1.5">
       {[0, 1, 2, 3].map(n => (
         <button key={n} type="button" aria-label={`Sample slide ${n + 1}`} aria-pressed={value === n} onClick={() => onChange(n)} className={cn('h-1.5 flex-1 rounded-full transition-colors', value === n ? 'bg-bk-fg' : 'bg-bk-line hover:bg-bk-field')} />
       ))}
@@ -106,19 +131,6 @@ function AutoPreview({ families, brand }) {
       )}
       <span className="absolute inset-0 flex items-center justify-center">
         <span className="flex size-9 items-center justify-center rounded-full bg-bk-surface text-bk-fg shadow-bk-pop"><Shuffle className="size-4" /></span>
-      </span>
-    </span>
-  )
-}
-
-/** The way into the library: two of the designs that could be added, stacked, with a plus. */
-function AddPreview({ families, brand }) {
-  return (
-    <span className="relative block aspect-[4/5] overflow-hidden bg-bk-chip">
-      {families[1] && <span className="absolute right-[9%] top-[8%] w-[60%] overflow-hidden rounded-md opacity-60"><GlobalDesignPreview family={families[1]} brand={brand} sampleLabel={false} /></span>}
-      {families[0] && <span className="absolute bottom-[8%] left-[9%] w-[60%] overflow-hidden rounded-md shadow-bk-pop"><GlobalDesignPreview family={families[0]} brand={brand} sampleLabel={false} /></span>}
-      <span className="absolute inset-0 flex items-center justify-center">
-        <span className="flex size-9 items-center justify-center rounded-full bg-bk-butter text-bk-ink shadow-bk-pop"><Plus className="size-4" strokeWidth={2.5} /></span>
       </span>
     </span>
   )
@@ -146,7 +158,7 @@ function useLibrary(enabled) {
  * into the library beside them. With `requireDesign` (ads), a brand without designs of its own opens on the library;
  * posts keep Auto, which then uses the starter designs.
  */
-export function DesignPicker({ flowId, brand = {}, designs, reload, value, onChange, canAdd = false, requireDesign = false, size = 'md', columns = 'grid-cols-2 sm:grid-cols-4', autoHint = 'Batkle picks the best fit', onInspect, emptyText, title, hint }) {
+export function DesignPicker({ flowId, brand = {}, designs, reload, value, onChange, canAdd = false, requireDesign = false, size = 'md', columns = 'grid-cols-2 sm:grid-cols-3', autoHint = 'Batkle picks the best fit', onInspect, emptyText, title, hint }) {
   const [view, setView] = useState('mine')
   const [query, setQuery] = useState('')
   const [choice, setChoice] = useState(''), [samples, setSamples] = useState({})
@@ -161,6 +173,8 @@ export function DesignPicker({ flowId, brand = {}, designs, reload, value, onCha
   const found = addable.filter(f => `${f.name} ${(f.tags || []).join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()))
   const chosen = addable.find(f => f.id === choice)
   const s = size
+  // Raised cards need room for their shadows and the picked one's ring.
+  const gaps = s === 'sm' ? 'gap-2' : 'gap-4'
   const brandName = brand?.name || 'the brand'
   // Something that needs a design, for a brand without one, starts in the library.
   const first = requireDesign && !items.length
@@ -199,8 +213,8 @@ export function DesignPicker({ flowId, brand = {}, designs, reload, value, onCha
     </div>
   )
   const skeleton = label => (
-    <div role="status" aria-label={label} className={cn('grid gap-3', columns)}>
-      {[0, 1, 2, 3].map(i => <span key={i} className={cn('block aspect-[4/5.6] bg-bk-alt motion-safe:animate-pulse', SIZES[s].card)} />)}
+    <div role="status" aria-label={label} className={cn('grid', gaps, columns)}>
+      {[0, 1, 2, 3].map(i => <span key={i} className={cn('block aspect-[4/5.8] bg-bk-alt motion-safe:animate-pulse', SIZES[s].card)} />)}
     </div>
   )
 
@@ -221,7 +235,7 @@ export function DesignPicker({ flowId, brand = {}, designs, reload, value, onCha
         {library.status === 'error' ? (
           <p className="text-[12.5px] text-[#C2412F] dark:text-[#F0826F]">{library.error} <button type="button" onClick={reloadLibrary} className="font-semibold underline underline-offset-4">Try again</button></p>
         ) : library.status !== 'ready' ? skeleton('Loading the Design Library') : found.length ? (
-          <div role="radiogroup" aria-label="Designs in the library" className={cn('grid gap-3', columns, s === 'sm' && 'gap-1.5')}>
+          <div role="radiogroup" aria-label="Designs in the library" className={cn('grid', gaps, columns)}>
             {found.map(family => (
               <DesignCard
                 key={family.id} size={s} name={family.name} title={family.name} meta={<DesignMeta family={family} size={s} />}
@@ -254,7 +268,7 @@ export function DesignPicker({ flowId, brand = {}, designs, reload, value, onCha
   return (
     <div>
       {head(title, hint, title && canOpenLibrary && <button type="button" onClick={openLibrary} className={appButton('outline', 'sm', 'shrink-0')}><Plus className="size-3.5" />Add from the library</button>)}
-      <div role="radiogroup" aria-label="Design" className={cn('grid gap-3', columns, s === 'sm' && 'gap-1.5')}>
+      <div role="radiogroup" aria-label="Design" className={cn('grid', gaps, columns)}>
         <DesignCard size={s} name="Auto" meta={<span className="block text-[12px] text-bk-muted">{autoHint}</span>} title={autoHint} selected={value === 'auto'} onSelect={() => onChange('auto')}>
           <AutoPreview families={items.map(item => item.family)} brand={brand} />
         </DesignCard>
@@ -272,11 +286,7 @@ export function DesignPicker({ flowId, brand = {}, designs, reload, value, onCha
             <GlobalDesignPreview family={item.family} brand={brand} sampleLabel={false} />
           </DesignCard>
         ))}
-        {canOpenLibrary && (
-          <DesignCard kind="add" size={s} name="Add from the library" title="Add a design from the Design Library" meta={<span className="block text-[12px] text-bk-muted">{addable.length} more design{addable.length === 1 ? '' : 's'}</span>} onSelect={openLibrary}>
-            <AddPreview families={addable} brand={brand} />
-          </DesignCard>
-        )}
+        {canOpenLibrary && <AddTile size={s} count={addable.length} onClick={openLibrary} />}
         {pending && <span role="status" className="sr-only">Adding the design…</span>}
       </div>
     </div>

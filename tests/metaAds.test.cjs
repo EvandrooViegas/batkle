@@ -6,7 +6,7 @@ const { stripTypeScriptTypes } = require('node:module')
 const { seeds, generation, study } = require('./globalDesigns.test.cjs')
 
 const load = file => stripTypeScriptTypes(fs.readFileSync(file, 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, ''))
-const meta = new Function(load('lib/ads/meta.ts') + ';return { AD_PLACEMENTS, DEFAULT_PLACEMENTS, AD_TEXT_LIMITS, AD_ANGLES, CREATIVE_LIMITS, STORY_SAFE, META_CTAS, AD_OBJECTIVES, AD_VARIANTS, AD_FORMATS, CAROUSEL_CARDS, CAROUSEL_PLACEMENTS, CAROUSEL_DEFAULT_PLACEMENTS, placementById, objectiveById, isMetaCta, readFormat, readCards, placementsFor, defaultPlacements, readPlacements, adCredits }')()
+const meta = new Function(load('lib/ads/meta.ts') + ';return { AD_PLACEMENTS, DEFAULT_PLACEMENTS, AD_TEXT_LIMITS, AD_ANGLES, CREATIVE_LIMITS, STORY_SAFE, META_CTAS, AD_OBJECTIVES, AD_VARIANTS, AD_FORMATS, CAROUSEL_CARDS, CAROUSEL_PLACEMENTS, CAROUSEL_DEFAULT_PLACEMENTS, AD_VARIATIONS_MAX, placementById, objectiveById, isMetaCta, readFormat, readCards, placementsFor, defaultPlacements, readPlacements, readVariations, adCredits, imagesPerSize }')()
 const story = new Function(load('lib/designs/global/story.ts') + ';return { toStoryCanvas, storyArea, STORY_FRAME }')()
 const language = new Function(load('lib/services/contentLanguage.ts') + load('lib/services/copyFacts.ts') + load('lib/services/contentAngles.ts') + ';return { postLanguage, languageIssues, modernPortuguese, inventedFigures, brandSubjects, mentionsSubject, aiTells, resultClaims }')()
 
@@ -17,11 +17,11 @@ function adHandlers(overrides = {}) {
     loadGenerationBrandContext: async () => null, EXTRACTED_CONTEXT_RULES: '', persistInlineImages: async (_db, c) => c, ensureBrandLogoVariants: async () => null,
     chooseBrandFamily: async () => null, renderGlobalPost: generation.renderGlobalPost, hydrateBrandFamilies: async () => [],
     familyGrammar: study.familyGrammar, familyImagery: study.familyImagery,
-    chargeCredits: async () => ({}), findCharge: async () => null, grantExtraCredits: async () => true, refundCharge: async () => true, requireFeature: async () => {}, settleCharge: async () => true,
+    chargeCredits: async () => ({}), findCharge: async () => null, grantExtraCredits: async () => true, refundCharge: async () => true, requireFeature: async () => {}, requireAdVariations: async () => {}, settleCharge: async () => true,
     requireOwnBrands: async () => {}, sanitizeDesignPlan: (_f, copy) => copy, planAssets: async () => ({ slots: [] }),
     ...language, ...meta, toStoryCanvas: story.toStoryCanvas, ...overrides,
   }
-  return new Function(...Object.keys(deps), load('lib/handlers/adHandlers.ts') + ';return { readAdBrief, fitChars, dropPointers, pickHeadlines, adCopyIssues, closingNote, asideTerms, proofPoints, normalizeAdCopy, writeAdCopy, creativeCopy, adFamily, composeAtSize, handlePlanAd, handleBuildAd, handleUpdateAdCopy }')(...Object.values(deps))
+  return new Function(...Object.keys(deps), load('lib/handlers/adHandlers.ts') + ';return { readAdBrief, fitChars, dropPointers, pickHeadlines, adCopyIssues, closingNote, asideTerms, proofPoints, normalizeAdCopy, writeAdCopy, writeAdVariations, withVariation, normalizeVariation, variationSlots, variationLetter, creativeCopy, adFamily, composeAtSize, handlePlanAd, handleBuildAd, handleUpdateAdCopy }')(...Object.values(deps))
 }
 const ads = adHandlers()
 const portuguese = language.postLanguage({ language: 'Portuguese', languageVariant: 'pt-PT' })
@@ -77,7 +77,9 @@ test('a brief needs what the ad promotes; the button follows the goal unless one
   assert.throws(() => ads.readAdBrief({ brief: { offer: ' ' } }), /promotes/)
   assert.throws(() => ads.readAdBrief({ brief: { offer: 'Facade repairs', url: 'ftp://x' } }), /http/)
   const brief = ads.readAdBrief({ brief: { offer: '  Free on-site assessment  ', objective: 'leads', placements: ['story'], designId: 'starter-x' } })
-  assert.deepEqual(brief, { offer: 'Free on-site assessment', objective: 'leads', audience: '', incentive: '', url: '', cta: 'Get Quote', format: 'single', cards: 1, placements: ['story'], designId: undefined })
+  assert.deepEqual(brief, { offer: 'Free on-site assessment', objective: 'leads', audience: '', incentive: '', url: '', cta: 'Get Quote', format: 'single', cards: 1, placements: ['story'], variations: 1, designId: undefined })
+  // Variations: 1 (the ad alone) to the most any plan makes; the account's plan is checked when the ad is planned.
+  assert.deepEqual([undefined, 0, 1, 3, 9, 'x'].map(v => ads.readAdBrief({ brief: { offer: 'Course', variations: v } }).variations), [1, 1, 1, 3, 5, 1])
   assert.equal(ads.readAdBrief({ brief: { offer: 'Course', incentive: '  First class free  ' } }).incentive, 'First class free')
   assert.equal(ads.readAdBrief({ brief: { offer: 'Course', objective: 'sales', cta: 'Sign Up' } }).cta, 'Sign Up')
   const carousel = ads.readAdBrief({ brief: { offer: 'Course', format: 'carousel', cards: 12, placements: ['landscape', 'feed-portrait'] } })
@@ -505,4 +507,138 @@ test('the person edits the ad’s text within Meta’s limits; the image stays a
   assert.deepEqual(saved.copy, result.body.copy)
   await assert.rejects(handlers.handleUpdateAdCopy(db, 'other', 'ad1', { copy: {} }), /not found/)
   await assert.rejects(handlers.handleUpdateAdCopy(db, 'user', 'ad1', { copy: { primaryText: [], headlines: [] } }), /at least one/)
+})
+
+// ─── Variations: other hooks and pictures to test against the ad ───────────────
+
+const variation = (headline, subject, extra = {}) => ({ angle: 'outcome', creative: { headline, label: 'Avaliação no local', supportingText: 'Vamos ao local e explicamos', cta: 'Diga-nos o que a fachada precisa', ...extra }, image: { subject, queries: [subject] } })
+const brandFacts = { ...brand, language: 'Portuguese', languageVariant: 'pt-PT', about: 'Alvará de Obra Pública. Ministério da Justiça.' }
+
+test('an ad costs one credit per image: each variation at each size, a carousel’s further variations one first card each', () => {
+  assert.equal(meta.AD_VARIATIONS_MAX, 5)
+  assert.deepEqual([undefined, 1, 3, 7].map(v => meta.readVariations(v)), [1, 1, 3, 5])
+  assert.equal(meta.readVariations(9, 2), 2, 'never more than the plan makes')
+  assert.equal(meta.adCredits({ placements: ['feed-square', 'story'] }), 2)
+  assert.equal(meta.adCredits({ placements: ['feed-square', 'story'], variations: 3 }), 6)
+  assert.equal(meta.adCredits({ format: 'carousel', cards: 4, placements: ['feed-square', 'story'], variations: 3 }), 12, '(4 cards + 2 first cards) × 2 sizes')
+  assert.equal(meta.imagesPerSize({ format: 'carousel', cards: 4, variations: 2 }), 5)
+})
+
+test('variations open from other angles with other pictures, under the ad’s rules; failing or repeated ones are left out', async () => {
+  const brief = ads.readAdBrief({ brief: { offer: 'Avaliação de fachadas', objective: 'leads', variations: 4 } })
+  const ad = ads.normalizeAdCopy(goodCopy(), brief, 'pt-PT')
+  const answers = [
+    { variations: [
+      variation('Fissuras na fachada todos os invernos?', 'cracked plaster wall close up'),
+      variation('Descubra a sua fachada nova', 'renovated facade'),
+      variation('A sua fachada precisa de obras?', 'old building with scaffolding'),
+    ] },
+    { variations: [
+      variation('Restaurámos a fachada do Ministério da Justiça', 'restored stone facade'),
+      variation('Avaliamos a fachada no local', 'architect inspecting a facade'),
+    ] },
+  ]
+  const asked = []
+  const completion = async (_g, request) => { asked.push(request); return { choices: [{ message: { content: JSON.stringify(answers.shift()) } }] } }
+  process.env.GROQ_API_KEY ||= 'test'
+  const kept = await ads.writeAdVariations(brandFacts, brief, ad, 3, { completion })
+  assert.deepEqual(kept.map(v => v.creative.headline), ['Fissuras na fachada todos os invernos?', 'Restaurámos a fachada do Ministério da Justiça', 'Avaliamos a fachada no local'])
+  assert.equal(asked.length, 2, 'one retry, for the versions left out')
+  assert.match(asked[0].messages[0].content, /exactly 3 versions/)
+  assert.match(asked[1].messages[0].content, /exactly 2 versions/)
+  assert.match(asked[1].messages[1].content, /VERSIONS ALREADY KEPT[\s\S]*Fissuras na fachada/)
+  assert.match(asked[1].messages[1].content, /rejected: [\s\S]*filler[\s\S]*repeats a hook/, 'filler, and the ad’s own hook, are sent back')
+  assert.match(asked[0].messages[1].content, /A sua fachada precisa de obras\?/, 'the model sees the approved ad')
+  assert.ok(kept.every(v => v.image.subject && v.creative.label), 'each keeps its own picture and badge')
+  // A hook over the limit, or the ad's own picture again, is asked for again too.
+  const again = [{ variations: [variation('A fachada do Ministério da Justiça é nossa agora', 'restored stone facade'), variation('Uma fachada sem humidade', 'historic building facade with scaffolding')] }, { variations: [variation('Uma fachada sem humidade', 'dry repaired wall')] }]
+  const retried = []
+  const one = await ads.writeAdVariations(brandFacts, brief, ad, 1, { completion: async (_g, request) => { retried.push(request); return { choices: [{ message: { content: JSON.stringify(again.shift()) } }] } } })
+  assert.deepEqual(one.map(v => `${v.creative.headline}:${v.image.subject}`), ['Uma fachada sem humidade:dry repaired wall'])
+  assert.match(retried[1].messages[1].content, /more than 7 words/)
+  // Fewer than asked when the model stops answering: the ad is made with the ones written.
+  const silent = await ads.writeAdVariations(brandFacts, brief, ad, 2, { completion: async () => { throw Object.assign(Error('busy'), { status: 500 }) } })
+  assert.deepEqual(silent, [])
+  assert.deepEqual(await ads.writeAdVariations(brandFacts, brief, ad, 0, { completion }), [])
+})
+
+test('a carousel’s variation changes its first card only: its words and picture, no badge and no closing line', () => {
+  const brief = ads.readAdBrief({ brief: { offer: 'Fachadas', objective: 'leads', format: 'carousel', cards: 4 } })
+  const ad = carouselAd()
+  const v = ads.normalizeVariation(ad, variation('Fissuras todos os invernos?', 'cracked wall'), brief, 'pt-PT')
+  assert.deepEqual([v.creative.headline, v.creative.label, v.creative.cta, v.image.subject], ['Fissuras todos os invernos?', '', '', 'cracked wall'])
+  const varied = ads.withVariation(ad, v)
+  assert.equal(varied.cards[0].creative.headline, 'Fissuras todos os invernos?')
+  assert.deepEqual(varied.cards.slice(1), ad.cards.slice(1), 'the other cards stay')
+  assert.equal(varied.cards[0].headline, ad.cards[0].headline, 'Meta’s headline under the card is shared text')
+  assert.deepEqual([0, 1, 4].map(ads.variationLetter), ['A', 'B', 'E'])
+})
+
+test('each variation is composed with its own picture in the place of the one it varies', () => {
+  const resolved = { designId: 'd', slots: [{ slot_id: 'slide_1', resolvedAsset: { url: 'a1' } }, { slot_id: 'slide_2', resolvedAsset: { url: 'a2' } }, { slot_id: 'v2-slide_1', resolvedAsset: { url: 'b1' } }, { slot_id: 'v3-slide_1', resolvedAsset: { url: 'c1' } }] }
+  const urls = n => ads.variationSlots(resolved, n).map(s => `${s.slot_id}:${s.resolvedAsset.url}`)
+  assert.deepEqual(urls(1), ['slide_1:a1', 'slide_2:a2'])
+  assert.deepEqual(urls(2), ['slide_1:b1', 'slide_2:a2'])
+  assert.deepEqual(urls(3), ['slide_1:c1', 'slide_2:a2'])
+  assert.deepEqual(urls(4), urls(1), 'a variation without its own picture falls back to the ad’s')
+})
+
+test('planning variations checks the plan, charges each one’s images and plans each picture in the same design', async () => {
+  const family = seeds[0]
+  const charged = [], limits = [], planned = []
+  const handlers = adHandlers({
+    loadGenerationBrandContext: async () => ({ ...brandFacts }),
+    chooseBrandFamily: async () => ({ family, design: { id: `global-${family.id}` } }),
+    // The copywriter and the review get the ad; the creative director testing it writes two variations.
+    availableGroqCompletion: async (_g, request) => ({ choices: [{ message: { content: JSON.stringify(/testing a Meta ad/.test(request.messages[0].content)
+      ? { variations: [variation('Fissuras na fachada todos os invernos?', 'cracked plaster wall'), variation('Avaliamos a fachada no local', 'architect inspecting a facade')] }
+      : goodCopy()) } }] }),
+    planAssets: async (_db, { copy }) => { planned.push(copy); return { designId: `global-${family.id}`, slots: (copy.slides || [copy]).map((s, i) => ({ slot_id: copy.slides ? `slide_${i + 1}` : 'single_main', needs_visual: true, subject: s.design?.image?.subject })) } },
+    chargeCredits: async (_db, _user, credits) => { charged.push(credits); return { credits } },
+    requireAdVariations: async (_db, _user, count) => { limits.push(count) },
+  })
+  process.env.GROQ_API_KEY ||= 'test'
+  const result = await handlers.handlePlanAd({}, 'user', { flowId: 'brand', brief: { offer: 'Avaliação de fachadas', objective: 'leads', placements: ['feed-square', 'story'], variations: 3 } })
+  assert.deepEqual(limits, [3], 'the account’s plan is asked first')
+  assert.deepEqual(charged, [6], '3 variations × 2 sizes')
+  assert.equal(result.body.brief.variations, 3)
+  assert.equal(result.body.variationsAsked, 3)
+  assert.deepEqual(result.body.plan.slots.map(s => `${s.slot_id}:${s.subject}`), ['single_main:historic building facade with scaffolding', 'v2-single_main:cracked plaster wall', 'v3-single_main:architect inspecting a facade'])
+  assert.deepEqual(result.body.ad.variations.map(v => v.creative.headline), ['Fissuras na fachada todos os invernos?', 'Avaliamos a fachada no local'])
+  assert.ok(planned.every(c => c.design.composition === planned[0].design.composition), 'every variation in the same arrangement')
+})
+
+test('building makes every variation at every size, and an image that cannot be made gives back its own credits', async () => {
+  // A design built on a photograph, so each variation's picture shows.
+  const family = study.reconcileStudy(seeds[2])
+  const grants = [], inserted = []
+  const brief = ads.readAdBrief({ brief: { offer: 'Avaliação de fachadas', objective: 'leads', placements: ['feed-square', 'landscape'], variations: 2 } })
+  const ad = { ...ads.normalizeAdCopy(goodCopy(), brief, 'pt-PT'), variations: [variation('Fissuras na fachada todos os invernos?', 'cracked plaster wall')] }
+  const handlers = adHandlers({
+    loadGenerationBrandContext: async () => ({ ...brand }),
+    findCharge: async () => ({ id: 'charge', status: 'held', credits: 4 }),
+    hydrateBrandFamilies: async () => [{ design: { id: `global-${family.id}` }, family }],
+    // The longer hook of variation B does not fit the landscape size.
+    renderGlobalPost: (sized, brandIn, copy, ...rest) => { if (sized.height === 628 && /invernos/.test(copy.headline)) throw Object.assign(Error('overflow'), { status: 422 }); return generation.renderGlobalPost(sized, brandIn, copy, ...rest) },
+    grantExtraCredits: async (_db, _user, credits) => { grants.push(credits) },
+  })
+  const db = { collection: () => ({ insertOne: async doc => { inserted.push(doc) } }) }
+  const photo = url => ({ resolvedAsset: { url, width: 1600, height: 1067, source: 'unsplash' } })
+  const resolvedPlan = { designId: `global-${family.id}`, slots: [{ slot_id: 'single_main', ...photo('/api/uploads/a') }, { slot_id: 'v2-single_main', ...photo('/api/uploads/b') }] }
+  const result = await handlers.handleBuildAd(db, 'user', { flowId: 'brand', brief, ad, copy: ads.creativeCopy(ad, family), resolvedPlan, chargeRef: 'ref', variationsAsked: 3 })
+  const made = result.body.ad.canvases
+  assert.deepEqual(made.map(c => `${c.variation}:${c.placement}`), ['1:feed-square', '1:landscape', '2:feed-square'])
+  const words = canvas => canvas.nodes.filter(n => n.type === 'text').map(n => n.text.replace(/<%[^:%]*:[^:%]*:([^%]*)%>/g, '$1')).join(' ')
+  const image = canvas => canvas.nodes.find(n => n.type === 'image' && n.designRole === 'image')?.src
+  assert.match(words(made[2].canvas), /invernos/i, 'variation B carries its own hook')
+  assert.equal(image(made[0].canvas), '/api/uploads/a')
+  assert.equal(image(made[2].canvas), '/api/uploads/b', 'and its own picture')
+  assert.match(made[2].canvas.name, /· B$/)
+  assert.deepEqual(result.body.ad.failed, [{ placement: 'landscape', variation: 2, reason: 'The words did not fit this size.' }])
+  assert.deepEqual(grants, [1], 'variation B’s landscape image comes back')
+  assert.deepEqual(result.body.ad.variations.map(v => v.creative.headline), ['A sua fachada precisa de obras?', 'Fissuras na fachada todos os invernos?'])
+  assert.equal(result.body.ad.variationsAsked, 3, 'one of the three asked for could not be written')
+  assert.ok(inserted.filter(d => d.ad).every(d => d.ad.variation >= 1))
+  const short = adHandlers({ loadGenerationBrandContext: async () => ({ ...brand }), findCharge: async () => ({ id: 'c', status: 'held', credits: 3 }) })
+  await assert.rejects(short.handleBuildAd(db, 'user', { flowId: 'brand', brief, chargeRef: 'ref' }), /start again/, 'two variations at two sizes need 4 credits')
 })

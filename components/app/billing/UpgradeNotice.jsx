@@ -27,7 +27,7 @@ const FEATURES = {
   communityDesigns: ['Use designs made by members', 'Every design Batkle members publish, in your colours, fonts and logo.', 'use designs made by members'],
   teams: ['Share designs with your team', 'Invite people by email. Everyone in the team uses the designs you make.', 'share designs with your team'],
   postVoice: ['Write like your own posts', 'Add posts you’ve published. Batkle learns how you write, and new posts, stories and ads sound like you.', 'write in the voice of your own posts'],
-  adDesigns: ['Make Facebook and Instagram ads', 'Your ad in every Meta size, with the text for Ads Manager in a few versions to test.', 'make Facebook and Instagram ads'],
+  adDesigns: ['Make Facebook and Instagram ads', 'Your ad in every Meta size, in variations with their own hooks and pictures to test, and the text for Ads Manager.', 'make Facebook and Instagram ads'],
 }
 
 /**
@@ -41,6 +41,7 @@ function suggestedPlan(current, info) {
   if (!next) return named || null
   if (info.limit === 'brands' && Number.isFinite(info.used) && next.brands < info.used + 1) return named || null
   if (info.limit === 'photos' && Number.isFinite(info.wanted) && next.photosPerPost < info.wanted) return named || null
+  if (info.limit === 'adVariations' && Number.isFinite(info.wanted) && next.adVariations < info.wanted) return named || null
   if (info.feature && info.feature in next && !next[info.feature]) return named || next
   return next
 }
@@ -54,6 +55,7 @@ function copyFor(code, info, target) {
   ]
   if (info.limit === 'brands') return [`Add another brand with ${target.name}`, `${target.name} holds ${plural(target.brands, 'brand')}, each with its own profile, designs and posts.`, 'add more brands']
   if (info.limit === 'photos') return [`Add up to ${target.photosPerPost} photos to a post with ${target.name}`, `Each photo gets its own slide, so a longer carousel can tell the whole story.`, 'add more photos to each post']
+  if (info.limit === 'adVariations') return [`Test up to ${target.adVariations} variations of an ad with ${target.name}`, 'Each variation has its own hook and picture, so Ads Manager shows which one people stop for.', 'test more variations of each ad']
   const [title, line, eyebrow] = FEATURES[info.feature] || [`Do more with ${target.name}`, '', `get more from Batkle`]
   return [title, line, eyebrow]
 }

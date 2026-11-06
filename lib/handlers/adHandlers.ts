@@ -13,11 +13,11 @@ import { chooseBrandFamily, renderGlobalPost } from '@/lib/designs/global/genera
 import { hydrateBrandFamilies } from '@/lib/designs/global/store'
 import { familyGrammar, familyImagery } from '@/lib/designs/global/study'
 import { toStoryCanvas } from '@/lib/designs/global/story'
-import { chargeCredits, findCharge, grantExtraCredits, refundCharge, requireFeature, settleCharge } from '@/lib/billing/account'
+import { chargeCredits, findCharge, grantExtraCredits, refundCharge, requireAdVariations, requireFeature, settleCharge } from '@/lib/billing/account'
 import { requireOwnBrands } from '@/lib/auth'
 import { sanitizeDesignPlan } from './postPlanHandler'
 import { planAssets } from './assetPlannerHandler'
-import { AD_ANGLES, AD_PLACEMENTS, AD_TEXT_LIMITS, AD_VARIANTS, CREATIVE_LIMITS, META_CTAS, STORY_SAFE, adCredits, isMetaCta, objectiveById, placementById, readCards, readFormat, readPlacements } from '@/lib/ads/meta'
+import { AD_ANGLES, AD_PLACEMENTS, AD_TEXT_LIMITS, AD_VARIANTS, CREATIVE_LIMITS, META_CTAS, STORY_SAFE, adCredits, isMetaCta, objectiveById, placementById, readCards, readFormat, readPlacements, readVariations } from '@/lib/ads/meta'
 
 const httpError = (status: number, message: string) => Object.assign(new Error(message), { status })
 const text = (value: unknown, max = 600) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '')
@@ -57,6 +57,8 @@ export function readAdBrief(body: any) {
     // One image, or a carousel of `cards` cards.
     format, cards: format === 'carousel' ? readCards(brief.cards) : 1,
     placements: readPlacements(brief.placements, format),
+    // Versions of the image (a carousel's first card), each with its own hook and picture; the plan sets the most.
+    variations: readVariations(brief.variations),
     designId: typeof brief.designId === 'string' && brief.designId.startsWith('global-') ? brief.designId : undefined,
   }
 }
@@ -279,6 +281,28 @@ export function closingNote(ad: any, cards = 0) {
   return `${cards ? 'the closing line on the last card’s image' : 'creative.cta'} (“${closing}”) repeats Meta’s “${isMetaCta(ad?.cta) ? ad.cta : 'call to action'}” button under the image; say what the reader gets by acting in 3 to ${CREATIVE_LIMITS.cta} other words (such as “Ask us about your damp wall”), or leave it empty`
 }
 
+// A guarantee is a promise the business must keep, and "free" is an offer: only ones the profile or the brief makes.
+const GUARANTEE = /(?<!\p{L})(garant(ia|ido|ida|idos|idas|imos|e|em)|guarantee[ds]?|guaranteed|garantizad[oa]s?)(?!\p{L})/iu
+const FREE = /(?<!\p{L})(grátis|gratuit[oa]s?|free|gratis|gratuit[ao]s?)(?!\p{L})/iu
+
+/** What the words the reader sees must never do, wherever they are: filler, machine turns, and claims or offers not in the facts. */
+function readerIssues(readerText: string[], languageRules: any, factSource: string): string[] {
+  const issues: string[] = []
+  const filler = [...new Set(readerText.join('\n').match(FILLER) || [])]
+  if (filler.length) issues.push(`it uses marketing filler (${filler.slice(0, 4).join(', ')}); say the concrete thing instead`)
+  const tells = aiTells(readerText).filter(t => !filler.some(f => f.toLowerCase() === t))
+  if (tells.length) issues.push(`it sounds machine-written (${tells.join(', ')}); say it plainly, the way the business would to a customer`)
+  const claims = resultClaims(readerText, factSource)
+  if (claims.length) issues.push(`it claims results the brand profile does not state (${claims.join(', ')}); say what was done instead`)
+  const mixed = languageIssues(readerText, languageRules)
+  if (mixed.length) issues.push(`language: ${mixed.join('; ')}`)
+  const invented = inventedFigures(readerText, factSource)
+  if (invented.length) issues.push(`it states figures that are not in the brand profile or brief (${invented.slice(0, 5).join(', ')}); remove them`)
+  if (readerText.some(t => GUARANTEE.test(t)) && !GUARANTEE.test(factSource)) issues.push('it promises a guarantee the brand profile does not give; say what the business does instead')
+  if (readerText.some(t => FREE.test(t)) && !FREE.test(factSource)) issues.push('it calls something free that the brand profile and the brief never say is free; offer the next step without calling it free')
+  return issues
+}
+
 /**
  * Problems a draft has, for one retry; the second answer is fitted to the limits instead of failing. `cards` is the
  * carousel's number of cards (0 for a single image), whose headlines, descriptions and image words are checked instead.
@@ -322,22 +346,7 @@ export function adCopyIssues(ad: any, languageRules: any, factSource: string, as
     ? cardList.flatMap(c => [c.description, c.creative?.headline, c.creative?.supportingText])
     : [ad?.description, ad?.creative?.headline, ad?.creative?.supportingText, ad?.creative?.label]
   const readerText = [...versions, ...headlines, ...imageWords, imageCta].map(t => lines(t)).filter(Boolean)
-  const filler = [...new Set(readerText.join('\n').match(FILLER) || [])]
-  if (filler.length) issues.push(`it uses marketing filler (${filler.slice(0, 4).join(', ')}); say the concrete thing instead`)
-  const tells = aiTells(readerText).filter(t => !filler.some(f => f.toLowerCase() === t))
-  if (tells.length) issues.push(`it sounds machine-written (${tells.join(', ')}); say it plainly, the way the business would to a customer`)
-  const claims = resultClaims(readerText, factSource)
-  if (claims.length) issues.push(`it claims results the brand profile does not state (${claims.join(', ')}); say what was done instead`)
-  const mixed = languageIssues(readerText, languageRules)
-  if (mixed.length) issues.push(`language: ${mixed.join('; ')}`)
-  const invented = inventedFigures(readerText, factSource)
-  if (invented.length) issues.push(`it states figures that are not in the brand profile or brief (${invented.slice(0, 5).join(', ')}); remove them`)
-  // A guarantee is a promise the business must keep: only one the profile or brief makes.
-  const GUARANTEE = /(?<!\p{L})(garant(ia|ido|ida|idos|idas|imos|e|em)|guarantee[ds]?|guaranteed|garantizad[oa]s?)(?!\p{L})/iu
-  if (readerText.some(t => GUARANTEE.test(t)) && !GUARANTEE.test(factSource)) issues.push('it promises a guarantee the brand profile does not give; say what the business does instead')
-  // "Free" is an offer too: only one the profile or the brief makes.
-  const FREE = /(?<!\p{L})(grátis|gratuit[oa]s?|free|gratis|gratuit[ao]s?)(?!\p{L})/iu
-  if (readerText.some(t => FREE.test(t)) && !FREE.test(factSource)) issues.push('it calls something free that the brand profile and the brief never say is free; offer the next step without calling it free')
+  issues.push(...readerIssues(readerText, languageRules, factSource))
   // Three versions that all end on the same line read as one ad three times.
   const endings = versions.map((t: string) => t.split(/\n|(?<=[.!?])\s+/).filter(Boolean).at(-1)?.toLowerCase().replace(/[^\p{L}\d ]/gu, '').trim()).filter(Boolean)
   if (endings.length > 1 && new Set(endings).size < endings.length) issues.push('two or more primary texts end with the same line; end each one differently')
@@ -428,8 +437,27 @@ async function reviewAdCopy(groq: any, completion: typeof availableGroqCompletio
   }
 }
 
+/** The profile's proof points as a list for a prompt, or a line saying there are none to use. */
+const proofListOf = (brandContext: any) => {
+  const proof = proofPoints(brandContext)
+  return proof.length ? proof.map(p => `- ${p}`).join('\n') : '- none: rely on the service itself, never invent proof'
+}
+
+/** The brief as the copywriter reads it, written for the brand's ideal customer: the one the brief names, else the profile's. */
+function briefJsonOf(brandContext: any, brief: AdBrief) {
+  const objective = objectiveById(brief.objective)
+  const idealCustomer = brief.audience || text(brandContext?.targetAudience || brandContext?.audience, 300) || 'the brand’s ideal customers (see the profile)'
+  return JSON.stringify({ promote: brief.offer, format: brief.format === 'carousel' ? `carousel of ${brief.cards} cards` : 'single image', objective: `${objective.label}: ${objective.goal}`, idealCustomer, reasonToActNow: brief.incentive || null, button: brief.cta, link: brief.url || null })
+}
+
+/** The brand and its services in a few lines, for the calls that read less than the copywriter (the review, the variations). */
+function servicesBlock(brandContext: any) {
+  const services = (Array.isArray(brandContext?.services) ? brandContext.services : []).map((s: any) => text(typeof s === 'string' ? s : [s?.name, s?.description].filter(Boolean).join(': '), 240)).filter(Boolean).slice(0, 6)
+  return `BRAND: ${brandContext?.name || 'the business'}\nSERVICES (English research notes):\n${services.map((s: string) => `- ${s}`).join('\n') || '- see the draft'}`
+}
+
 // Problems that leave no usable draft, so the copywriter is asked again before any review.
-const STRUCTURAL = /^(primaryText must have|headlines must list|creative\.headline is missing|it states figures|the carousel must have)/
+const STRUCTURAL =/^(primaryText must have|headlines must list|creative\.headline is missing|it states figures|the carousel must have)/
 
 /**
  * The ad's copy: a draft, then the creative director's review, which also fixes what the checks found. The copywriter
@@ -444,22 +472,17 @@ export async function writeAdCopy(brandContext: any, brief: AdBrief, completion 
   const groq = new Groq({ apiKey, maxRetries: 0 })
   const language = postLanguage(brandContext)
   const brandJson = JSON.stringify(compactBrand(brandContext))
-  const objective = objectiveById(brief.objective)
   // A carousel's number of cards; 0 for a single image.
   const cards = brief.format === 'carousel' ? brief.cards : 0
   const factSource = `${brandJson} ${brief.offer} ${brief.audience} ${brief.incentive}`
   const aside = asideTerms(brandContext, brief)
   const asideRule = aside.length ? ` This ad is about what the brief promotes, not about ${aside.join(', ')}: keep ${aside.length > 1 ? 'them' : 'it'} out of the headlines and the image words.` : ''
-  const proof = proofPoints(brandContext)
-  const proofList = proof.length ? proof.map(p => `- ${p}`).join('\n') : '- none: rely on the service itself, never invent proof'
-  // The ad is written for the brand's ideal customer: the one the brief names, else the profile's.
-  const idealCustomer = brief.audience || text(brandContext?.targetAudience || brandContext?.audience, 300) || 'the brand’s ideal customers (see the profile)'
-  const briefJson = JSON.stringify({ promote: brief.offer, format: cards ? `carousel of ${cards} cards` : 'single image', objective: `${objective.label}: ${objective.goal}`, idealCustomer, reasonToActNow: brief.incentive || null, button: brief.cta, link: brief.url || null })
+  const proofList = proofListOf(brandContext)
+  const briefJson = briefJsonOf(brandContext, brief)
   const rules = `The brief's words are the person's own: facts they state about their business may be used. Use the button "${brief.cta}" unless another one in the list clearly fits better.${asideRule}\n\n${language.rules}`
   const userPrompt = `BRAND PROFILE (English research notes; facts only):\n${brandJson}\n\nPROOF YOU MAY USE (from the profile; pick the one that best backs this offer):\n${proofList}\n\nAD BRIEF:\n${briefJson}\n\n${rules}`
   // The review reads less than the copywriter: the services, the proof and the brief, so its call fits the token budget.
-  const services = (Array.isArray(brandContext?.services) ? brandContext.services : []).map((s: any) => text(typeof s === 'string' ? s : [s?.name, s?.description].filter(Boolean).join(': '), 240)).filter(Boolean).slice(0, 6)
-  const reviewPrompt = `BRAND: ${brandContext?.name || 'the business'}\nSERVICES (English research notes):\n${services.map((s: string) => `- ${s}`).join('\n') || '- see the draft'}\n\nPROOF YOU MAY USE:\n${proofList}\n\nAD BRIEF:\n${briefJson}\n\n${rules}`
+  const reviewPrompt = `${servicesBlock(brandContext)}\n\nPROOF YOU MAY USE:\n${proofList}\n\nAD BRIEF:\n${briefJson}\n\n${rules}`
   const review = (candidate: any, found: string[]) => reviewAdCopy(groq, completion, candidate, found, { prompt: reviewPrompt, language, factSource, aside, cards, maxWait: Math.max(0, Math.min(45, 75 - elapsed())) })
   let feedback = '', draft: any = null, problems: string[] = [], reviewed: any = null, reviewTried = false
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -507,6 +530,105 @@ export async function writeAdCopy(brandContext: any, brief: AdBrief, completion 
   // A carousel needs two cards at least; one with fewer cards than asked is made (and paid for) with the ones it has.
   if (cards && (!('cards' in copy) || copy.cards.length < 2)) throw httpError(502, 'The carousel could not be written. Please try again.')
   return { copy, language }
+}
+
+/** One variation of an ad: the words on its image and its picture (a carousel's first card's). */
+export interface AdVariation { creative: AdCopy['creative']; image: AdCopy['image'] }
+
+/** The ad with a variation in its place: a single image's words and picture, or a carousel's first card's. */
+export function withVariation(ad: AdCopy, variation: AdVariation): AdCopy {
+  if (!('cards' in ad)) return { ...ad, creative: variation.creative, image: variation.image }
+  return { ...ad, cards: [{ ...ad.cards[0], creative: variation.creative, image: variation.image }, ...ad.cards.slice(1)], creative: variation.creative, image: variation.image }
+}
+
+/** A variation fitted like the ad's own words (limits, spelling, a closing line that never repeats the button). */
+export function normalizeVariation(ad: AdCopy, variation: any, brief: AdBrief, languageCode: string): AdVariation {
+  const words = { ...variation?.creative, ...('cards' in ad ? { label: '', cta: '' } : {}) }
+  const fitted = normalizeAdCopy(withVariation(ad, { creative: words, image: variation?.image }), brief, languageCode)
+  const first = 'cards' in fitted ? fitted.cards[0] : fitted
+  return { creative: first.creative, image: first.image }
+}
+
+// The ways a hook can open; each variation takes a different one, so the test shows which reason makes people stop.
+const HOOK_ANGLES = 'the reader’s pain as a sharp question; the outcome they want; the offer itself; the proof (a named project, a credential, years of work); the objection answered; the kind of customer or the place'
+
+/**
+ * More versions of the ad's image, to test against it in Ads Manager (a carousel's first card, the one that makes
+ * people stop): each a hook from another angle, its own words on the image and its own picture, on the ad's facts,
+ * offer and button. The text around the ad stays shared. Versions that still break the ad's rules after one retry, or
+ * repeat a hook or a picture, are left out, so fewer than `count` can come back, never one with a false claim; a model
+ * that does not answer in time leaves the ad with the ones written.
+ */
+export async function writeAdVariations(brandContext: any, brief: AdBrief, ad: AdCopy, count: number, { completion = availableGroqCompletion, maxWait = 30 }: { completion?: typeof availableGroqCompletion; maxWait?: number } = {}): Promise<AdVariation[]> {
+  if (count < 1) return []
+  const apiKey = process.env.GROQ_API_KEY || process.env.GROQ_API_KEY_2
+  if (!apiKey) throw httpError(500, 'GROQ_API_KEY is not configured')
+  const groq = new Groq({ apiKey, maxRetries: 0 })
+  const language = postLanguage(brandContext)
+  const carousel = 'cards' in ad
+  const own = carousel ? ad.cards[0] : ad
+  const factSource = `${JSON.stringify(compactBrand(brandContext))} ${brief.offer} ${brief.audience} ${brief.incentive}`
+  const aside = asideTerms(brandContext, brief)
+  const where = carousel ? 'the first card of the carousel (the card that decides whether people stop and swipe)' : 'the image'
+  const fields = carousel
+    ? `{ "angle": "the angle it opens from", "creative": { "headline": "the words on the card's image, at most ${CREATIVE_LIMITS.headline} words", "supportingText": "at most ${CREATIVE_LIMITS.supportingText} words: the point made concrete, or empty" }, "image": ${IMAGE_FIELD} }`
+    : `{ "angle": "the angle it opens from", "creative": { "headline": "the hook, at most ${CREATIVE_LIMITS.headline} words", "label": "a badge of at most ${CREATIVE_LIMITS.label} words: the offer or the service", "supportingText": "at most ${CREATIVE_LIMITS.supportingText} words: the reason to believe", "cta": "${IMAGE_CTA}" }, "image": ${IMAGE_FIELD} }`
+  const system = `You are the creative director testing a Meta ad (Facebook and Instagram) that sells one service or product to the brand's ideal customer. The ad below is approved. Write more versions of ${where} to test against it in Ads Manager.
+Each version opens from a different angle (${HOOK_ANGLES}): different from the ad's own hook and from every other version, so the test shows which reason makes the right reader stop. Each has its own words on the image and its own picture: a different concrete subject that shows the offer or its result, never the ad's own picture again.
+The offer, the facts and the button stay the same, and the text around the ad is shared: never repeat it word for word.
+RULES
+* The hook is readable in one second and works without the text around the ad; every line is a complete phrase on its own.
+* Specific to this business: the service, the kind of client, the place, a named project. If a competitor could run the line unchanged, rewrite it.
+* Facts only from the profile and the brief. Never invent prices, discounts, deadlines, figures, results, guarantees, free offers or client names; a named project proves only what the profile says was done for it.
+* Never marketing filler or machine-sounding turns, in any language (discover, unlock, elevate, transform, don't miss, learn more; descubra, saiba mais, transforme, eleve, potencie, não perca).
+* Meta's ad policies: never assert or imply the reader's personal attributes, no before-and-after or exaggerated claims, no ALL CAPS words, no emoji, no hashtags.
+* Image subjects in English, with no text, logos or brand marks.
+Return ONLY this JSON object: {"variations": [exactly N versions, each ${fields}]}`
+  const adShown = { primaryText: ad.primaryText[0] || '', button: ad.cta, [carousel ? 'firstCard' : 'image']: { words: own.creative, picture: own.image?.subject || '' } }
+  const prompt = `${servicesBlock(brandContext)}\n\nPROOF YOU MAY USE:\n${proofListOf(brandContext)}\n\nAD BRIEF:\n${briefJsonOf(brandContext, brief)}\n\nTHE APPROVED AD:\n${JSON.stringify(adShown)}\n\n${language.rules}`
+  const key = (value: unknown) => text(value).toLowerCase().replace(/[^\p{L}\d ]/gu, '').trim()
+  const hooks = new Set([key(own.creative.headline)]), pictures = new Set([key(own.image?.subject)])
+  const kept: AdVariation[] = []
+  let feedback = ''
+  for (let attempt = 0; attempt < 2 && kept.length < count; attempt++) {
+    const wanted = count - kept.length
+    console.info(`[ai-call] service=groq purpose=meta-ad-variations count=${wanted} attempt=${attempt + 1}`)
+    let parsed: any
+    try {
+      const response = await patiently(() => completion(groq, {
+        messages: [
+          { role: 'system', content: system.replace('exactly N versions', `exactly ${wanted} version${wanted === 1 ? '' : 's'}`) + '\n\n' + EXTRACTED_CONTEXT_RULES + '\n\n' + language.rules },
+          { role: 'user', content: prompt + (kept.length ? `\n\nVERSIONS ALREADY KEPT (open differently from these too):\n${kept.map(v => `- ${v.creative.headline}`).join('\n')}` : '') + (feedback ? `\n\nThe previous versions were rejected: ${feedback}. Return corrected ones.` : '') },
+        ],
+        response_format: { type: 'json_object' }, max_tokens: 2500 + wanted * 400, temperature: 0.9,
+      }, 'GROQ_AD_COPY_MODEL'), maxWait)
+      const raw = String(response.choices?.[0]?.message?.content || '')
+      parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1))
+    } catch (error: any) {
+      // The ad is already written: it is made with the versions there are, rather than not at all.
+      console.warn('[ads] variations were not written:', error?.message)
+      break
+    }
+    const problems: string[] = []
+    for (const candidate of (Array.isArray(parsed?.variations) ? parsed.variations : []).slice(0, wanted)) {
+      const hook = text(candidate?.creative?.headline)
+      const onImage = [hook, candidate?.creative?.label, candidate?.creative?.supportingText, carousel ? '' : candidate?.creative?.cta].map(t => text(t)).filter(Boolean)
+      const issues = [
+        ...(!hook ? ['a version has no hook'] : words(hook) > CREATIVE_LIMITS.headline ? [`the hook “${hook}” has more than ${CREATIVE_LIMITS.headline} words`] : []),
+        ...(!text(candidate?.image?.subject) ? ['a version has no picture subject'] : []),
+        ...readerIssues(onImage, language, factSource),
+        ...aside.filter(term => [hook, candidate?.creative?.label].some(h => mentionsSubject(text(h), term))).map(term => `“${hook}” names ${term}, which the brief is not about`),
+      ]
+      if (issues.length) { problems.push(...issues); continue }
+      const variation = normalizeVariation(ad, candidate, brief, language.code)
+      if (hooks.has(key(variation.creative.headline)) || pictures.has(key(variation.image?.subject))) { problems.push(`“${variation.creative.headline}” repeats a hook or a picture already used`); continue }
+      hooks.add(key(variation.creative.headline)); pictures.add(key(variation.image?.subject))
+      kept.push(variation)
+    }
+    if (problems.length) console.info(`[ads] variations left out: ${problems.join('; ').slice(0, 600)}`)
+    feedback = [...new Set(problems)].join('; ') || 'too few versions came back'
+  }
+  return kept.slice(0, count)
 }
 
 /**
@@ -628,23 +750,56 @@ export async function handleAdIdea(db: any, userId: string, body: any) {
  * /api/resolve-assets with the same chargeRef. The brief comes back with the cards actually written, for BUILD.
  */
 export async function handlePlanAd(db: any, userId: string, body: any) {
+  const started = Date.now()
   await requireFeature(db, userId, 'adDesigns')
   const asked = readAdBrief(body)
+  await requireAdVariations(db, userId, asked.variations)
   const brand = await loadBrand(db, userId, body.flowId)
   const selection = await chooseBrandFamily(db, brand, { headline: asked.offer }, asked.designId, { userId, imagery: true })
   if (!selection) throw httpError(409, 'Ads use the Design Library. Switch on at least one design for this brand first.')
-  const { copy: ad } = await writeAdCopy(brand, asked)
-  const brief = 'cards' in ad ? { ...asked, cards: ad.cards.length } : asked
-  const copy = sanitizeDesignPlan(selection.family, creativeCopy(ad, selection.family), [], [], 'on')
-  const plan = await planAssets(db, { brandContext: brand, copy, idea: { topic: brief.offer, format: brief.format }, uploads: [], brand_id: `brand_${brand.id}`, designId: selection.design.id })
+  const { copy: written } = await writeAdCopy(brand, asked)
+  const sized = 'cards' in written ? { ...asked, cards: written.cards.length } : asked
+  // The further variations get what the copy left of the route's 120 seconds; without enough, the ad is made alone.
+  const left = 100 - (Date.now() - started) / 1000
+  const variations = asked.variations > 1 && left > 15 ? await writeAdVariations(brand, sized, written, asked.variations - 1, { maxWait: Math.min(30, left - 15) }) : []
+  // The ad is planned and paid for with the variations written, which can be fewer than asked.
+  const brief = { ...sized, variations: 1 + variations.length }
+  const copy = sanitizeDesignPlan(selection.family, creativeCopy(written, selection.family), [], [], 'on')
+  const planned = (designCopy: any) => planAssets(db, { brandContext: brand, copy: designCopy, idea: { topic: brief.offer, format: brief.format }, uploads: [], brand_id: `brand_${brand.id}`, designId: selection.design.id })
+  const plan = await planned(copy)
+  // Each variation's picture is planned like the ad's own, in the same design, and resolved with it: only its own
+  // image is added (a single image's, or a carousel's first card's), named after the variation.
+  for (const [i, variation] of variations.entries()) {
+    const first = (await planned(sanitizeDesignPlan(selection.family, creativeCopy(withVariation(written, variation), selection.family), [], [], 'on'))).slots[0]
+    if (first) plan.slots.push({ ...first, slot_id: variationSlot(i + 2, first.slot_id) })
+  }
   const chargeRef = `ad_${randomUUID()}`
   const charge = await chargeCredits(db, userId, adCredits(brief), { reason: 'ad', ref: chargeRef })
-  return NextResponse.json({ brief, ad, copy, plan, needsVisuals: plan.slots.some((s: any) => s.needs_visual), chargeRef, credits: { charged: charge.credits } })
+  return NextResponse.json({ brief, ad: { ...written, variations }, copy, plan, variationsAsked: asked.variations, needsVisuals: plan.slots.some((s: any) => s.needs_visual), chargeRef, credits: { charged: charge.credits } })
+}
+
+/** The image slot of a further variation (2 and on): the ad's own slot id, after the variation's number. */
+const variationSlot = (variation: number, slotId: string) => `v${variation}-${slotId}`
+
+/** Variation A is the ad itself; B, C… test other hooks and pictures. */
+export const variationLetter = (index: number) => String.fromCharCode(65 + index)
+
+/**
+ * The resolved images each variation is composed with: the ad's own, with a further variation's own image in the place
+ * of the one it varies (a single image's, or a carousel's first card's).
+ */
+export function variationSlots(resolvedPlan: any, variation: number): any[] {
+  const slots: any[] = Array.isArray(resolvedPlan?.slots) ? resolvedPlan.slots : []
+  const base = slots.filter(s => !/^v\d+-/.test(String(s?.slot_id)))
+  if (variation === 1) return base
+  const prefix = variationSlot(variation, '')
+  const own = slots.filter(s => String(s?.slot_id).startsWith(prefix)).map(s => ({ ...s, slot_id: String(s.slot_id).slice(prefix.length) }))
+  return base.map(s => own.find(o => o.slot_id === s.slot_id) || s)
 }
 
 /**
- * BUILD: the creative composed at every size asked for, each an editable post (a carousel has a page per card). The
- * credits are kept for the sizes that were made; a size whose words cannot fit gives its credits back.
+ * BUILD: every variation composed at every size asked for, each an editable post (a carousel has a page per card). The
+ * credits are kept for the images that were made; a size whose words cannot fit gives its credits back.
  */
 export async function handleBuildAd(db: any, userId: string, body: any) {
   const brief = readAdBrief(body)
@@ -657,32 +812,47 @@ export async function handleBuildAd(db: any, userId: string, body: any) {
     const selected = (await hydrateBrandFamilies(db, brand)).find(f => f.design.id === designId)
     if (!selected || !Array.isArray(resolvedPlan?.slots)) throw httpError(409, 'This ad has to start again from the beginning. Please try again.')
     if (brand.logo) await ensureBrandLogoVariants(db, brand).catch(error => console.warn('[ads] logo variants unavailable:', error?.message))
+    const languageCode = postLanguage(brand).code
+    const ad = normalizeAdCopy(body.ad, brief, languageCode)
+    const variations = (Array.isArray(body.ad?.variations) ? body.ad.variations : []).slice(0, brief.variations - 1).map((v: any) => normalizeVariation(ad, v, brief, languageCode))
+    // Variation A is the ad as planned; each further one is the same design with its own words and picture.
+    const versions = [body.copy, ...variations.map((v: AdVariation) => sanitizeDesignPlan(selected.family, creativeCopy(withVariation(ad, v), selected.family), [], [], 'on'))]
     const adId = `ad_${randomUUID()}`, now = new Date()
     const made: any[] = [], failed: any[] = []
-    for (const placementId of brief.placements) {
-      const placement = placementById(placementId)!
-      try {
-        const canvas = composeAtSize(selected.family, placement, brand, body.copy, resolvedPlan, selected.design, randomUUID)
-        const saved = await persistInlineImages(db, { ...canvas, ownerId: userId, ad: { id: adId, placement: placement.id } })
-        await db.collection('canvases').insertOne(saved)
-        const { _id, ...stored } = saved as any
-        made.push({ placement: placement.id, canvasId: stored.id, width: placement.width, height: placement.height, canvas: stored })
-      } catch (error: any) {
-        if (error?.status !== 422) throw error
-        failed.push({ placement: placement.id, reason: 'The words did not fit this size.' })
+    for (const [index, copy] of versions.entries()) {
+      const variation = index + 1
+      const images = { ...resolvedPlan, slots: variationSlots(resolvedPlan, variation) }
+      for (const placementId of brief.placements) {
+        const placement = placementById(placementId)!
+        const named = versions.length > 1 ? { ...placement, label: `${placement.label} · ${variationLetter(index)}` } : placement
+        try {
+          const canvas = composeAtSize(selected.family, named, brand, copy, images, selected.design, randomUUID)
+          const saved = await persistInlineImages(db, { ...canvas, ownerId: userId, ad: { id: adId, placement: placement.id, variation } })
+          await db.collection('canvases').insertOne(saved)
+          const { _id, ...stored } = saved as any
+          made.push({ placement: placement.id, variation, canvasId: stored.id, width: placement.width, height: placement.height, canvas: stored })
+        } catch (error: any) {
+          if (error?.status !== 422) throw error
+          failed.push({ placement: placement.id, variation, reason: 'The words did not fit this size.' })
+        }
       }
     }
     if (!made.length) throw httpError(422, 'The ad’s words did not fit any of the sizes. Try a shorter offer.')
-    const ad = normalizeAdCopy(body.ad, brief, postLanguage(brand).code)
     const record = {
       id: adId, ownerId: userId, flowId: brand.id, brief, designId,
       copy: storedCopy(ad),
-      creative: ad.creative, canvases: made.map(({ canvas, ...rest }) => rest), failed, createdAt: now, updatedAt: now,
+      creative: ad.creative,
+      // Each variation's words on the image and its picture, A first; fewer than asked when some could not be written.
+      variations: [{ creative: ad.creative, image: ad.image }, ...variations],
+      variationsAsked: Math.max(brief.variations, readVariations(body.variationsAsked)),
+      canvases: made.map(({ canvas, ...rest }) => rest), failed, createdAt: now, updatedAt: now,
     }
     await db.collection('ads').insertOne({ ...record })
     await settleCharge(db, userId, charge.id)
-    // A size that could not be made gives back what it cost: one credit, or one per card.
-    if (failed.length) await grantExtraCredits(db, userId, failed.length * (brief.format === 'carousel' ? brief.cards : 1), { ref: `ad-sizes-${adId}`, note: 'Ad sizes that could not be made' })
+    // An image that could not be made gives back what it cost: the ad's own is one credit (one per card), a further
+    // variation's one.
+    const returned = failed.reduce((n, f) => n + (f.variation === 1 && brief.format === 'carousel' ? brief.cards : 1), 0)
+    if (returned) await grantExtraCredits(db, userId, returned, { ref: `ad-sizes-${adId}`, note: 'Ad sizes that could not be made' })
     return NextResponse.json({ ad: { ...record, canvases: made } })
   } catch (error) {
     await refundCharge(db, userId, charge.id).catch(() => {})

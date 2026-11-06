@@ -9,8 +9,8 @@ const { stripTypeScriptTypes } = require('node:module')
 const it = require.main === module ? test : () => {}
 
 const strip = file => stripTypeScriptTypes(fs.readFileSync(file, 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, ''))
-const PLAN_EXPORTS = ['PLANS', 'TRIAL', 'approxPosts', 'cheapestPlanForBrands', 'cheapestPlanForPhotos', 'cheapestPlanWith', 'planById']
-const ACCOUNT_EXPORTS = ['BILLING_CODES', 'billingError', 'billingErrorBody', 'addMonths', 'creditPeriod', 'effectivePlanId', 'effectivePlan', 'allowances', 'loadBilling', 'creditsLeft', 'getBillingSummary', 'summarize', 'canStartTrial', 'chargeCredits', 'refundCharge', 'settleCharge', 'findCharge', 'grantExtraCredits', 'takeTextReminder', 'returnTextReminder', 'hasFeature', 'requireFeature', 'requireBrandSlot', 'requirePhotoRoom', 'imageQualityFor', 'findBillingByCustomer', 'setStripeCustomer', 'applySubscription', 'releaseStaleCharges', 'releaseCharge', 'STALE_CHARGE_MS']
+const PLAN_EXPORTS = ['PLANS', 'TRIAL', 'approxPosts', 'cheapestPlanForAdVariations', 'cheapestPlanForBrands', 'cheapestPlanForPhotos', 'cheapestPlanWith', 'planById']
+const ACCOUNT_EXPORTS = ['BILLING_CODES', 'billingError', 'billingErrorBody', 'addMonths', 'creditPeriod', 'effectivePlanId', 'effectivePlan', 'allowances', 'loadBilling', 'creditsLeft', 'getBillingSummary', 'summarize', 'canStartTrial', 'chargeCredits', 'refundCharge', 'settleCharge', 'findCharge', 'grantExtraCredits', 'takeTextReminder', 'returnTextReminder', 'hasFeature', 'requireFeature', 'requireBrandSlot', 'requirePhotoRoom', 'requireAdVariations', 'imageQualityFor', 'findBillingByCustomer', 'setStripeCustomer', 'applySubscription', 'releaseStaleCharges', 'releaseCharge', 'STALE_CHARGE_MS']
 const plans = new Function(strip('lib/billing/plans.ts') + `;return {${PLAN_EXPORTS.join(',')}}`)()
 
 /** A clock the billing code reads through its own `Date`: `new Date()` and `Date.now()` give `clock.now`. */
@@ -558,21 +558,32 @@ it('requireFeature names the feature and the plans that have it', async () => {
     emailReminders: 'Email reminders are part of Pro and Business. Upgrade to use them.',
     textReminders: 'Text reminders are part of Pro and Business. Upgrade to use them.',
     customDesigns: 'Creating your own designs is part of Pro and Business. Upgrade to use it.',
-    adDesigns: 'Facebook and Instagram ads are part of Business. Upgrade to use them.',
+    adDesigns: 'Facebook and Instagram ads are part of Pro and Business. Upgrade to use them.',
     postVoice: 'Writing in the voice of your own posts is part of Pro and Business. Upgrade to use it.',
   }
   for (const [feature, message] of Object.entries(expected)) {
     const error = await refusal(feature)
     assert.equal(error.message, message)
-    assert.deepEqual(billing.billingErrorBody(error), { error: message, code: 'upgrade_required', feature, requiredPlan: feature === 'adDesigns' ? 'business' : 'pro' })
+    assert.deepEqual(billing.billingErrorBody(error), { error: message, code: 'upgrade_required', feature, requiredPlan: 'pro' })
     assert.equal(error.status, 402)
     assert.equal(await billing.hasFeature(db, USER, feature), false)
   }
   await subscribe(billing, db, 'pro', 'active')
-  for (const feature of ['scheduling', 'emailReminders', 'textReminders', 'customDesigns', 'postVoice']) assert.equal(await refusal(feature), null, feature)
-  assert.equal((await refusal('adDesigns')).message, expected.adDesigns)
+  for (const feature of Object.keys(expected)) assert.equal(await refusal(feature), null, feature)
+})
+
+it('requireAdVariations lets an ad have as many variations as the plan makes, and names the plan that makes more', async () => {
+  const { billing, db } = setup()
+  const refusal = async count => { try { await billing.requireAdVariations(db, USER, count) } catch (error) { return error } return null }
+  await subscribe(billing, db, 'pro', 'active')
+  assert.equal(await refusal(2), null)
+  const error = await refusal(3)
+  assert.equal(error.message, 'An ad on the Pro plan has up to 2 variations. Upgrade to Business for up to 5.')
+  assert.deepEqual(billing.billingErrorBody(error), { error: error.message, code: 'limit_reached', limit: 'adVariations', max: 2, wanted: 3, requiredPlan: 'business' })
   await subscribe(billing, db, 'business', 'active')
-  assert.equal(await refusal('adDesigns'), null)
+  assert.equal(await refusal(5), null)
+  assert.equal((await refusal(6)).message, 'An ad can have up to 5 variations.')
+  assert.equal((await billing.getBillingSummary(db, USER)).adVariations, 5, 'the plan settings and the ads form read it from the summary')
 })
 
 it('requireBrandSlot stops a new brand at the plan’s limit, counting only the account’s own brands', async () => {

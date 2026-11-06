@@ -33,6 +33,11 @@ export interface Plan {
   customDesigns: boolean
   /** Meta (Facebook and Instagram) ads: copy within Meta's limits and the creative in each ad size. */
   adDesigns: boolean
+  /**
+   * Variations one ad can have: versions of its image, each with its own hook and picture, to test in Ads Manager. 0 on
+   * a plan without ads.
+   */
+  adVariations: number
   /** New posts, stories and ads written in the voice of the brand's own published posts (Brand profile → Your posts). */
   postVoice: boolean
   /** Days of free trial a new subscriber gets; 0 for none. */
@@ -45,20 +50,20 @@ export const PLANS: Record<PlanId, Plan> = {
     id: 'free', name: 'Free', tagline: 'Trying Batkle out',
     price: { month: 0, year: 0 },
     brands: 1, credits: 30, imageQuality: 'standard', photosPerPost: 4,
-    scheduling: false, emailReminders: false, textReminders: 0, customDesigns: false, adDesigns: false, postVoice: false, trialDays: 0,
+    scheduling: false, emailReminders: false, textReminders: 0, customDesigns: false, adDesigns: false, adVariations: 0, postVoice: false, trialDays: 0,
   },
   pro: {
     id: 'pro', name: 'Pro', tagline: 'One business posting regularly',
     price: { month: 27.99, year: 279.9 },
     brands: 2, credits: 150, imageQuality: 'high', photosPerPost: 8,
-    scheduling: true, emailReminders: true, textReminders: 30, customDesigns: true, adDesigns: false, postVoice: true, trialDays: 7,
+    scheduling: true, emailReminders: true, textReminders: 30, customDesigns: true, adDesigns: true, adVariations: 2, postVoice: true, trialDays: 7,
     popular: true,
   },
   business: {
     id: 'business', name: 'Business', tagline: 'Several brands or a lot of content',
     price: { month: 69.99, year: 699.9 },
     brands: 5, credits: 500, imageQuality: 'high', photosPerPost: 10,
-    scheduling: true, emailReminders: true, textReminders: 100, customDesigns: true, adDesigns: true, postVoice: true, trialDays: 7,
+    scheduling: true, emailReminders: true, textReminders: 100, customDesigns: true, adDesigns: true, adVariations: 5, postVoice: true, trialDays: 7,
   },
 }
 
@@ -143,6 +148,11 @@ export function cheapestPlanForPhotos(count: number): Plan | null {
   return PLAN_IDS.map(id => PLANS[id]).find(plan => plan.photosPerPost >= count) || null
 }
 
+/** The cheapest plan that makes at least this many variations of an ad. */
+export function cheapestPlanForAdVariations(count: number): Plan | null {
+  return PLAN_IDS.map(id => PLANS[id]).find(plan => plan.adVariations >= count) || null
+}
+
 export function formatPrice(dollars: number): string {
   return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`
 }
@@ -174,6 +184,6 @@ export function pricingRows(): PricingRow[] {
     { label: 'Create and share your own designs', values: each(p => p.customDesigns) },
     { label: 'Designs published by other members', values: each(p => (p.customDesigns ? true : 'Browse only')) },
     { label: 'Posts in the voice of your own posts', values: each(p => p.postVoice) },
-    { label: 'Facebook and Instagram ads', values: each(p => p.adDesigns) },
+    { label: 'Facebook and Instagram ads', values: each(p => (p.adDesigns ? `Up to ${p.adVariations} variations each` : false)) },
   ]
 }

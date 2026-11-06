@@ -787,7 +787,8 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
     const body = specs.find(s => s.role === 'body')
     // Over a full-bleed photograph the band sits on the photo's lower edge, a classic lower third. A slide whose body
     // already sits in a card at the foot of the copy keeps no band: it would cover the card.
-    if (variant === 'band' && !carded && !bottomBand && (textOnImage || !(frame && frame.y + frame.height > H * .55)) && (body || ctaText)) {
+    const banded = variant === 'band' && !carded && !bottomBand && (textOnImage || !(frame && frame.y + frame.height > H * .55)) && !!(body || ctaText)
+    if (banded) {
       const pad = Math.round(M * .75), inner = W - 2 * M
       const bodyFit = body ? fitGroup([{ ...body, color: p.onAccent }], inner, Math.round(H * .28), 0) : null
       const bandH = (bodyFit ? bodyFit.total : 0) + (ctaText ? ctaHeight + (bodyFit ? Math.round(gap * .5) : 0) : 0) + 2 * pad
@@ -816,6 +817,10 @@ export function composeSlide(family: GlobalDesignFamily, brand: any, slide: any,
     const textBudget = zone.height - ctaRoom - lineReserve - leadReserve - ruleReserve
     const fit = fitGroup(specs, zone.width, Math.max(120, textBudget - (spread ? gap * 2 : 0)), gap)
     const groupHeight = fit.total + ctaRoom + lineReserve + leadReserve + ruleReserve
+    // A short size (a 1.91:1 landscape ad) can leave the copy less room than its fitted height (fitGroup is given at
+    // least 120px). The copy would then run over what sits below it: the card or band at the foot, the bottom branding
+    // row or the photograph. The slide falls back to a plainer layout instead, and an ad to fewer words.
+    if (groupHeight > zone.height + gap) throw Object.assign(new Error('The copy is too long for this design. Shorten it or split it into another slide.'), { status: 422 })
     let y = plan.anchor === 'top' || spread ? zone.y : plan.anchor === 'bottom' ? zone.y + zone.height - groupHeight : zone.y + (zone.height - groupHeight) / 2
     y = Math.max(zone.y, Math.round(y))
     const groupTop = y

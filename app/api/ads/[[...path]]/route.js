@@ -12,11 +12,13 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
 /**
- * Meta ads for the signed-in account's brands (Business plan):
+ * Meta ads for the signed-in account's brands (Pro and Business; the plan sets how many variations an ad has):
  *   GET    /api/ads?flowId=   the brand's ads, newest first
  *   POST   /api/ads/idea      { flowId, from, avoid } a new brief idea from one item of the profile (no credits)
- *   POST   /api/ads/plan      { flowId, brief } copy, design and image plan; holds one credit per size (chargeRef)
- *   POST   /api/ads/build     { flowId, brief, ad, copy, resolvedPlan, chargeRef } every size as an editable post
+ *   POST   /api/ads/plan      { flowId, brief } copy, its variations, design and image plan; holds one credit per image
+ *                             (each variation at each size; chargeRef)
+ *   POST   /api/ads/build     { flowId, brief, ad, copy, resolvedPlan, chargeRef, variationsAsked } every variation at
+ *                             every size as an editable post
  *   PATCH  /api/ads/:id       { copy } the person's edits to the ad's text
  *   DELETE /api/ads/:id       the ad and its posts
  * Between plan and build the image comes from POST /api/resolve-assets { plan, brand_id, chargeRef }, as for posts.

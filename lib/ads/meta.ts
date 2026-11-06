@@ -85,6 +85,19 @@ export type AdObjective = typeof AD_OBJECTIVES[number]['id']
 /** Variants of the primary text and headline, to test against each other in Ads Manager. */
 export const AD_VARIANTS = 3
 
+/**
+ * Variations of an ad's image, to test against each other in Ads Manager: each its own hook and picture from another
+ * angle, with the text around the ad shared. A carousel's variations change its first card, the one that makes people
+ * stop. The plan sets how many an ad may have (lib/billing/plans.ts, adVariations); this is the most any plan makes.
+ */
+export const AD_VARIATIONS_MAX = 5
+
+/** The number of variations asked for, from 1 (the ad alone) to `max`. */
+export function readVariations(value: unknown, max = AD_VARIATIONS_MAX): number {
+  const n = Math.round(Number(value))
+  return Number.isFinite(n) && n > 1 ? Math.min(max, n) : 1
+}
+
 export const placementById = (id: unknown) => AD_PLACEMENTS.find(p => p.id === id)
 export const objectiveById = (id: unknown) => AD_OBJECTIVES.find(o => o.id === id) || AD_OBJECTIVES[1]
 export const isMetaCta = (value: unknown): value is MetaCta => typeof value === 'string' && (META_CTAS as readonly string[]).includes(value)
@@ -108,7 +121,14 @@ export function readPlacements(value: unknown, format: AdFormat = 'single'): str
   return AD_PLACEMENTS.map(p => p.id).filter(id => ids.includes(id))
 }
 
-/** What an ad costs: one credit per image made, so a carousel is one per card at every size. */
-export function adCredits(brief: { format?: string; cards?: number; placements: string[] }) {
-  return brief.placements.length * (brief.format === 'carousel' ? readCards(brief.cards) : 1)
+/**
+ * What an ad costs: one credit per image made at every size. A single image is one per variation; a carousel is one per
+ * card, and each further variation adds its own first card.
+ */
+export function adCredits(brief: { format?: string; cards?: number; placements: string[]; variations?: number }) {
+  const extra = readVariations(brief.variations) - 1
+  return brief.placements.length * (brief.format === 'carousel' ? readCards(brief.cards) + extra : 1 + extra)
 }
+
+/** The images of one size: the ad's own, and each further variation's (a single image, or a carousel's first card). */
+export const imagesPerSize = (brief: { format?: string; cards?: number; variations?: number }) => adCredits({ ...brief, placements: ['size'] })

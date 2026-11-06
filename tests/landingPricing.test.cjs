@@ -50,12 +50,13 @@ test('plan cards list the lines that differ between plans', () => {
   // Text reminders are "Coming soon", so the cards promise no number of texts.
   assert.deepEqual(text.planHighlights(PLANS.pro).map(line => line.text), [
     '2 brands', '150 credits a month (≈ 37 posts)', 'High-quality AI images', 'Up to 8 of your photos in each post',
-    'Schedule calendar and email reminders', 'Create and share your own designs', 'Posts in the voice of your own posts', 'Facebook and Instagram ads',
+    'Schedule calendar and email reminders', 'Create and share your own designs', 'Posts in the voice of your own posts', 'Facebook and Instagram ads, up to 2 variations each',
   ])
   assert.equal(text.planHighlights(PLANS.pro)[6].included, true, 'the voice of your own posts is part of Pro')
-  assert.equal(text.planHighlights(PLANS.pro)[7].included, false, 'ads are part of Business')
+  assert.equal(text.planHighlights(PLANS.pro)[7].included, true, 'ads are part of Pro')
   const business = text.planHighlights(PLANS.business)
   assert.equal(business[3].text, 'Up to 10 of your photos in each post')
+  assert.equal(business[7].text, 'Facebook and Instagram ads, up to 5 variations each')
   assert.equal(business[4].text, 'Schedule calendar and email reminders')
   assert.ok(business.every(line => line.included))
 

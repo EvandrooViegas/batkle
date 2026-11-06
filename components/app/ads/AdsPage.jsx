@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, ArrowRight, Check, Copy, Download, GalleryHorizontalEnd, Lightbulb, Loader2, Megaphone, PencilLine, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { AD_ANGLES, AD_OBJECTIVES, AD_PLACEMENTS, AD_TEXT_LIMITS, CAROUSEL_CARDS, META_CTAS, adCredits, defaultPlacements, objectiveById, placementById, placementsFor } from '@/lib/ads/meta'
+import { AD_ANGLES, AD_OBJECTIVES, AD_PLACEMENTS, AD_TEXT_LIMITS, AD_VARIATIONS_MAX, CAROUSEL_CARDS, META_CTAS, adCredits, defaultPlacements, objectiveById, placementById, placementsFor } from '@/lib/ads/meta'
+import { cheapestPlanForAdVariations } from '@/lib/billing/plans'
 import { postJson, skippedVisuals, creditsChanged, giveCreditsBack } from '@/lib/client/postGeneration'
 import { apiError } from '@/lib/client/billing'
 import { cn } from '@/lib/utils'
@@ -21,9 +22,16 @@ import AdPreview from './AdPreview'
 import { useBrandAccess } from '../AppShell'
 
 const MAX = 600
-const ADS_UPGRADE = { code: 'upgrade_required', billing: { feature: 'adDesigns', requiredPlan: 'business' }, message: 'Facebook and Instagram ads are part of Business.' }
-const EMPTY_BRIEF = { offer: '', incentive: '', audience: '', url: '', objective: 'leads', cta: objectiveById('leads').cta, ctaPicked: false, format: 'single', cards: CAROUSEL_CARDS.default, placements: defaultPlacements('single'), placementsPicked: false, designId: 'auto' }
+const ADS_UPGRADE = { code: 'upgrade_required', billing: { feature: 'adDesigns', requiredPlan: 'pro' }, message: 'Facebook and Instagram ads are part of Pro and Business.' }
+// `variations` 0 is not picked yet: a new ad starts with as many as the plan makes, up to three (startVariations).
+const EMPTY_BRIEF = { offer: '', incentive: '', audience: '', url: '', objective: 'leads', cta: objectiveById('leads').cta, ctaPicked: false, format: 'single', cards: CAROUSEL_CARDS.default, placements: defaultPlacements('single'), placementsPicked: false, variations: 0, designId: 'auto' }
 const CARD_COUNTS = Array.from({ length: CAROUSEL_CARDS.max - CAROUSEL_CARDS.min + 1 }, (_, i) => CAROUSEL_CARDS.min + i).map(n => ({ value: n, label: String(n), title: `${n} cards` }))
+const VARIATION_COUNTS = Array.from({ length: AD_VARIATIONS_MAX }, (_, i) => ({ value: i + 1, label: String(i + 1), title: i ? `${i + 1} variations` : 'The ad alone' }))
+const startVariations = max => Math.max(1, Math.min(max || 1, 3))
+/** Variation A is the ad itself; B, C… test other hooks and pictures. */
+const letter = variation => String.fromCharCode(64 + (variation || 1))
+const variationOf = canvas => canvas.variation || 1
+const variationCount = ad => Math.max(1, ad.variations?.length || 0, ...ad.canvases.map(variationOf))
 const FORMATS = [
   ['single', 'Single image', 'One image with the hook, the offer and the action'],
   ['carousel', 'Carousel', '2 to 10 cards people swipe: the hook, the reasons to buy, then the offer'],
@@ -35,7 +43,9 @@ const optional = <span className="font-normal text-bk-muted"> · optional</span>
 
 const fileName = text => (text || 'ad').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 50).toLowerCase() || 'ad'
 const ratioName = placement => (placementById(placement)?.ratio || placement).replace(/[.:]/g, 'x')
-const ratios = ad => ad.canvases.map(c => placementById(c.placement)?.ratio).filter(Boolean).join(' · ')
+/** The sizes an ad was made at, each once (every variation has the same ones). */
+const placementsOf = ad => [...new Set(ad.canvases.map(c => c.placement))]
+const ratios = ad => placementsOf(ad).map(id => placementById(id)?.ratio).filter(Boolean).join(' · ')
 const shortDate = date => new Date(date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 const isCarousel = brief => brief?.format === 'carousel'
 const formatName = brief => (isCarousel(brief) ? `Carousel · ${brief.cards} cards` : 'Single image')
@@ -59,10 +69,13 @@ async function renderImages(canvasId) {
   return Promise.all(pages.map(page => page.async('blob')))
 }
 
+/** A size's file name: the ad's, its variation's letter when it has several, and the ratio. */
+const sizeName = (ad, name, size) => `${name}${variationCount(ad) > 1 ? `-${letter(variationOf(size)).toLowerCase()}` : ''}-${ratioName(size.placement)}`
+
 /** Adds a size's images to the ZIP: one PNG per size, or one per card. */
 async function addSize(zip, name, size) {
   const images = await renderImages(size.canvasId)
-  images.forEach((blob, i) => zip.file(`${name}-${ratioName(size.placement)}${images.length > 1 ? `-card-${i + 1}` : ''}.png`, blob))
+  images.forEach((blob, i) => zip.file(`${name}${images.length > 1 ? `-card-${i + 1}` : ''}.png`, blob))
 }
 
 function save(blob, name) {
@@ -85,24 +98,24 @@ function adText(ad, copy = ad.copy) {
   ].filter(Boolean).join('\n\n')
 }
 
-/** Every size as PNGs (a carousel's cards each), and the text, in one ZIP. */
+/** Every variation at every size as PNGs (a carousel's cards each), and the text, in one ZIP. */
 async function downloadZip(ad, copy) {
   const { default: JSZip } = await import('jszip')
   const zip = new JSZip()
   const name = fileName(ad.creative?.headline || ad.brief?.offer)
-  for (const c of ad.canvases) await addSize(zip, name, c)
+  for (const c of ad.canvases) await addSize(zip, sizeName(ad, name, c), c)
   zip.file('ad-text.txt', adText(ad, copy))
   save(await zip.generateAsync({ type: 'blob' }), `${name}.zip`)
 }
 
-/** One size: its PNG, or a ZIP of a carousel's cards. */
+/** One size of one variation: its PNG, or a ZIP of a carousel's cards. */
 async function downloadSize(ad, size) {
-  const name = fileName(ad.creative?.headline || ad.brief?.offer)
-  if (!isCarousel(ad.brief)) return save((await renderImages(size.canvasId))[0], `${name}-${ratioName(size.placement)}.png`)
+  const name = sizeName(ad, fileName(ad.creative?.headline || ad.brief?.offer), size)
+  if (!isCarousel(ad.brief)) return save((await renderImages(size.canvasId))[0], `${name}.png`)
   const { default: JSZip } = await import('jszip')
   const zip = new JSZip()
   await addSize(zip, name, size)
-  save(await zip.generateAsync({ type: 'blob' }), `${name}-${ratioName(size.placement)}.zip`)
+  save(await zip.generateAsync({ type: 'blob' }), `${name}.zip`)
 }
 
 /** The ad's text as the editor holds it: every field it shows, even on an ad saved without one. */
@@ -193,6 +206,16 @@ function RatioShape({ placement }) {
 
 const STEPS = [['promote', 'What to promote'], ['design', 'Design'], ['goal', 'Goal and button'], ['format', 'Format and sizes']]
 
+/**
+ * How the credits add up, before the total: images per size × sizes. A carousel's further variations each add a first
+ * card; a single image alone shows only the total.
+ */
+function creditSum(brief, variations) {
+  const sizes = `${brief.placements.length} size${brief.placements.length === 1 ? '' : 's'}`
+  if (isCarousel(brief)) return variations > 1 ? `(${brief.cards} cards + ${variations - 1} first card${variations === 2 ? '' : 's'}) × ${sizes} = ` : `${brief.cards} cards × ${sizes} = `
+  return variations > 1 ? `${variations} variations × ${sizes} = ` : ''
+}
+
 /** A format as its shape: one image, or cards side by side. */
 function FormatShape({ format }) {
   const card = 'block h-5 rounded-[3px] border-[1.5px] border-current'
@@ -209,7 +232,7 @@ function FormatShape({ format }) {
  * brand's profile), the design, the goal and button, then the format (one image or a carousel of cards) and the sizes,
  * with a summary. One credit per image: per size, or per card at each size.
  */
-function NewAdDialog({ open, onOpenChange, flowId, brand, value, onChange, onCreate, error, creditsLeft, waiting }) {
+function NewAdDialog({ open, onOpenChange, flowId, brand, value, onChange, onCreate, error, creditsLeft, waiting, variationsMax = 1, planName = '' }) {
   const set = patch => onChange({ ...value, ...patch })
   const [step, setStep] = useState(0)
   // A brief that came back with an error reopens on its last step, where the error shows; a new one starts at the top.
@@ -218,7 +241,10 @@ function NewAdDialog({ open, onOpenChange, flowId, brand, value, onChange, onCre
   const design = designs.items.find(item => item.design.id === value.designId)
   // An admin or the owner can add a design from the library without leaving the ad.
   const { canManage } = useBrandAccess()
-  const credits = adCredits(value)
+  // The ad and its further variations (each its own hook and picture), never more than the plan makes.
+  const variations = Math.min(value.variations || startVariations(variationsMax), Math.max(1, variationsMax))
+  const bigger = cheapestPlanForAdVariations(variationsMax + 1)
+  const credits = adCredits({ ...value, variations })
   const carousel = isCarousel(value)
   const ready = value.offer.trim().length > 0
   const last = step === STEPS.length - 1
@@ -233,7 +259,7 @@ function NewAdDialog({ open, onOpenChange, flowId, brand, value, onChange, onCre
   const submit = () => {
     if (!ready || waiting) return
     const { ctaPicked: _picked, placementsPicked: _sizes, ...brief } = value
-    onCreate({ ...brief, offer: brief.offer.trim(), incentive: brief.incentive.trim(), audience: brief.audience.trim(), url: brief.url.trim(), designId: brief.designId === 'auto' ? undefined : brief.designId })
+    onCreate({ ...brief, variations, offer: brief.offer.trim(), incentive: brief.incentive.trim(), audience: brief.audience.trim(), url: brief.url.trim(), designId: brief.designId === 'auto' ? undefined : brief.designId })
   }
   const next = event => { event?.preventDefault(); if (last) submit(); else if (ready) setStep(step + 1) }
 
@@ -359,9 +385,20 @@ function NewAdDialog({ open, onOpenChange, flowId, brand, value, onChange, onCre
                     <p className={hint}>Each card gets its own image, its own words on it and a headline under it. The first stops the right person, the last asks for the action.</p>
                   </div>
                 )}
+                <div>
+                  <p className={fieldLabel}>Variations</p>
+                  <div className="mt-2">
+                    <Choice label="Number of variations" options={VARIATION_COUNTS} value={variations} onChange={n => set({ variations: n })}
+                      unavailable={n => n > variationsMax && (cheapestPlanForAdVariations(n) ? `${cheapestPlanForAdVariations(n).name} makes up to ${cheapestPlanForAdVariations(n).adVariations} variations` : 'Not on your plan')} />
+                  </div>
+                  <p className={hint}>
+                    {carousel ? 'Each variation opens the carousel with its own first card: another hook and picture.' : 'Each variation is the image with another hook and picture.'} Run them side by side in Ads Manager to see which one people stop for; the text above the ad is shared.
+                    {bigger && ` ${planName ? `Your ${planName} plan makes up to ${variationsMax}; ` : ''}${bigger.name} makes up to ${bigger.adVariations}.`}
+                  </p>
+                </div>
                 <fieldset>
                   <legend className={fieldLabel}>Sizes</legend>
-                  <p className={hint}>{carousel ? 'Every card has the same shape, and Meta recommends square. One credit for each card at each size.' : 'One credit for each size.'}</p>
+                  <p className={hint}>{carousel ? `Every card has the same shape, and Meta recommends square. One credit for each card at each size${variations > 1 ? ', and one for each further variation’s first card' : ''}.` : variations > 1 ? 'One credit for each variation at each size.' : 'One credit for each size.'}</p>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {sizes.map(p => {
                       const on = value.placements.includes(p.id)
@@ -380,6 +417,7 @@ function NewAdDialog({ open, onOpenChange, flowId, brand, value, onChange, onCre
                   <dt className="text-bk-muted">Design</dt><dd className="font-semibold">{value.designId === 'auto' ? 'Auto' : design?.design.name || 'Chosen design'}</dd>
                   <dt className="text-bk-muted">Goal</dt><dd className="font-semibold">{objectiveById(value.objective).label} · “{value.cta}” button</dd>
                   <dt className="text-bk-muted">Format</dt><dd className="font-semibold">{formatName(value)}</dd>
+                  <dt className="text-bk-muted">Variations</dt><dd className="font-semibold">{variations === 1 ? 'The ad alone' : `${variations}, each with its own hook and picture`}</dd>
                   <dt className="text-bk-muted">Sizes</dt><dd className="font-semibold tabular-nums">{value.placements.map(id => placementById(id)?.ratio).join(' · ')}</dd>
                 </dl>
                 {error && (error.billing ? <UpgradeNotice error={error} /> : <Notice tone="error">{error.message}</Notice>)}
@@ -390,7 +428,7 @@ function NewAdDialog({ open, onOpenChange, flowId, brand, value, onChange, onCre
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-bk-line px-5 py-4 sm:px-6">
             <p className="text-[12.5px] text-bk-muted">
               {last
-                ? waiting ? 'One ad at a time: this one can start when the ad being made is ready.' : `${carousel ? `${value.cards} cards × ${value.placements.length} size${value.placements.length === 1 ? '' : 's'} = ` : ''}${credits} credit${credits === 1 ? '' : 's'}${creditsLeft != null ? ` · ${creditsLeft} left` : ''}`
+                ? waiting ? 'One ad at a time: this one can start when the ad being made is ready.' : `${creditSum(value, variations)}${credits} credit${credits === 1 ? '' : 's'}${creditsLeft != null ? ` · ${creditsLeft} left` : ''}`
                 : `Step ${step + 1} of ${STEPS.length}`}
             </p>
             <div className="flex gap-2">
@@ -415,7 +453,7 @@ function BuildProgress({ building }) {
       <div className="min-w-0 flex-1" aria-live="polite">
         <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#9A6B00] dark:text-bk-butter">Making your ad</p>
         <h2 id="building-title" className="mt-1 line-clamp-2 font-bk-display text-[17px] font-bold leading-tight tracking-[-0.02em]">{building.brief.offer}</h2>
-        <p className="mt-1 text-[12.5px] text-bk-muted">{objectiveById(building.brief.objective).label} · {formatName(building.brief)} · {sizes} · {isCarousel(building.brief) ? 'a minute or two' : 'about a minute'}; it opens here when it’s ready</p>
+        <p className="mt-1 text-[12.5px] text-bk-muted">{objectiveById(building.brief.objective).label} · {formatName(building.brief)}{building.brief.variations > 1 ? ` · ${building.brief.variations} variations` : ''} · {sizes} · {isCarousel(building.brief) || building.brief.variations > 1 ? 'a minute or two' : 'about a minute'}; it opens here when it’s ready</p>
         <StageBar steps={steps} className="mt-3 max-w-[560px]" />
       </div>
     </section>
@@ -437,6 +475,7 @@ function AdGrid({ ads, onOpen }) {
               <span className="relative block">
                 {ad.canvases[0]?.canvas ? <PostThumb canvas={ad.canvases[0].canvas} className="rounded-none" /> : <span className="block aspect-[4/5] bg-bk-chip" />}
                 {isCarousel(ad.brief) && <span title={formatName(ad.brief)} className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-black/65 px-1.5 py-0.5 text-[11.5px] font-bold tabular-nums text-white"><GalleryHorizontalEnd className="size-3.5" aria-hidden="true" /><span className="sr-only">Carousel of </span>{ad.brief.cards}<span className="sr-only"> cards</span></span>}
+                {variationCount(ad) > 1 && <span className="absolute left-2 top-2 rounded-md bg-black/65 px-1.5 py-0.5 text-[11.5px] font-bold text-white">{variationCount(ad)} variations</span>}
               </span>
               <span className="block space-y-2 p-3.5">
                 <span className="line-clamp-2 text-[14px] font-semibold leading-snug">{ad.brief?.offer}</span>
@@ -444,7 +483,7 @@ function AdGrid({ ads, onOpen }) {
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="shrink-0 rounded-md bg-bk-chip px-1.5 py-0.5 text-[11.5px] font-bold">{objectiveById(ad.brief?.objective).label}</span>
                     <span className="flex items-center gap-1 text-bk-muted" title={ratios(ad)} aria-label={`Sizes: ${ratios(ad)}`}>
-                      {ad.canvases.map(c => placementById(c.placement)).filter(Boolean).map(p => <span key={p.id} className="flex size-4 items-center justify-center [&>span]:scale-[0.7]"><RatioShape placement={p} /></span>)}
+                      {placementsOf(ad).map(placementById).filter(Boolean).map(p => <span key={p.id} className="flex size-4 items-center justify-center [&>span]:scale-[0.7]"><RatioShape placement={p} /></span>)}
                     </span>
                   </span>
                   <span className="shrink-0 text-[12px] text-bk-muted">{madeOn(ad.createdAt)}</span>
@@ -558,20 +597,28 @@ function CopyEditor({ draft, setDraft, version, setVersion, headline, setHeadlin
  * placement beside its text for Ads Manager, so every edit shows at once.
  */
 function AdWorkspace({ ad, brand, website, draft, setDraft, view, setView, version, setVersion, headline, setHeadline, card, setCard, dirty, saving, onSave, busy, error, onDownload, onDownloadSize, onDelete }) {
-  const size = ad.canvases.find(c => c.placement === view.placement) || ad.canvases[0]
+  // Variation A is the ad itself; each further one has its own hook and picture at the same sizes.
+  const count = variationCount(ad)
+  const variation = Math.min(view.variation || 1, count)
+  const ofVariation = ad.canvases.filter(c => variationOf(c) === variation)
+  const shown = ofVariation.length ? ofVariation : ad.canvases
+  const size = shown.find(c => c.placement === view.placement) || shown[0]
   const placement = size?.placement
   const feed = placement === 'feed-portrait' || placement === 'feed-square'
   const { canEdit } = useBrandAccess()
   const carousel = isCarousel(ad.brief)
-  // A size that could not be made gave back one credit, or one per card.
-  const returned = (ad.failed?.length || 0) * (carousel ? ad.brief.cards : 1)
+  const onImage = ad.variations?.[variation - 1]?.creative || ad.creative
+  const named = f => `${placementById(f.placement)?.label}${count > 1 ? ` (${letter(f.variation)})` : ''}`
+  // An image that could not be made gave back its credits: the ad's own one per card, a further variation's one.
+  const returned = (ad.failed || []).reduce((n, f) => n + (variationOf(f) === 1 && carousel ? ad.brief.cards : 1), 0)
+  const asked = ad.variationsAsked || 1
   return (
     <article id="ad-workspace" aria-labelledby="ad-title" className={cn(panelClass, 'scroll-mt-6 overflow-hidden motion-safe:animate-bk-page')}>
       <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-bk-line p-5 sm:px-6">
         <div className="min-w-0 max-w-[620px]">
           <p className="text-[12px] font-semibold text-bk-muted">{[objectiveById(ad.brief?.objective).label, carousel && formatName(ad.brief), ratios(ad), shortDate(ad.createdAt)].filter(Boolean).join(' · ')}</p>
           <h2 id="ad-title" className="mt-1 line-clamp-2 font-bk-display text-[20px] font-bold leading-tight tracking-[-0.02em]">{ad.brief?.offer}</h2>
-          {ad.creative?.headline && <p className="mt-1 line-clamp-1 text-[13px] text-bk-muted">On the image: <span className="italic">“{ad.creative.headline}”</span></p>}
+          {onImage?.headline && <p className="mt-1 line-clamp-1 text-[13px] text-bk-muted">On the image{count > 1 ? ` (${letter(variation)})` : ''}: <span className="italic">“{onImage.headline}”</span></p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" disabled={!!busy || !ad.canvases.length} onClick={onDownload} className={appButton('primary', 'md')}>{busy === 'zip' ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}Download all</button>
@@ -579,18 +626,25 @@ function AdWorkspace({ ad, brand, website, draft, setDraft, view, setView, versi
           {canEdit && <button type="button" onClick={onDelete} aria-label="Delete ad" title="Delete ad" className={appButton('outline', 'md', 'w-9 px-0')}><Trash2 className="size-4" /></button>}
         </div>
       </header>
-      {(error || ad.failed?.length > 0) && (
+      {(error || ad.failed?.length > 0 || asked > count) && (
         <div className="space-y-2 px-5 pt-4 sm:px-6">
           {error && <Notice tone="error">{error.message}</Notice>}
-          {ad.failed?.length > 0 && <Notice>{ad.failed.map(f => placementById(f.placement)?.label).join(', ')}: the words did not fit, so {ad.failed.length === 1 ? 'that size was' : 'those sizes were'} left out, and {returned === 1 ? 'its credit was' : `${returned} credits were`} given back.</Notice>}
+          {asked > count && <Notice>{count} of the {asked} variations asked for could be written within Meta’s rules and the facts in your profile, so the ad has {count === 1 ? 'just the one' : count}. You were only charged for {count === 1 ? 'it' : 'those'}.</Notice>}
+          {ad.failed?.length > 0 && <Notice>{ad.failed.map(named).join(', ')}: the words did not fit, so {ad.failed.length === 1 ? 'that size was' : 'those sizes were'} left out, and {returned === 1 ? 'its credit was' : `${returned} credits were`} given back.</Notice>}
         </div>
       )}
 
       <div className="grid xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <section aria-label="Preview" className="border-b border-bk-line bg-bk-alt/50 p-5 sm:p-6 xl:border-b-0 xl:border-r">
           <div className="xl:sticky xl:top-6">
+            {count > 1 && (
+              <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <span className={label}>Variation</span>
+                <SegmentedTabs label="Variation" value={variation} onChange={v => setView({ ...view, variation: v })} items={Array.from({ length: count }, (_, i) => [i + 1, letter(i + 1)])} />
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <SegmentedTabs label="Size" value={placement} onChange={p => setView({ ...view, placement: p })} items={ad.canvases.map(c => [c.placement, placementById(c.placement)?.ratio])} />
+              <SegmentedTabs label="Size" value={placement} onChange={p => setView({ ...view, placement: p })} items={shown.map(c => [c.placement, placementById(c.placement)?.ratio])} />
               {feed && <SegmentedTabs label="Show on" value={view.network} onChange={network => setView({ ...view, network })} items={[['facebook', 'Facebook'], ['instagram', 'Instagram']]} />}
             </div>
             <p className="mt-2 text-[12px] text-bk-muted">{placementById(placement)?.where}.</p>
@@ -624,7 +678,7 @@ function AdWorkspace({ ad, brand, website, draft, setDraft, view, setView, versi
 }
 
 /**
- * Facebook and Instagram ads for a brand (Business), one screen at a time: the brand's ads as a wall of their images
+ * Facebook and Instagram ads for a brand (Pro and Business), one screen at a time: the brand's ads as a wall of their images
  * (with the ad being made across the top), one ad on its own page (its preview in each placement beside its text), or a
  * new ad's brief. Nothing is published: people download the images and paste the text into Meta's Ads Manager.
  */
@@ -637,7 +691,7 @@ export default function AdsPage({ flowId, brandName, brandLogo = '', website = '
   // `screen`: the ads ('library', with the ad being made on top) or one ad ('ad'). A new ad's brief is a popup over them.
   const [screen, setScreen] = useState('library'), [composing, setComposing] = useState(false)
   const [brief, setBrief] = useState(EMPTY_BRIEF)
-  const [view, setView] = useState({ placement: 'feed-portrait', network: 'facebook', safe: false })
+  const [view, setView] = useState({ placement: 'feed-portrait', network: 'facebook', safe: false, variation: 1 })
   const [version, setVersion] = useState(0), [headline, setHeadline] = useState(0), [card, setCard] = useState(0)
   const [draft, setDraft] = useState(null), [saving, setSaving] = useState(false)
   const [building, setBuilding] = useState(null), [createError, setCreateError] = useState(null), [error, setError] = useState(null), [busy, setBusy] = useState('')
@@ -664,7 +718,8 @@ export default function AdsPage({ flowId, brandName, brandLogo = '', website = '
     if (!ad) { setDraft(null); return }
     setDraft(draftOf(ad.copy))
     setVersion(0); setHeadline(0); setCard(0); setError(null)
-    if (!ad.canvases.some(c => c.placement === view.placement)) setView(v => ({ ...v, placement: ad.canvases[0]?.placement || 'feed-portrait' }))
+    // Each ad opens on its own image (variation A), at the size shown before when it has one.
+    setView(v => ({ ...v, variation: 1, ...(ad.canvases.some(c => c.placement === v.placement) ? {} : { placement: ad.canvases[0]?.placement || 'feed-portrait' }) }))
   }, [ad?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = Boolean(ad && draft && (draft.cards ? ['primaryText', 'cards', 'cta'] : ['primaryText', 'headlines', 'description', 'cta']).some(k => JSON.stringify(draft[k]) !== JSON.stringify(draftOf(ad.copy)[k])))
 
@@ -690,13 +745,13 @@ export default function AdsPage({ flowId, brandName, brandLogo = '', website = '
         resolved = await postJson('/api/resolve-assets', { plan: planned.plan, brand_id: `brand_${flowId}`, chargeRef: planned.chargeRef })
       }
       setBuilding({ brief: value, stage: 'build' })
-      const built = await postJson('/api/ads/build', { flowId, brief: planned.brief, ad: planned.ad, copy: planned.copy, resolvedPlan: resolved, chargeRef: planned.chargeRef })
+      const built = await postJson('/api/ads/build', { flowId, brief: planned.brief, ad: planned.ad, copy: planned.copy, resolvedPlan: resolved, chargeRef: planned.chargeRef, variationsAsked: planned.variationsAsked })
       setAds(prev => [built.ad, ...(prev || [])])
       setBrief(EMPTY_BRIEF)
       // The new ad opens when its progress is on screen; otherwise it waits first among the ads.
       if (screenRef.current === 'library') {
         setSelectedId(built.ad.id); setScreen('ad')
-        setView(v => ({ ...v, placement: built.ad.canvases[0]?.placement || 'feed-portrait' }))
+        setView(v => ({ ...v, variation: 1, placement: built.ad.canvases[0]?.placement || 'feed-portrait' }))
       }
     } catch (err) {
       // Past the plan, the ad's credits come back: nothing is charged for an ad that was not made.
@@ -774,7 +829,8 @@ export default function AdsPage({ flowId, brandName, brandLogo = '', website = '
 
         {canEdit && (
           <NewAdDialog open={composing} onOpenChange={setComposing} flowId={flowId} brand={brandContext} value={brief} onChange={setBrief} onCreate={create}
-            error={createError} creditsLeft={creditsLeft} waiting={Boolean(building)} />
+            error={createError} creditsLeft={creditsLeft} waiting={Boolean(building)}
+            variationsMax={billing?.summary?.adVariations ?? 1} planName={billing?.summary?.planName || ''} />
         )}
       </div>
     </div>

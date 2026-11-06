@@ -58,7 +58,7 @@ export function planHighlights(plan) {
     scheduleText(plan),
     plan.customDesigns ? { text: 'Create and share your own designs', included: true } : { text: 'Batkle’s designs; browse the ones members make', included: true },
     { text: 'Posts in the voice of your own posts', included: plan.postVoice },
-    { text: 'Facebook and Instagram ads', included: plan.adDesigns },
+    plan.adDesigns ? { text: `Facebook and Instagram ads, up to ${plural(plan.adVariations, 'variation')} each`, included: true } : { text: 'Facebook and Instagram ads', included: false },
   ]
 }
 

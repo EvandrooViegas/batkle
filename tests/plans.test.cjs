@@ -22,7 +22,8 @@ test('a feature that is not built yet never shows a tick: its plans say "Coming 
 test('designs are made on Pro and Business; Free browses the ones members publish', () => {
   assert.deepEqual(byPlan(rowNamed('Create and share your own designs')), { free: false, pro: true, business: true })
   assert.deepEqual(byPlan(rowNamed('Designs published by other members')), { free: 'Browse only', pro: true, business: true })
-  assert.deepEqual(byPlan(rowNamed('Facebook and Instagram ads')), { free: false, pro: false, business: true })
+  // Ads on Pro and Business; the bigger plan tests more variations of each.
+  assert.deepEqual(byPlan(rowNamed('Facebook and Instagram ads')), { free: false, pro: 'Up to 2 variations each', business: 'Up to 5 variations each' })
   assert.deepEqual(byPlan(rowNamed('Posts in the voice of your own posts')), { free: false, pro: true, business: true })
 })
 

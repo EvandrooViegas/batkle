@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { PLANS, TRIAL, approxPosts, cheapestPlanForBrands, cheapestPlanForPhotos, cheapestPlanWith, planById } from './plans'
+import { PLANS, TRIAL, approxPosts, cheapestPlanForAdVariations, cheapestPlanForBrands, cheapestPlanForPhotos, cheapestPlanWith, planById } from './plans'
 import type { Feature, ImageQuality, Interval, Plan, PlanId } from './plans'
 
 /**
@@ -201,6 +201,8 @@ export interface BillingSummary {
   brands: { used: number; max: number }
   /** The person's own photos one post or story can use. */
   photosPerPost: number
+  /** Variations one ad can have (each its own hook and picture); 0 without ads. */
+  adVariations: number
   features: Record<Feature, boolean>
   imageQuality: ImageQuality
   /** An admin account: every feature, no subscription needed. */
@@ -232,6 +234,7 @@ export function summarize(account: BillingAccount, brands: number, now = new Dat
     texts: { allowance: allowance.textReminders, used: Math.min(textsUsed, allowance.textReminders), left: Math.max(0, allowance.textReminders - textsUsed) },
     brands: { used: brands, max: plan.brands },
     photosPerPost: plan.photosPerPost,
+    adVariations: plan.adVariations,
     features: { scheduling: plan.scheduling, emailReminders: plan.emailReminders, textReminders: plan.textReminders > 0, customDesigns: plan.customDesigns, adDesigns: plan.adDesigns, postVoice: plan.postVoice },
     imageQuality: plan.imageQuality,
     admin: Boolean(account.admin),
@@ -432,6 +435,17 @@ export async function requirePhotoRoom(db: any, userId: string, photos: number) 
     ? `A post on the ${plan.name} plan takes up to ${plan.photosPerPost} photos. Upgrade to ${next.name} to add up to ${next.photosPerPost}.`
     : `A post can use up to ${plan.photosPerPost} of your photos.`,
   { limit: 'photos', max: plan.photosPerPost, wanted: photos, requiredPlan: next?.id || null })
+}
+
+/** Refuses with limit_reached (402) when an ad asks for more variations than the account's plan makes. */
+export async function requireAdVariations(db: any, userId: string, variations: number) {
+  const plan = effectivePlan(await loadBilling(db, userId))
+  if (variations <= plan.adVariations) return
+  const next = cheapestPlanForAdVariations(variations)
+  throw billingError(402, 'limit_reached', next
+    ? `An ad on the ${plan.name} plan has up to ${plan.adVariations} variation${s(plan.adVariations)}. Upgrade to ${next.name} for up to ${next.adVariations}.`
+    : `An ad can have up to ${plan.adVariations} variations.`,
+  { limit: 'adVariations', max: plan.adVariations, wanted: variations, requiredPlan: next?.id || null })
 }
 
 /** Standard images on Free, the best model on paid plans. */

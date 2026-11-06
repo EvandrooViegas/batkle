@@ -145,6 +145,37 @@ test('real posts in every variant pass validation for several brands', () => {
   }
 })
 
+test('a short landscape size never draws copy over the card, the band or the branding: it refuses, so a plainer layout is tried', () => {
+  const copy = { headline: 'Edit every AI post yourself', body: 'Fix text, images and logo in seconds', cta: 'Tell us what your posts need' }
+  const overlap = (a, b) => Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 2 && Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 2
+  // Text may sit inside a card; only text that runs across its edge is drawn over it.
+  const crosses = (t, box) => overlap(t, box) && !(t.x >= box.x - 1 && t.y >= box.y - 1 && t.x + t.width <= box.x + box.width + 1 && t.y + t.height <= box.y + box.height + 1)
+  // As an ad is made at this size: every word, then without the supporting line, then without the closing line.
+  const attempts = [copy, { ...copy, body: '' }, { ...copy, body: '', cta: '' }]
+  for (const family of [timeline, editorial]) {
+    const wide = { ...family, width: 1200, height: 628 }
+    const plan = compose.planSlides(wide, { format: 'single', ...copy })[0]
+    for (const variant of ['classic', 'rule', 'quote', 'panel', 'sidebar', 'band']) {
+      let made = false
+      for (const [n, words] of attempts.entries()) {
+        const label = `${family.name} ${variant} 1200×628, attempt ${n + 1}`
+        let page
+        try { page = compose.composeSlide(wide, brand, words, { ...plan, composition: 'statement', variant }, 0, 1) }
+        catch (error) { assert.equal(error.status, 422, label); continue }
+        const texts = page.nodes.filter(n => n.type === 'text' && n.designRole !== 'backdrop-type')
+        for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) assert.ok(!overlap(texts[i], texts[j]), `${label}: ${texts[i].designRole} overlaps ${texts[j].designRole}`)
+        for (const box of page.nodes.filter(n => /^(panel-card|callout-card|band)$/.test(n.designRole || ''))) {
+          for (const t of texts) assert.ok(!crosses(t, box), `${label}: ${t.designRole} runs over the ${box.designRole}`)
+        }
+        made = true
+        break
+      }
+      // A variant may refuse every attempt (a quote mark needs room): posts and ads then fall back to the classic one.
+      if (variant === 'classic') assert.ok(made, `${family.name}: the classic layout fits the headline at least`)
+    }
+  }
+})
+
 test('the image choice: off asks for no image, on asks on every non-list slide, auto follows the design', () => {
   const subject = { subject: 'a builder measuring a wall', queries: ['builder measuring'] }
   const copy = choice => ({ format: 'carousel', ...(choice === 'auto' ? {} : { imageChoice: choice }), slides: slidesFor(5).map(s => ({ ...s, design: { image: subject } })) })

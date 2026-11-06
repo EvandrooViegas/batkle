@@ -243,6 +243,7 @@ const VISUALS = { schedule: Schedule, designs: Designs, community: Community, te
 export function visualFor(info = {}) {
   if (info.limit === 'brands') return 'brands'
   if (info.limit === 'photos') return 'photos'
+  if (info.limit === 'adVariations') return 'ads'
   return { scheduling: 'schedule', emailReminders: 'schedule', textReminders: 'schedule', customDesigns: 'designs', communityDesigns: 'community', teams: 'team', adDesigns: 'ads', postVoice: 'voice' }[info.feature] || 'credits'
 }
 
