@@ -27,7 +27,7 @@ async function ownerName(db, userId) {
  *                                account (`flowId`), the charge is the brand owner's.
  */
 async function handle(request, { params }) {
-  const path = params?.path || []
+  const path = (await params)?.path || []
   const method = request.method
   try {
     const userId = await requireUserId()

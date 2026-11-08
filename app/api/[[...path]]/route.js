@@ -29,9 +29,17 @@ import { requireUserId } from '@/lib/auth'
 import { BILLING_CODES, billingErrorBody, isAdminUser, requirePhotoRoom } from '@/lib/billing/account'
 import { forgetBrand, memberOpened, requireBrandAccess, sharedLimitAnswer } from '@/lib/teams'
 import { canvasBrand } from '@/lib/designs/canvasBrand'
+import { AI_LIMIT_MESSAGE, overAiLimit, overLimit } from '@/lib/rateLimit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+// Making a post runs model calls that can take minutes; without this the host's default time limit could cut it off.
+export const maxDuration = 300
+
+/** The routes that ask the AI and take no credits up front (plan-post refunds a plan that fails): counted per account. */
+const AI_ROUTES = ['/generate-content-ideas', '/generate-copywriting', '/plan-post', '/plan-assets', '/extract-business-info', '/brand-posts']
+// Researching a website reads many pages and makes several model calls.
+const RESEARCH_PER_HOUR = 10
 
 export async function OPTIONS() {
   return corsify(new NextResponse(null, { status: 200 }))
@@ -49,7 +57,7 @@ async function publicErrors(request, path, response) {
   let body
   try { body = await response.clone().json() } catch { return response }
   if (!body || typeof body !== 'object' || typeof body.error !== 'string') return response
-  if (BILLING_CODES.includes(body.code)) return response
+  if (BILLING_CODES.includes(body.code) || body.code === 'rate_limited') return response
   const { raw: _raw, ...rest } = body
   const error = publicMessage(body.error, response.status)
   if (error === body.error && !('raw' in body)) return response
@@ -64,7 +72,7 @@ async function publicErrors(request, path, response) {
 async function handleRoute(request, context) {
   const acting = {}
   const response = await sharedLimitAnswer(acting.db, await routeRequest(request, context, acting), acting.ownerId)
-  return publicErrors(request, context.params?.path || [], response)
+  return publicErrors(request, (await context.params)?.path || [], response)
 }
 
 /**
@@ -148,7 +156,7 @@ async function requireAsset(db, userId, id, need) {
 }
 
 async function routeRequest(request, { params }, acting = {}) {
-  const { path = [] } = params
+  const { path = [] } = (await params) || {}
   const route = `/${path.join('/')}`
   const method = request.method
 
@@ -164,6 +172,10 @@ async function routeRequest(request, { params }, acting = {}) {
       const named = await namedBrands(request)
       owner = (await requireBrandAccess(db, userId, named.ids, neededRole(route, method, named.body))) || userId
       if (owner !== userId) Object.assign(acting, { db, ownerId: owner })
+      if (method === 'POST' && AI_ROUTES.includes(route)) {
+        const research = route === '/extract-business-info' && await overLimit(db, `research:${userId}`, RESEARCH_PER_HOUR, 60 * 60 * 1000)
+        if (research || await overAiLimit(db, userId)) return corsify(NextResponse.json({ error: AI_LIMIT_MESSAGE, code: 'rate_limited' }, { status: 429 }))
+      }
     }
 
     if (route === '/account/onboarding' && method === 'POST') {

@@ -150,6 +150,10 @@ export default function SignUpForm({ redirectUrl = '', resume = '' }) {
         {formError}
         <SubmitButton busy={busy === 'form'} busyLabel="Creating account…" disabled={!isLoaded}>Create account</SubmitButton>
       </form>
+      <p className="mt-5 text-[13px] leading-relaxed text-bk-muted">
+        By creating an account, with Google or email, you agree to the <Link href="/terms" target="_blank" className={authLinkClass}>Terms</Link> and
+        {' '}the <Link href="/privacy" target="_blank" className={authLinkClass}>Privacy policy</Link>.
+      </p>
       <AuthFooter>Already have an account? <Link href={signInHref} className={authLinkClass}>Sign in</Link></AuthFooter>
     </div>
   )

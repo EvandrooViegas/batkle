@@ -164,8 +164,9 @@ const FOOTER_LINKS = [
     links: [
       // NEXT_PUBLIC_CONTACT_EMAIL, once it is set.
       ['Contact', contactHref() || '#'],
-      ['Privacy', '#'],
-      ['Terms', '#'],
+      ['Terms', '/terms'],
+      ['Privacy', '/privacy'],
+      ['Refunds', '/refunds'],
     ],
   },
 ]

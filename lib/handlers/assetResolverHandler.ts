@@ -554,6 +554,10 @@ export async function handleResolveAssets(db: any, body: any, userId?: string) {
       try{await saveGeneratedAsset(db,brand_id||null,{...request,treatment:'isolated_subject'},slot.resolvedAsset)}
       catch(error){slot.warning=[slot.warning,'Generated image could not be saved to the brand gallery'].filter(Boolean).join('; ');console.warn('[resolver] Gallery save failed:',(error as Error).message)}
     }
+    // The AI images this charge paid to make (gallery cutouts used again cost nothing): a post dropped after them
+    // gets its credits back only a few times a day (giveBackCharge).
+    const aiImages = prepared.slots.filter((s: any) => s.source === 'ai_generated' && s.resolvedAsset && !s.resolvedAsset.reused).length
+    if (charge && aiImages) await db.collection('creditCharges').updateOne({ id: charge.id, ownerId: userId }, { $set: { aiImages } })
     return corsify(NextResponse.json(prepared))
   } catch (error: any) {
     console.error('[resolver] error:', error)

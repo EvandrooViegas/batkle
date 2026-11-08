@@ -13,7 +13,7 @@ import { chooseBrandFamily, renderGlobalPost } from '@/lib/designs/global/genera
 import { hydrateBrandFamilies } from '@/lib/designs/global/store'
 import { familyGrammar, familyImagery } from '@/lib/designs/global/study'
 import { toStoryCanvas } from '@/lib/designs/global/story'
-import { chargeCredits, findCharge, grantExtraCredits, refundCharge, requireAdVariations, requireFeature, settleCharge } from '@/lib/billing/account'
+import { chargeCredits, findCharge, giveBackCharge, grantExtraCredits, requireAdVariations, requireFeature, settleCharge } from '@/lib/billing/account'
 import { requireOwnBrands } from '@/lib/auth'
 import { sanitizeDesignPlan } from './postPlanHandler'
 import { planAssets } from './assetPlannerHandler'
@@ -855,7 +855,7 @@ export async function handleBuildAd(db: any, userId: string, body: any) {
     if (returned) await grantExtraCredits(db, userId, returned, { ref: `ad-sizes-${adId}`, note: 'Ad sizes that could not be made' })
     return NextResponse.json({ ad: { ...record, canvases: made } })
   } catch (error) {
-    await refundCharge(db, userId, charge.id).catch(() => {})
+    await giveBackCharge(db, userId, charge.id).catch(() => {})
     throw error
   }
 }

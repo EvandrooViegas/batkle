@@ -91,3 +91,44 @@ test('a failed post gives its credits back at once when the browser asks, and a 
   assert.equal(await billing.releaseCharge(db, 'someone_else', 'post_made'), null, 'only the account’s own charges')
   assert.equal(await billing.releaseCharge(db, USER, 42), null)
 })
+
+test('a post dropped after its AI images were made gets its credits back three times a day, then the images count as paid for', async () => {
+  const { db, billing, clock } = setup({ start: '2026-10-15T09:00:00Z' })
+  assert.equal(billing.IMAGE_REFUNDS_PER_DAY, 3)
+  const dropped = async ref => {
+    const { id } = await billing.chargeCredits(db, USER, 2, { ref })
+    charge(db, id).imagesAt = new clock.Date()
+    charge(db, id).aiImages = 2
+    return id
+  }
+  for (const ref of ['post_1', 'post_2', 'post_3']) {
+    await dropped(ref)
+    assert.equal(await billing.releaseCharge(db, USER, ref), 'refunded')
+    clock.advance(MINUTE)
+  }
+  assert.equal(account(db).creditsUsed, 0)
+  const fourth = await dropped('post_4')
+  assert.equal(await billing.releaseCharge(db, USER, 'post_4'), 'settled', 'the fourth in a day keeps its credits')
+  assert.equal(charge(db, fourth).status, 'settled')
+  assert.equal(account(db).creditsUsed, 2)
+  // The scheduled job follows the same rule for a tab closed after the images.
+  const fifth = await dropped('post_5')
+  clock.advance(31 * MINUTE)
+  assert.deepEqual(await billing.releaseStaleCharges(db, { now: new clock.Date() }), { refunded: 0 })
+  assert.equal(charge(db, fifth).status, 'settled')
+  // A day later, refunds are back.
+  clock.advance(24 * 60 * MINUTE)
+  await dropped('post_6')
+  assert.equal(await billing.releaseCharge(db, USER, 'post_6'), 'refunded')
+})
+
+test('posts that made no AI images (stock photos, gallery cutouts, typography) always get their credits back', async () => {
+  const { db, billing } = setup({ start: '2026-10-15T09:00:00Z' })
+  for (const ref of ['post_a', 'post_b', 'post_c', 'post_d', 'post_e']) {
+    const { id } = await billing.chargeCredits(db, USER, 1, { ref })
+    charge(db, id).imagesAt = new Date()
+    assert.equal(await billing.releaseCharge(db, USER, ref), 'refunded')
+  }
+  assert.equal(account(db).creditsUsed, 0)
+  assert.equal(await billing.giveBackCharge(db, USER, 'chg_missing'), null)
+})

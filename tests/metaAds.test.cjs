@@ -17,7 +17,7 @@ function adHandlers(overrides = {}) {
     loadGenerationBrandContext: async () => null, EXTRACTED_CONTEXT_RULES: '', persistInlineImages: async (_db, c) => c, ensureBrandLogoVariants: async () => null,
     chooseBrandFamily: async () => null, renderGlobalPost: generation.renderGlobalPost, hydrateBrandFamilies: async () => [],
     familyGrammar: study.familyGrammar, familyImagery: study.familyImagery,
-    chargeCredits: async () => ({}), findCharge: async () => null, grantExtraCredits: async () => true, refundCharge: async () => true, requireFeature: async () => {}, requireAdVariations: async () => {}, settleCharge: async () => true,
+    chargeCredits: async () => ({}), findCharge: async () => null, grantExtraCredits: async () => true, refundCharge: async () => true, giveBackCharge: async () => 'refunded', requireFeature: async () => {}, requireAdVariations: async () => {}, settleCharge: async () => true,
     requireOwnBrands: async () => {}, sanitizeDesignPlan: (_f, copy) => copy, planAssets: async () => ({ slots: [] }),
     ...language, ...meta, toStoryCanvas: story.toStoryCanvas, ...overrides,
   }
@@ -397,7 +397,7 @@ test('building keeps the credits for the sizes made and gives one back for each 
     hydrateBrandFamilies: async () => [{ design: { id: `global-${family.id}` }, family }],
     // The landscape size cannot fit the words, even with the badge, the line and the call to action left out.
     renderGlobalPost: (sized, ...rest) => { attempt++; if (sized.height === 628) throw Object.assign(Error('overflow'), { status: 422 }); return generation.renderGlobalPost(sized, ...rest) },
-    settleCharge: async () => { calls.settle++ }, refundCharge: async () => { calls.refund++ },
+    settleCharge: async () => { calls.settle++ }, refundCharge: async () => { calls.refund++ }, giveBackCharge: async () => { calls.refund++; return 'refunded' },
     grantExtraCredits: async (_db, _user, credits, { ref }) => { calls.grants.push([credits, ref]) },
   })
   const db = { collection: () => ({ insertOne: async doc => { inserted.push(doc) } }) }

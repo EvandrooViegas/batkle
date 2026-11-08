@@ -18,7 +18,7 @@ export async function GET(request, { params }) {
     const userId = await requireUserId()
     const db = await connectToMongo()
     await requireAdmin(db, userId)
-    const path = params?.path || []
+    const path = (await params)?.path || []
     if (path[0] === 'metrics' && path.length === 1) {
       const asked = Number(new URL(request.url).searchParams.get('days'))
       return NextResponse.json(await loadMetrics(db, { days: PERIODS.includes(asked) ? asked : 30 }), { headers: { 'Cache-Control': 'no-store' } })

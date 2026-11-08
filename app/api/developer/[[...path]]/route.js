@@ -4,7 +4,7 @@ import { handleDeveloperRequest } from '@/lib/developer/dashboard'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const handle = (request, context) => handleDeveloperRequest(request, context.params?.path || [])
+const handle = async (request, context) => handleDeveloperRequest(request, (await context.params)?.path || [])
 
 export const GET = handle
 export const POST = handle

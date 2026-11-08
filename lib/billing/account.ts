@@ -315,6 +315,30 @@ export async function settleCharge(db: any, userId: string, chargeId: string): P
   return Boolean(result.matchedCount)
 }
 
+/**
+ * How many posts or ads a day an account gets its credits back for after their AI images were made. A post that fails
+ * still costs nothing; past this, starting posts and dropping them after the images step would be a way to get AI
+ * images for nothing, so the images count as paid for.
+ */
+export const IMAGE_REFUNDS_PER_DAY = 3
+
+/**
+ * Gives back the credits of a post or ad that was not made. When its AI images were made already (`aiImages`, set by
+ * /resolve-assets) and the account had IMAGE_REFUNDS_PER_DAY such refunds in the last day, the charge is settled
+ * instead. Answers 'refunded', 'settled', or null when the charge is not held (already settled or given back).
+ */
+export async function giveBackCharge(db: any, userId: string, chargeId: string, now = new Date()): Promise<'refunded' | 'settled' | null> {
+  const charges = db.collection('creditCharges')
+  const charge = await charges.findOne({ id: chargeId, ownerId: userId }, { projection: { _id: 0, status: 1, aiImages: 1 } })
+  if (!charge || charge.status !== 'held') return null
+  if ((charge.aiImages || 0) > 0) {
+    const since = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    const recent = await charges.countDocuments({ ownerId: userId, status: 'refunded', aiImages: { $gt: 0 }, refundedAt: { $gte: since } })
+    if (recent >= IMAGE_REFUNDS_PER_DAY) return (await settleCharge(db, userId, chargeId)) ? 'settled' : null
+  }
+  return (await refundCharge(db, userId, chargeId)) ? 'refunded' : null
+}
+
 /** The latest charge for `ref` (a post's ID) that was not refunded, or null. */
 export async function findCharge(db: any, userId: string, ref: string): Promise<CreditCharge | null> {
   if (!ref) return null
@@ -331,27 +355,29 @@ export const STALE_CHARGE_MS = 30 * 60 * 1000
 /**
  * Gives back the credits of posts and ads that were never finished: a step failed without answering (a time-out or a
  * crash), the connection dropped, or the tab was closed mid-way. Nothing is charged for a post that was not made, even
- * when its images were. Run by the scheduled job for every account, and by loadBilling for one (`ownerId`).
+ * when its images were, up to IMAGE_REFUNDS_PER_DAY a day (giveBackCharge). Run by the scheduled job for every account,
+ * and by loadBilling for one (`ownerId`).
  */
 export async function releaseStaleCharges(db: any, { now = new Date(), olderThanMs = STALE_CHARGE_MS, limit = 200, ownerId }: { now?: Date; olderThanMs?: number; limit?: number; ownerId?: string } = {}): Promise<{ refunded: number }> {
   const filter = { ...(ownerId ? { ownerId } : {}), status: 'held', createdAt: { $lt: new Date(now.getTime() - olderThanMs) } }
   const stale = await db.collection('creditCharges').find(filter, { projection: { _id: 0, id: 1, ownerId: 1 } }).limit(limit).toArray()
   let refunded = 0
-  for (const charge of stale) if (await refundCharge(db, charge.ownerId, charge.id)) refunded++
+  for (const charge of stale) if ((await giveBackCharge(db, charge.ownerId, charge.id, now)) === 'refunded') refunded++
   return { refunded }
 }
 
 /**
  * A post or ad whose making failed gives its credits back at once (POST /api/billing/release, sent by the browser when
  * a step failed or never answered). A post that was made keeps its charge. Returns what became of the charge:
- * 'refunded' (now, or already by the step that failed), 'settled' (the post was made), or null when there is none.
+ * 'refunded' (now, or already by the step that failed), 'settled' (the post was made, or its AI images count as paid
+ * for: see giveBackCharge), or null when there is none.
  */
 export async function releaseCharge(db: any, userId: string, ref: unknown): Promise<'refunded' | 'settled' | null> {
   if (typeof ref !== 'string' || !ref) return null
   const charges = db.collection('creditCharges')
   const [charge] = await charges.find({ ownerId: userId, ref }, { projection: { _id: 0, id: 1, status: 1 } }).sort({ createdAt: -1 }).limit(1).toArray()
   if (!charge) return null
-  if (charge.status === 'held') await refundCharge(db, userId, charge.id)
+  if (charge.status === 'held') await giveBackCharge(db, userId, charge.id)
   const now = await charges.findOne({ id: charge.id, ownerId: userId }, { projection: { _id: 0, status: 1 } })
   return now?.status === 'settled' ? 'settled' : 'refunded'
 }

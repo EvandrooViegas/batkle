@@ -50,7 +50,7 @@ export const imageryStrategySchema = z.object({
 const oneOf = <T extends readonly [string, ...string[]]>(values: T, fallback: T[number]) => z.enum(values).catch(fallback)
 const someOf = <T extends readonly [string, ...string[]]>(values: T, fallback: T[number][]) => z.preprocess(
   v => Array.isArray(v) ? [...new Set(v.filter(x => (values as readonly unknown[]).includes(x)))] : v,
-  z.array(z.enum(values)).min(1)).catch(fallback)
+  z.array(z.enum(values)).min(1).max(values.length)).catch(fallback)
 /** Composition moves a study allows. The planner combines them with the grammar; they are not templates. */
 export const COMPOSITIONS = ['statement', 'stacked', 'split', 'image-led', 'backdrop-type', 'list', 'closing'] as const
 export const DECORATION_KINDS = ['oversizedType', 'ring', 'circle', 'arc', 'line', 'dotGrid', 'pill', 'cornerBlock', 'frame', 'glow', 'stripes'] as const
@@ -117,7 +117,7 @@ export const grammarSchema = z.object({
   containers: z.object({
     style: oneOf(['none', 'card', 'outline', 'glass'] as const, 'none'), radius: oneOf(['small', 'medium', 'large', 'pill'] as const, 'medium'),
     fill: oneOf(COLOR_ROLES, 'tint'),
-    use: z.preprocess(v => Array.isArray(v) ? [...new Set(v.filter(x => ['list', 'callout', 'label', 'handle'].includes(x)))] : [], z.array(z.enum(['list', 'callout', 'label', 'handle']))).catch([]),
+    use: z.preprocess(v => Array.isArray(v) ? [...new Set(v.filter(x => ['list', 'callout', 'label', 'handle'].includes(x)))] : [], z.array(z.enum(['list', 'callout', 'label', 'handle'])).max(4)).catch([]),
   }).catch({ style: 'none', radius: 'medium', fill: 'tint', use: [] }),
   list: z.object({
     marker: oneOf(['number', 'check', 'arrow', 'dot'] as const, 'number'), shape: oneOf(['circle', 'square', 'none'] as const, 'circle'),

@@ -10,7 +10,7 @@ const deps = {
   NextResponse: { json: body => ({ body }) }, randomUUID: () => 'id', Groq: class {}, availableGroqCompletion: async () => { throw Error('no model in tests') }, compactBrand: b => b,
   loadGenerationBrandContext: async () => null, EXTRACTED_CONTEXT_RULES: '', persistInlineImages: async (_db, c) => c, ensureBrandLogoVariants: async () => null,
   chooseBrandFamily: async () => null, renderGlobalPost: () => null, hydrateBrandFamilies: async () => [], familyGrammar: () => ({}), familyImagery: () => ({}), toStoryCanvas: c => c,
-  chargeCredits: async () => ({}), findCharge: async () => null, grantExtraCredits: async () => true, refundCharge: async () => true, requireFeature: async () => {}, settleCharge: async () => true,
+  chargeCredits: async () => ({}), findCharge: async () => null, grantExtraCredits: async () => true, refundCharge: async () => true, giveBackCharge: async () => 'refunded', requireFeature: async () => {}, settleCharge: async () => true,
   requireOwnBrands: async () => {}, sanitizeDesignPlan: (_f, c) => c, planAssets: async () => ({ slots: [] }), ...language, ...meta,
 }
 const { writeAdIdea, ideaContext } = new Function(...Object.keys(deps), load('lib/handlers/adHandlers.ts') + ';return { writeAdIdea, ideaContext }')(...Object.values(deps))

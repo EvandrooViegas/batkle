@@ -9,6 +9,8 @@ const VISITOR_ID = /^[a-zA-Z0-9-]{8,64}$/
 // The endpoint is public: a visitor is counted once per half hour, and a flood stops being stored.
 const DEDUPE_MS = 30 * 60 * 1000
 const MAX_PER_MINUTE = 600
+// Visits are kept for 13 months (the privacy policy says so), then MongoDB removes them.
+export const VISIT_RETENTION_DAYS = 395
 
 const clean = (value: unknown, max = 120) => (typeof value === 'string' ? value.replace(/[\u0000-\u001f]/g, '').trim().slice(0, max) : '')
 
@@ -17,6 +19,7 @@ function ensureIndexes(db: any) {
   indexed ||= Promise.all([
     db.collection('visits').createIndex({ at: -1 }),
     db.collection('visits').createIndex({ visitorId: 1, at: -1 }),
+    db.collection('visits').createIndex({ at: 1 }, { expireAfterSeconds: VISIT_RETENTION_DAYS * 86400 }),
   ]).catch(() => { indexed = null })
   return indexed
 }

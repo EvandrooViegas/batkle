@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server'
 
 /**
- * Add CORS headers to response
+ * The app's API answers Batkle's own pages only, so it sends no CORS headers: another site's scripts cannot read its
+ * answers. (The developer API, /api/v1, is meant for other sites and sets its own: lib/developer/api.ts.) Kept so the
+ * handlers that wrap their answers in it need no change.
  */
 export function corsify(response: NextResponse): NextResponse {
-  response.headers.set('Access-Control-Allow-Origin', '*')
-  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
-  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   return response
 }
 

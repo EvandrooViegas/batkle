@@ -5,25 +5,23 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  experimental: {
-    serverComponentsExternalPackages: [
-      'mongodb',
-      '@resvg/resvg-js',
-      'satori',
-      'sharp',
-      'uuid',
-      'dotenv',
-      'axios',
-      'cheerio',
-      'groq-sdk',
-      '@huggingface/transformers',
-    ],
-    // On Linux x64, onnxruntime-node's install script downloads its CUDA and TensorRT provider libraries (several
-    // hundred MB), which the trace would ship in the API function and push it past Vercel's 250 MB limit. Vercel
-    // has no GPU and the image cut-out runs on the CPU, so those libraries are never loaded.
-    outputFileTracingExcludes: {
-      '*': ['node_modules/onnxruntime-node/bin/*/linux/x64/libonnxruntime_providers_{cuda,tensorrt}.so'],
-    },
+  serverExternalPackages: [
+    'mongodb',
+    '@resvg/resvg-js',
+    'satori',
+    'sharp',
+    'uuid',
+    'dotenv',
+    'axios',
+    'cheerio',
+    'groq-sdk',
+    '@huggingface/transformers',
+  ],
+  // On Linux x64, onnxruntime-node's install script downloads its CUDA and TensorRT provider libraries (several
+  // hundred MB), which the trace would ship in the API function and push it past Vercel's 250 MB limit. Vercel
+  // has no GPU and the image cut-out runs on the CPU, so those libraries are never loaded.
+  outputFileTracingExcludes: {
+    '*': ['node_modules/onnxruntime-node/bin/*/linux/x64/libonnxruntime_providers_{cuda,tensorrt}.so'],
   },
   webpack(config, { dev, isServer }) {
     if (dev) {
@@ -64,16 +62,18 @@ const nextConfig = {
     maxInactiveAge: 5 * 60 * 1000,
     pagesBufferLength: 20,
   },
+  // No other site may show Batkle in a frame (a hidden frame over the billing or settings pages could trick people
+  // into clicks). The app's API answers Batkle's own pages only; the developer API (/api/v1) sets its own CORS headers.
   async headers() {
     return [
       {
         source: "/(.*)",
         headers: [
-          { key: "X-Frame-Options", value: "ALLOWALL" },
-          { key: "Content-Security-Policy", value: "frame-ancestors *;" },
-          { key: "Access-Control-Allow-Origin", value: process.env.CORS_ORIGINS || "*" },
-          { key: "Access-Control-Allow-Methods", value: "GET, POST, PUT, DELETE, OPTIONS" },
-          { key: "Access-Control-Allow-Headers", value: "*" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
         ],
       },
     ];

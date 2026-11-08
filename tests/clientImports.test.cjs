@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 
-const external = require('../next.config.js')('phase-production-build').experimental.serverComponentsExternalPackages
+const external = require('../next.config.js')('phase-production-build').serverExternalPackages
 const files = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
   const file = path.join(dir, entry.name)
   return entry.isDirectory() ? (entry.name === 'node_modules' || entry.name.startsWith('.') ? [] : files(file)) : /\.(jsx?|tsx?)$/.test(entry.name) ? [file] : []

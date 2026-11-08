@@ -35,7 +35,7 @@ export default async function AppBrandLayout({ children, params }) {
   // Most recently used first; the open brand is the one in use right now, so it leads.
   const ordered = [...flows.filter(f => f.id === flow.id), ...flows.filter(f => f.id !== flow.id)]
   // The saved sidebar state, so a collapsed sidebar does not flash open on reload.
-  const collapsed = cookies().get(SIDEBAR_COOKIE)?.value === 'collapsed'
+  const collapsed = (await cookies()).get(SIDEBAR_COOKIE)?.value === 'collapsed'
 
   return (
     <AppShell flows={ordered} brand={brand} counts={counts} account={{ name: account.name, email: account.email }} initialCollapsed={collapsed}>

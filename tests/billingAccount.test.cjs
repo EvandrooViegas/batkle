@@ -10,7 +10,7 @@ const it = require.main === module ? test : () => {}
 
 const strip = file => stripTypeScriptTypes(fs.readFileSync(file, 'utf8').replace(/^import .*$/gm, '').replace(/^export /gm, ''))
 const PLAN_EXPORTS = ['PLANS', 'TRIAL', 'approxPosts', 'cheapestPlanForAdVariations', 'cheapestPlanForBrands', 'cheapestPlanForPhotos', 'cheapestPlanWith', 'planById']
-const ACCOUNT_EXPORTS = ['BILLING_CODES', 'billingError', 'billingErrorBody', 'addMonths', 'creditPeriod', 'effectivePlanId', 'effectivePlan', 'allowances', 'loadBilling', 'creditsLeft', 'getBillingSummary', 'summarize', 'canStartTrial', 'chargeCredits', 'refundCharge', 'settleCharge', 'findCharge', 'grantExtraCredits', 'takeTextReminder', 'returnTextReminder', 'hasFeature', 'requireFeature', 'requireBrandSlot', 'requirePhotoRoom', 'requireAdVariations', 'imageQualityFor', 'findBillingByCustomer', 'setStripeCustomer', 'applySubscription', 'releaseStaleCharges', 'releaseCharge', 'STALE_CHARGE_MS']
+const ACCOUNT_EXPORTS = ['BILLING_CODES', 'billingError', 'billingErrorBody', 'addMonths', 'creditPeriod', 'effectivePlanId', 'effectivePlan', 'allowances', 'loadBilling', 'creditsLeft', 'getBillingSummary', 'summarize', 'canStartTrial', 'chargeCredits', 'refundCharge', 'settleCharge', 'findCharge', 'grantExtraCredits', 'takeTextReminder', 'returnTextReminder', 'hasFeature', 'requireFeature', 'requireBrandSlot', 'requirePhotoRoom', 'requireAdVariations', 'imageQualityFor', 'findBillingByCustomer', 'setStripeCustomer', 'applySubscription', 'releaseStaleCharges', 'releaseCharge', 'STALE_CHARGE_MS', 'giveBackCharge', 'IMAGE_REFUNDS_PER_DAY']
 const plans = new Function(strip('lib/billing/plans.ts') + `;return {${PLAN_EXPORTS.join(',')}}`)()
 
 /** A clock the billing code reads through its own `Date`: `new Date()` and `Date.now()` give `clock.now`. */
@@ -53,6 +53,7 @@ function fakeMongo({ interleave = false, seed = {} } = {}) {
     if (isOperator(condition)) {
       return Object.entries(condition).every(([op, value]) => {
         if (op === '$gte') return actual != null && actual >= value
+        if (op === '$gt') return actual != null && actual > value
         if (op === '$lt') return actual != null && actual < value
         if (op === '$in') return value.some(v => same(actual, v))
         if (op === '$exists') return (actual !== undefined) === value

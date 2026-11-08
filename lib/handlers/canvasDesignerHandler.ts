@@ -28,7 +28,7 @@ import Groq from 'groq-sdk'
 import { containPreparedLogo, sampleLogoBackdrop } from '@/lib/services/logoBackground'
 import { prepareSubjectAssets, hydrateSubjectCrops } from '@/lib/services/subjectAssets'
 import { corsify } from '@/lib/services/middleware'
-import { findCharge, refundCharge, settleCharge } from '@/lib/billing/account'
+import { findCharge, giveBackCharge, settleCharge } from '@/lib/billing/account'
 import type { ResolvedAssetPlan, ResolvedSlot } from './assetResolverHandler'
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
@@ -2444,7 +2444,8 @@ async function softenCanvasLogos(canvas: any, logoUrl: string | null, variants?:
 
 /**
  * BUILD. A new post saved for `ownerId` (every request from the app) is built only on the credits its plan took
- * (`body.chargeRef`, see handlePlanPost): the charge is settled when the post is made and given back when it fails.
+ * (`body.chargeRef`, see handlePlanPost): the charge is settled when the post is made and given back when it fails
+ * (giveBackCharge: a few times a day once its AI images were made).
  * Previews and design switches (persist=false) make no new images and are never charged.
  */
 export async function handleDesignCanvas(db: any, body: any, persist = true, ownerId?: string) {
@@ -2457,7 +2458,7 @@ export async function handleDesignCanvas(db: any, body: any, persist = true, own
   const response = await designCanvas(db, body, persist, ownerId)
   try {
     if (response.status < 400) await settleCharge(db, ownerId, charge.id)
-    else await refundCharge(db, ownerId, charge.id)
+    else await giveBackCharge(db, ownerId, charge.id)
   } catch (error) { console.warn('[canvas-designer] could not settle the post’s credits:', (error as Error).message) }
   return response
 }

@@ -5,6 +5,7 @@ import { publicMessage } from '@/lib/services/publicError'
 import { billingErrorBody } from '@/lib/billing/account'
 import { handleAdIdea, handleBuildAd, handleDeleteAd, handleListAds, handlePlanAd, handleUpdateAdCopy } from '@/lib/handlers/adHandlers'
 import { requireBrandAccess, sharedLimitAnswer } from '@/lib/teams'
+import { AI_LIMIT_MESSAGE, overAiLimit } from '@/lib/rateLimit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -24,7 +25,7 @@ export const maxDuration = 120
  * Between plan and build the image comes from POST /api/resolve-assets { plan, brand_id, chargeRef }, as for posts.
  */
 async function handle(request, { params }) {
-  const path = params?.path || []
+  const path = (await params)?.path || []
   const method = request.method
   // In a brand shared with the account, ads are the brand owner's and made on the owner's plan and credits; a plan
   // limit met there says whose plan it is (sharedLimitAnswer).
@@ -48,6 +49,10 @@ async function route(request, path, method, acting) {
     if (!path.length && method === 'GET') {
       const flowId = new URL(request.url).searchParams.get('flowId')
       return await handleListAds(db, await brandOwner(flowId, 'viewer'), flowId)
+    }
+    // Ideas and plans ask the AI: counted per account like the post routes (lib/rateLimit.ts).
+    if ((path[0] === 'idea' || path[0] === 'plan') && method === 'POST' && await overAiLimit(db, userId)) {
+      return NextResponse.json({ error: AI_LIMIT_MESSAGE, code: 'rate_limited' }, { status: 429 })
     }
     if (path[0] === 'idea' && method === 'POST') {
       const body = await request.json()

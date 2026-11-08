@@ -29,7 +29,7 @@ async function entryOwner(db, userId, id, acting) {
 async function handle(request, { params }) {
   // A plan limit met in a brand shared with the account (scheduling a time) says whose plan it is.
   const acting = {}
-  return sharedLimitAnswer(acting.db, await route(request, params?.path || [], request.method, acting), acting.ownerId)
+  return sharedLimitAnswer(acting.db, await route(request, (await params)?.path || [], request.method, acting), acting.ownerId)
 }
 
 async function route(request, path, method, acting) {

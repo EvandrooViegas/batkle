@@ -15,7 +15,7 @@ async function handle(request, { params }) {
     const userId = await requireUserId()
     const origin = request.headers.get('origin')
     if (request.method !== 'GET' && origin && origin !== new URL(request.url).origin) return NextResponse.json({ error: 'Invalid request origin.' }, { status: 403 })
-    return await handleTeamRequest(await connectToMongo(), request, userId, params?.path || [], getBaseUrl(request))
+    return await handleTeamRequest(await connectToMongo(), request, userId, (await params)?.path || [], getBaseUrl(request))
   } catch (error) {
     // Plan limits keep their code, so the page can offer the upgrade.
     const billing = billingErrorBody(error)

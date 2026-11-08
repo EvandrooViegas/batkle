@@ -5,15 +5,15 @@ What has to be done before Batkle goes live on Vercel with real accounts and rea
 ## 1. Do these first (security)
 
 - [ ] **Change the MongoDB password.** Atlas → Database Access → edit the database user → a new long random password. This repository is public and old commits contain the connection string with the current password, so treat it as known. Then update `MONGO_URL` in `.env.local`.
-- [ ] **Revoke the old Groq key.** In the Groq console, delete the key that starts with `gsk_MWq7` (it is in an old `test_result.md`). The key in `.env.local` is a different one.
-- [ ] **Stop other sites from framing the app.** `next.config.js` sends `Content-Security-Policy: frame-ancestors *` and `X-Frame-Options: ALLOWALL` on every page, so any website can load the signed-in pages (billing, settings) in a hidden frame and trick people into clicks. Change it to `frame-ancestors 'self'` and remove the `X-Frame-Options` line.
+- [x] ~~Revoke the old Groq key~~ (`gsk_MWq7…` answers 401 since November).
+- [x] ~~Stop other sites from framing the app~~ (`frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, no wildcard CORS; 8 November).
 - [ ] Don't paste `.env.local` into Vercel as it is: it has test keys, development Clerk keys and `localhost`.
 
 ## 2. Accounts and decisions
 
 - [ ] **A domain.** Clerk's production instance doesn't run on `*.vercel.app`; it needs a domain you own. Add it in Vercel → Settings → Domains and point its DNS at Vercel.
 - [ ] **Vercel Pro.** The Hobby plan is for non-commercial use only, and its cron jobs run at most once a day; reminders need a run every few minutes (step 8).
-- [ ] **Terms, privacy and refund pages.** The site has none, and Stripe's account review, Google's OAuth consent screen and Twilio's US texting registration all ask for links to them. Cover what each plan includes, the 7-day trial and how to cancel, refunds, what you store (brand details, images, email, phone number) and who processes it (Clerk, Stripe, MongoDB Atlas, Cloudflare R2, Resend, Twilio, Groq, OpenAI, fal). Link them in the footer and on sign-up.
+- [ ] **Terms, privacy and refund pages** are at `/terms`, `/privacy` and `/refunds` (linked in the footer and on sign-up). Before launch: put your postal address and NIF in `SELLER` in `lib/legal.ts`, have a lawyer read the three pages, and add their links in Stripe → Settings → Business → Public details (Checkout shows them). Keep them true when the product changes: prices and credits are read from `lib/billing/plans.ts`, the processor and cookie tables are written in `app/privacy/page.js`.
 - [ ] **Tax.** Checkout doesn't collect tax. Selling subscriptions to consumers, in the EU especially, usually means charging VAT. Ask an accountant; Stripe Tax can calculate and collect it (it needs a change in the checkout code).
 - [ ] **One database or two.** Data belongs to accounts by Clerk user ID, and the production Clerk instance gives everyone a new ID, you included:
   - Brands, posts and galleries made before sign-in existed go to `LEGACY_DATA_OWNER_EMAIL` (step 4).
@@ -93,14 +93,13 @@ Vercel → Settings → Environment Variables, for Production. `NEXT_PUBLIC_*` v
 | `PEXELS_API_KEY`, `UNSPLASH_ACCESS_KEY` | at least one | stock photos |
 | `GLOBAL_DESIGN_ADMIN_KEY` | a long random value | Design Library admin sign-in |
 | `DEVELOPER_FREE_CREDITS` | | optional: developer API starter credits (100) |
-| `CORS_ORIGINS` | leave empty | |
 
 Plus Clerk (step 4), Stripe (5), Resend (6), R2 (3) and `CRON_SECRET` (8). Leave the `TWILIO_*` values empty until texts launch (7).
 
 ## 10. Before pushing
 
-- [ ] `node --test "tests/*.test.cjs"`: all pass (761 on 15 October).
-- [ ] `npm run build` succeeds locally (it needs the Clerk keys).
+- [ ] `node --test "tests/*.test.cjs"`: all pass (1030 on 8 November).
+- [ ] `npm run build` succeeds locally (it needs the Clerk keys). Packages are installed with npm from `package-lock.json`, the only lockfile.
 - [ ] Review `git status` (many uncommitted changes, some deleted files), commit, and push to `main`, which Vercel deploys.
 
 ## 11. After the first deploy

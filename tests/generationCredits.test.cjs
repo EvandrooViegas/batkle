@@ -225,7 +225,7 @@ function designer(billing, { render } = {}) {
     ensureBrandLogoVariants: async () => null, canvasBrand: async () => ({}),
     persistInlineImages: async (_db, value) => value, prepareSubjectAssets: async (_db, p) => p, hydrateSubjectCrops: async (_db, p) => p,
     uuidv4: randomUUID, console: quietConsole, process: { env: {} }, NextResponse: response, corsify: r => r,
-    findCharge: billing.findCharge, settleCharge: billing.settleCharge, refundCharge: billing.refundCharge,
+    findCharge: billing.findCharge, settleCharge: billing.settleCharge, refundCharge: billing.refundCharge, giveBackCharge: billing.giveBackCharge,
   }
   const code = stripTypeScriptTypes(read('lib/handlers/canvasDesignerHandler.ts').replace(/^import .*$/gm, '').replace(/export async function/g, 'async function'))
   return { ...vm.runInNewContext(code + '\n({ handleDesignCanvas, handleSwitchDesign })', context), calls }
@@ -361,4 +361,17 @@ test('onboarding may replace the brand it left unfinished without a free slot, a
   assert.equal(research.runs, 1)
   assert.deepEqual(owned(db), [manual.body.id])
   assert.ok(db.table('flows').some(f => f.id === 'theirs'), 'another account’s brand is never touched')
+})
+
+test('the images step records how many AI images the charge paid for, so a dropped post is refunded only a few times a day', async () => {
+  const { db, billing } = world()
+  const { handleResolveAssets } = resolver(billing)
+  const charge = await billing.chargeCredits(db, USER, 2, { ref: 'post_counted' })
+  assert.equal((await handleResolveAssets(db, { plan: plan(2), chargeRef: 'post_counted' }, USER)).status, 200)
+  assert.equal(charges(db).find(c => c.id === charge.id).aiImages, 2)
+
+  const reusing = resolver(billing, { prepare: async (_db, resolvedPlan) => ({ ...resolvedPlan, slots: resolvedPlan.slots.map(s => ({ ...s, resolvedAsset: { ...s.resolvedAsset, reused: true } })) }) })
+  const reused = await billing.chargeCredits(db, USER, 2, { ref: 'post_reused' })
+  assert.equal((await reusing.handleResolveAssets(db, { plan: plan(2), chargeRef: 'post_reused' }, USER)).status, 200)
+  assert.equal(charges(db).find(c => c.id === reused.id).aiImages, undefined, 'gallery cutouts used again cost nothing')
 })

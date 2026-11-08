@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic'
  *   DELETE /api/notifications/phone         forgets the number and turns texts off
  */
 async function handle(request, { params }) {
-  const route = (params?.path || []).join('/')
+  const route = ((await params)?.path || []).join('/')
   const method = request.method
   try {
     const userId = await requireUserId()
